@@ -225,6 +225,9 @@ public:
     ///Make the layout of the application as it is the first time Natron is opened
     void createDefaultLayout1();
 
+    ///Create the Flux motion graphics layout (Project Bin | Viewport | Effects+Properties / Timeline)
+    void setupFluxUi();
+
     ///Make the layout according to the serialization.
     ///@param enableOldProjectCompatibility When true, the default Gui layout will be created
     ///prior to restoring. This is because older projects didn't have as much info to recreate the entire layout.
