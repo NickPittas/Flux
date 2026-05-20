@@ -6,7 +6,7 @@
 |---|---|---|---|---|---|---|
 | P0 | Project Setup | DONE | 2026-05-20 | 2026-05-20 | 6/6 | 100% |
 | P1 | Fork & Build | DONE | 2026-05-20 | 2026-05-20 | 9/12 | 100% |
-| P2 | UI Shell | IN_PROGRESS | 2026-05-20 | — | 1/8 | 12% |
+| P2 | UI Shell | IN_PROGRESS | 2026-05-20 | — | 7/8 | 87% |
 | P3 | Timeline | PENDING | — | — | 0/0 | 0% |
 | P4 | Effects + Properties | PENDING | — | — | 0/0 | 0% |
 | P5 | Import/Export | PENDING | — | — | 0/0 | 0% |
@@ -73,11 +73,25 @@
 
 **Goal**: Replace Natron's node-graph GUI with Flux's layer-based motion graphics UI. Keep the engine, build new panels.
 
-**Estimated Duration**: 2-3 weeks
+**Started**: 2026-05-20
 
 **Dependencies**: P1 complete
 
-**Detailed Plan**: To be created
+**Detailed Plan**: See `plans/phase-2.md`
+
+**Results so far**:
+- Dark theme applied (After Effects-inspired, using Natron's mainstyle.qss with Flux color palette)
+- FluxMainWindow layout: Project Bin | Viewport | Effects+Properties (top), Timeline (bottom)
+- FluxProjectBin: thumbnail grid/list view, drag-and-drop import, creates reader nodes
+- FluxTimeline: custom-painted layer bars, playhead synced to viewer, clip drag/trim/reorder
+- FluxEffectsPanel: effect stack per layer, enabled only when layer selected
+- Layer-to-Node Bridge: auto-creates Merge chain for compositing, connects viewer to output
+- Drag-and-drop from Project Bin to Timeline working
+- Video thumbnails via ffmpeg subprocess
+
+**Remaining**:
+- T025: Flux Menu System
+- T026: Integration Test
 
 **Exit Criteria**:
 - Flux application launches with a main window (replaces Natron GUI)
