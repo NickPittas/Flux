@@ -1,8 +1,8 @@
 # Flux — Master Task List
 
-Last updated: 2026-05-20 (T012 done, P1 nearly complete)
+Last updated: 2026-05-20 (P2 planned, ready to start)
 
-## Active Phase: P1 (Fork & Build)
+## Active Phase: P2 (UI Shell)
 
 ### P0 Tasks
 
@@ -39,7 +39,18 @@ Last updated: 2026-05-20 (T012 done, P1 nearly complete)
 
 ## P2 Tasks (UI Shell)
 
-_To be planned — see `plans/phase-2.md` (next step)._
+| ID | Task | Status | Assigned | Started | Completed | File |
+|---|---|---|---|---|---|---|
+| T019 | Create FluxMainWindow (new layout) | PENDING | — | — | — | Gui/FluxMainWindow.* |
+| T020 | Create FluxTimeline widget | PENDING | — | — | — | Gui/FluxTimeline.* |
+| T021 | Create Layer-to-Node Bridge | PENDING | — | — | — | Engine/FluxLayerBridge.* |
+| T022 | Create Effects Stack Panel | PENDING | — | — | — | Gui/FluxEffectsPanel.* |
+| T023 | Create Dark Theme (After Effects-inspired) | PENDING | — | — | — | Resources/themes/flux-dark.qss |
+| T024 | Create Project Panel | PENDING | — | — | — | Gui/FluxProjectPanel.* |
+| T025 | Create Flux Menu System | PENDING | — | — | — | Gui/Gui.cpp |
+| T026 | Integration Test (end-to-end) | PENDING | — | — | — | — |
+
+**Detailed Plan**: See `plans/phase-2.md`
 
 ---
 
