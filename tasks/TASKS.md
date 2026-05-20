@@ -1,6 +1,6 @@
 # Flux — Master Task List
 
-Last updated: 2026-05-20 (T008 done, P1 in progress)
+Last updated: 2026-05-20 (T009 done, P1 in progress)
 
 ## Active Phase: P1 (Fork & Build)
 
@@ -23,7 +23,7 @@ Last updated: 2026-05-20 (T008 done, P1 in progress)
 |---|---|---|---|---|---|---|
 | T007 | Install Natron build dependencies on Linux | DONE | forge | 2026-05-20 | 2026-05-20 | — |
 | T008 | Build Natron from source (gui-sbk6 branch + Qt6) | DONE | forge | 2026-05-20 | 2026-05-20 | — |
-| T009 | Run Natron GUI, verify it works | PENDING | — | — | — | — |
+| T009 | Run Natron GUI, verify it works | DONE | forge | 2026-05-20 | 2026-05-20 | — |
 | T010 | Build Engine/ as shared library (strip Gui/) | PENDING | — | — | — | — |
 | T011 | Test headless render via Renderer/ process | PENDING | — | — | — | — |
 | T012 | Document key Engine classes for Flux | PENDING | — | — | — | — |
