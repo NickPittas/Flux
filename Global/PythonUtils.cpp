@@ -236,6 +236,45 @@ PyObject* initializePython3(const std::vector<wchar_t*>& commandLineArgsWide)
 
     //Py_NoSiteFlag = 1;
 
+#if PY_VERSION_HEX >= 0x030b0000
+    // Python 3.11+: Use PyConfig API
+    // See https://docs.python.org/3/c-api/init_config.html
+    PyConfig config;
+    PyConfig_InitPythonConfig(&config);
+
+    // Set program name
+    PyStatus status = PyConfig_SetString(&config, &config.program_name, commandLineArgsWide[0]);
+    if (PyStatus_Exception(status)) {
+        PyConfig_Clear(&config);
+        return nullptr;
+    }
+
+    // Set argv
+    status = PyConfig_SetArgv(&config, commandLineArgsWide.size(), const_cast<wchar_t**>(&commandLineArgsWide[0]));
+    if (PyStatus_Exception(status)) {
+        PyConfig_Clear(&config);
+        return nullptr;
+    }
+
+    // Set python home if available
+    const wchar_t* home = Py_GetPythonHome();
+    if (home) {
+        status = PyConfig_SetString(&config, &config.home, home);
+        if (PyStatus_Exception(status)) {
+            PyConfig_Clear(&config);
+            return nullptr;
+        }
+    }
+
+#if defined(NATRON_CONFIG_SNAPSHOT) || defined(DEBUG)
+    printf("Py_InitializeFromConfig()\n");
+#endif
+    status = Py_InitializeFromConfig(&config);
+    PyConfig_Clear(&config);
+    if (PyStatus_Exception(status)) {
+        return nullptr;
+    }
+#else
     /////////////////////////////////////////
     // Py_SetProgramName
     /////////////////////////////////////////
@@ -254,7 +293,6 @@ PyObject* initializePython3(const std::vector<wchar_t*>& commandLineArgsWide)
     printf("Py_Initialize()\n");
 #endif
     Py_Initialize();
-    // pythonHome must be const, so that the c_str() pointer is never invalidated
 
     // Py_SetPath clears sys.prefix and sys.exec_prefix
     // https://github.com/NatronGitHub/Natron/issues/696
@@ -270,6 +308,7 @@ PyObject* initializePython3(const std::vector<wchar_t*>& commandLineArgsWide)
     /////////////////////////////////////////
     //
     PySys_SetArgv( commandLineArgsWide.size(), const_cast<wchar_t**>(&commandLineArgsWide[0]) ); /// relative module import
+#endif
 
     PyObject* mainModule = PyImport_ImportModule("__main__"); //create main module , new ref
 
