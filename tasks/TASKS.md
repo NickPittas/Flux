@@ -1,6 +1,6 @@
 # Flux — Master Task List
 
-Last updated: 2026-05-20 (ARCHITECTURE.md updated, P0 nearly complete)
+Last updated: 2026-05-20 (T006 done, P0 complete)
 
 ## Active Phase: P0 (Project Setup)
 
@@ -13,7 +13,7 @@ Last updated: 2026-05-20 (ARCHITECTURE.md updated, P0 nearly complete)
 | T003 | Create tasks/TASKS.md with task tracking | DONE | forge | 2026-05-20 | 2026-05-20 | — |
 | T004 | Create plans/phase-1.md with detailed P1 plan | DONE | forge | 2026-05-20 | 2026-05-20 | — |
 | T005 | Update ARCHITECTURE.md for Qt+Natron approach | DONE | forge | 2026-05-20 | 2026-05-20 | — |
-| T006 | Fork Natron RB-2.6 into Flux repo | PENDING | forge | — | — | — |
+| T006 | Fork Natron RB-2.6 into Flux repo | DONE | forge | 2026-05-20 | 2026-05-20 | — |
 
 ---
 

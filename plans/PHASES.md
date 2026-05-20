@@ -4,8 +4,8 @@
 
 | Phase | Name | Status | Start | End | Tasks | Progress |
 |---|---|---|---|---|---|---|
-| P0 | Project Setup | IN_PROGRESS | 2026-05-20 | — | 5/6 | 83% |
-| P1 | Fork & Build | PENDING | — | — | 0/0 | 0% |
+| P0 | Project Setup | DONE | 2026-05-20 | 2026-05-20 | 6/6 | 100% |
+| P1 | Fork & Build | IN_PROGRESS | 2026-05-20 | — | 0/12 | 0% |
 | P2 | UI Shell | PENDING | — | — | 0/0 | 0% |
 | P3 | Timeline | PENDING | — | — | 0/0 | 0% |
 | P4 | Effects + Properties | PENDING | — | — | 0/0 | 0% |
@@ -25,7 +25,7 @@
 - [x] tasks/TASKS.md with task tracking
 - [x] plans/phase-1.md with detailed P1 plan
 - [x] ARCHITECTURE.md updated to reflect Qt+Natron fork approach
-- [ ] Git repo initialized with Natron fork
+- [x] Git repo initialized with Natron fork
 
 **Exit Criteria**: All infrastructure files created, ARCHITECTURE.md updated, ready to begin P1.
 
