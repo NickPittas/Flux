@@ -1,6 +1,6 @@
 # Flux — Master Task List
 
-Last updated: 2026-05-20 (P2 planned, ready to start)
+Last updated: 2026-05-20 (T023 done, T019 next)
 
 ## Active Phase: P2 (UI Shell)
 
@@ -45,7 +45,7 @@ Last updated: 2026-05-20 (P2 planned, ready to start)
 | T020 | Create FluxTimeline widget | PENDING | — | — | — | Gui/FluxTimeline.* |
 | T021 | Create Layer-to-Node Bridge | PENDING | — | — | — | Engine/FluxLayerBridge.* |
 | T022 | Create Effects Stack Panel | PENDING | — | — | — | Gui/FluxEffectsPanel.* |
-| T023 | Create Dark Theme (After Effects-inspired) | PENDING | — | — | — | Resources/themes/flux-dark.qss |
+| T023 | Create Dark Theme (After Effects-inspired) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/Resources/Stylesheets/flux-dark.qss |
 | T024 | Create Project Panel | PENDING | — | — | — | Gui/FluxProjectPanel.* |
 | T025 | Create Flux Menu System | PENDING | — | — | — | Gui/Gui.cpp |
 | T026 | Integration Test (end-to-end) | PENDING | — | — | — | — |
