@@ -46,6 +46,8 @@ struct FluxLayer {
     int outPoint;        // frame number
     QColor color;        // layer bar color
 
+    QString readerNodeId; // Natron node ID for the reader (set after node creation)
+
     FluxLayer()
         : type(QString::fromUtf8("footage"))
         , visible(true)
@@ -116,6 +118,9 @@ Q_SIGNALS:
     /** @brief Emitted when a layer is added from a drag-drop from the Project Bin. */
     void layerAddedFromDrop(QString filePath, int row, int inFrame);
 
+    /** @brief Emitted when the compositing graph needs rebuilding (layer added/removed/reordered/trimmed). */
+    void compositingChanged();
+
 public Q_SLOTS:
 
     void onPlayTimeout();
@@ -128,6 +133,7 @@ protected:
     virtual void paintEvent(QPaintEvent* event) OVERRIDE;
     virtual void mousePressEvent(QMouseEvent* event) OVERRIDE;
     virtual void mouseMoveEvent(QMouseEvent* event) OVERRIDE;
+    virtual void mouseReleaseEvent(QMouseEvent* event) OVERRIDE;
     virtual void mouseDoubleClickEvent(QMouseEvent* event) OVERRIDE;
     virtual void wheelEvent(QWheelEvent* event) OVERRIDE;
     virtual void resizeEvent(QResizeEvent* event) OVERRIDE;
@@ -148,6 +154,10 @@ private:
     int yToLayer(int y) const;
     void updateZoom();
 
+    /** @brief Determine what's under the mouse: nothing, bar body, left trim handle, right trim handle */
+    enum HitZone { eHitNone, eHitBarBody, eHitTrimLeft, eHitTrimRight };
+    HitZone hitTest(int x, int y, int* outLayerIndex = nullptr) const;
+
     QList<FluxLayer> _layers;
     int _firstFrame;
     int _lastFrame;
@@ -167,11 +177,25 @@ private:
     QTimer* _playTimer;
     bool _playing;
 
-    // Interaction
-    bool _draggingPlayhead;
-    bool _draggingLayer;
-    int _dragLayerStartY;
-    int _dragLayerIndex;
+    static const int kTrimHandleWidth = 6; // pixels for trim handles at bar edges
+
+    // Interaction modes
+    enum InteractionMode {
+        eModeNone,           // no interaction
+        eModeDragPlayhead,   // dragging the playhead
+        eModeMoveBar,        // dragging a layer bar horizontally
+        eModeTrimLeft,       // trimming the left (in) edge of a bar
+        eModeTrimRight,      // trimming the right (out) edge of a bar
+        eModeReorderLayer    // dragging a layer up/down to reorder
+    };
+
+    InteractionMode _interactionMode;
+    int _interactionLayerIndex; // which layer is being interacted with
+    int _interactionStartX;    // mouse X at interaction start
+    int _interactionStartY;    // mouse Y at interaction start
+    int _interactionOrigInPoint;  // original inPoint at drag start
+    int _interactionOrigOutPoint; // original outPoint at drag start
+    int _reorderTargetRow;     // target row for layer reordering
 
     // Drag and drop state
     bool _isDragOver;

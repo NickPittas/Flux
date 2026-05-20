@@ -33,6 +33,7 @@
 #include <QTimer>
 
 #include <QHBoxLayout>
+#include <QDebug>
 #include <QGraphicsScene>
 #include <QUndoGroup>
 
@@ -575,6 +576,12 @@ Gui::setupFluxUi()
                          NodeCollectionPtr collection = std::dynamic_pointer_cast<NodeCollection>(getApp()->getProject());
                          CreateNodeArgs args(pluginId.toStdString(), collection);
                          getApp()->createNode(args);
+                     });
+
+    // 5. Timeline: compositingChanged → rebuild Merge node chain (placeholder)
+    QObject::connect(timeline, &FluxTimeline::compositingChanged, this,
+                     []() {
+                         qDebug() << "FLUX: compositingChanged signal received — Merge rebuild goes here";
                      });
 
     // Store references to Flux widgets for later access

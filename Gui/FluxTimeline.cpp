@@ -36,10 +36,13 @@ FluxTimeline::FluxTimeline(Gui* gui,
       , _scrollOffsetY(0)
       , _playTimer(new QTimer(this))
       , _playing(false)
-      , _draggingPlayhead(false)
-      , _draggingLayer(false)
-      , _dragLayerStartY(0)
-      , _dragLayerIndex(-1)
+      , _interactionMode(eModeNone)
+      , _interactionLayerIndex(-1)
+      , _interactionStartX(0)
+      , _interactionStartY(0)
+      , _interactionOrigInPoint(0)
+      , _interactionOrigOutPoint(0)
+      , _reorderTargetRow(-1)
       , _isDragOver(false)
       , _dragPreviewPos()
       , _timeline()
@@ -92,6 +95,7 @@ FluxTimeline::addLayer(const QString& name,
     }
 
     _layers.append(layer);
+    Q_EMIT compositingChanged();
     update();
 }
 
@@ -105,6 +109,7 @@ FluxTimeline::removeLayer(int index)
         } else if (_selectedLayer > index) {
             --_selectedLayer;
         }
+        Q_EMIT compositingChanged();
         update();
     }
 }
@@ -120,6 +125,7 @@ FluxTimeline::moveLayer(int from,
             _selectedLayer = to;
         }
         Q_EMIT layersReordered();
+        Q_EMIT compositingChanged();
         update();
     }
 }
@@ -347,6 +353,17 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             painter.setPen(barColor.darker(130));
             painter.drawRect(barRect);
 
+            // Trim handle highlights
+            if (barRect.width() > kTrimHandleWidth * 2) {
+                // Left trim handle zone
+                QRect leftHandle(barRect.left(), barRect.top(), kTrimHandleWidth, barRect.height());
+                painter.fillRect(leftHandle, QColor(255, 255, 255, 30));
+
+                // Right trim handle zone
+                QRect rightHandle(barRect.right() - kTrimHandleWidth, barRect.top(), kTrimHandleWidth, barRect.height());
+                painter.fillRect(rightHandle, QColor(255, 255, 255, 30));
+            }
+
             // Bar text (filename)
             if (barRect.width() > 40) {
                 painter.setPen(Qt::white);
@@ -486,15 +503,68 @@ FluxTimeline::updateZoom()
     }
 }
 
+// ─── Hit Testing ────────────────────────────────────────────────────────────
+
+FluxTimeline::HitZone
+FluxTimeline::hitTest(int x,
+                      int y,
+                      int* outLayerIndex) const
+{
+    if (outLayerIndex) {
+        *outLayerIndex = -1;
+    }
+
+    // Must be in the bar area (right of labels, below ruler)
+    if (x <= kLayerLabelWidth || y <= kTimeRulerHeight) {
+        return eHitNone;
+    }
+
+    int layerIdx = yToLayer(y);
+    if (layerIdx < 0 || layerIdx >= _layers.size()) {
+        return eHitNone;
+    }
+
+    const FluxLayer& layer = _layers[layerIdx];
+    int barX1 = frameToX(layer.inPoint);
+    int barX2 = frameToX(layer.outPoint);
+
+    // Check if within the bar's horizontal extent
+    if (x < barX1 || x > barX2) {
+        return eHitNone;
+    }
+
+    if (outLayerIndex) {
+        *outLayerIndex = layerIdx;
+    }
+
+    // Check trim handles (only if bar is wide enough for both handles)
+    if (barX2 - barX1 > kTrimHandleWidth * 2) {
+        if (x - barX1 < kTrimHandleWidth) {
+            return eHitTrimLeft;
+        }
+        if (barX2 - x < kTrimHandleWidth) {
+            return eHitTrimRight;
+        }
+    }
+
+    return eHitBarBody;
+}
+
+// ─── Mouse Interaction ──────────────────────────────────────────────────────
+
 void
 FluxTimeline::mousePressEvent(QMouseEvent* event)
 {
+    if (event->button() != Qt::LeftButton) {
+        return;
+    }
+
     int x = event->pos().x();
     int y = event->pos().y();
 
-    // Click on time ruler or playhead area → drag playhead
+    // Click on time ruler area → drag playhead
     if (y < kTimeRulerHeight && x > kLayerLabelWidth) {
-        _draggingPlayhead = true;
+        _interactionMode = eModeDragPlayhead;
         _currentFrame = xToFrame(x);
         // T019-C: Sync with shared timeline
         if (_timeline) {
@@ -516,19 +586,44 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
         return;
     }
 
-    // Click on layer bar area → select layer + move playhead
+    // Click on layer bar area → hit-test to determine what was clicked
     if (x > kLayerLabelWidth && y > kTimeRulerHeight) {
-        int layerIdx = yToLayer(y);
-        if (layerIdx >= 0) {
-            _selectedLayer = layerIdx;
-            Q_EMIT layerSelected(layerIdx);
+        int layerIdx = -1;
+        HitZone zone = hitTest(x, y, &layerIdx);
+
+        if (zone == eHitNone) {
+            // Clicked empty space in bar area — move playhead only
+            _interactionMode = eModeDragPlayhead;
+            _currentFrame = xToFrame(x);
+            if (_timeline) {
+                _timeline->seekFrame(SequenceTime(_currentFrame), false, nullptr, eTimelineChangeReasonUserSeek);
+            }
+            Q_EMIT frameChanged(_currentFrame);
+            update();
+            return;
         }
-        _currentFrame = xToFrame(x);
-        // T019-C: Sync with shared timeline
-        if (_timeline) {
-            _timeline->seekFrame(SequenceTime(_currentFrame), false, nullptr, eTimelineChangeReasonUserSeek);
+
+        // Select the layer
+        _selectedLayer = layerIdx;
+        Q_EMIT layerSelected(layerIdx);
+
+        // Store interaction start state
+        _interactionLayerIndex = layerIdx;
+        _interactionStartX = x;
+        _interactionStartY = y;
+        _interactionOrigInPoint = _layers[layerIdx].inPoint;
+        _interactionOrigOutPoint = _layers[layerIdx].outPoint;
+        _reorderTargetRow = layerIdx;
+
+        if (zone == eHitTrimLeft) {
+            _interactionMode = eModeTrimLeft;
+        } else if (zone == eHitTrimRight) {
+            _interactionMode = eModeTrimRight;
+        } else {
+            // Bar body: start as move, may transition to reorder on vertical drag
+            _interactionMode = eModeMoveBar;
         }
-        Q_EMIT frameChanged(_currentFrame);
+
         update();
     }
 }
@@ -536,8 +631,12 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
 void
 FluxTimeline::mouseMoveEvent(QMouseEvent* event)
 {
-    if (_draggingPlayhead) {
-        int x = event->pos().x();
+    int x = event->pos().x();
+    int y = event->pos().y();
+
+    switch (_interactionMode) {
+
+    case eModeDragPlayhead: {
         _currentFrame = qBound(_firstFrame, xToFrame(x), _lastFrame);
         // T019-C: Sync with shared timeline
         if (_timeline) {
@@ -545,7 +644,127 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
         }
         Q_EMIT frameChanged(_currentFrame);
         update();
+        break;
     }
+
+    case eModeMoveBar: {
+        int deltaX = x - _interactionStartX;
+        int deltaY = y - _interactionStartY;
+
+        // If dragged vertically more than half a row height, switch to reorder mode
+        if (qAbs(deltaY) > kLayerRowHeight / 2) {
+            _interactionMode = eModeReorderLayer;
+            _reorderTargetRow = _interactionLayerIndex;
+            update();
+            break;
+        }
+
+        // Move bar horizontally: shift both inPoint and outPoint by the frame delta
+        int frameDelta = (int)( deltaX / _zoom );
+        int newIn = _interactionOrigInPoint + frameDelta;
+        int newOut = _interactionOrigOutPoint + frameDelta;
+
+        if (_interactionLayerIndex >= 0 && _interactionLayerIndex < _layers.size()) {
+            _layers[_interactionLayerIndex].inPoint = newIn;
+            _layers[_interactionLayerIndex].outPoint = newOut;
+        }
+        update();
+        break;
+    }
+
+    case eModeTrimLeft: {
+        if (_interactionLayerIndex < 0 || _interactionLayerIndex >= _layers.size()) {
+            break;
+        }
+        int deltaX = x - _interactionStartX;
+        int frameDelta = (int)( deltaX / _zoom );
+        int newIn = _interactionOrigInPoint + frameDelta;
+        // Clamp: inPoint must stay before outPoint and within range
+        newIn = qMin(newIn, _interactionOrigOutPoint - 1);
+        _layers[_interactionLayerIndex].inPoint = newIn;
+        update();
+        break;
+    }
+
+    case eModeTrimRight: {
+        if (_interactionLayerIndex < 0 || _interactionLayerIndex >= _layers.size()) {
+            break;
+        }
+        int deltaX = x - _interactionStartX;
+        int frameDelta = (int)( deltaX / _zoom );
+        int newOut = _interactionOrigOutPoint + frameDelta;
+        // Clamp: outPoint must stay after inPoint
+        newOut = qMax(newOut, _interactionOrigInPoint + 1);
+        _layers[_interactionLayerIndex].outPoint = newOut;
+        update();
+        break;
+    }
+
+    case eModeReorderLayer: {
+        if (_interactionLayerIndex < 0 || _interactionLayerIndex >= _layers.size()) {
+            break;
+        }
+
+        int currentRow = yToLayer(y);
+        if (currentRow < 0 || currentRow >= _layers.size()) {
+            break;
+        }
+
+        // Swap layers when the drag crosses the midpoint of an adjacent row
+        if (currentRow != _reorderTargetRow) {
+            _layers.move(_reorderTargetRow, currentRow);
+
+            // Update selected layer index
+            if (_selectedLayer == _reorderTargetRow) {
+                _selectedLayer = currentRow;
+            }
+
+            _interactionLayerIndex = currentRow;
+            _reorderTargetRow = currentRow;
+
+            // Reset start Y so we don't keep swapping on small movements
+            _interactionStartY = y;
+
+            Q_EMIT layersReordered();
+            Q_EMIT compositingChanged();
+        }
+        update();
+        break;
+    }
+
+    case eModeNone:
+    default: {
+        // No active interaction — update cursor based on hover position
+        int layerIdx = -1;
+        HitZone zone = hitTest(x, y, &layerIdx);
+        if (zone == eHitTrimLeft || zone == eHitTrimRight) {
+            setCursor(Qt::SplitHCursor);
+        } else if (zone == eHitBarBody) {
+            setCursor(Qt::OpenHandCursor);
+        } else if (y < kTimeRulerHeight && x > kLayerLabelWidth) {
+            setCursor(Qt::PointingHandCursor);
+        } else {
+            unsetCursor();
+        }
+        break;
+    }
+
+    }
+}
+
+void
+FluxTimeline::mouseReleaseEvent(QMouseEvent* /*event*/)
+{
+    if (_interactionMode == eModeMoveBar || _interactionMode == eModeTrimLeft || _interactionMode == eModeTrimRight) {
+        // Emit compositingChanged for bar moves and trims (reorder already emits during drag)
+        Q_EMIT compositingChanged();
+    }
+
+    _interactionMode = eModeNone;
+    _interactionLayerIndex = -1;
+    _reorderTargetRow = -1;
+    unsetCursor();
+    update();
 }
 
 void
@@ -682,6 +901,8 @@ FluxTimeline::dropEvent(QDropEvent* event)
 
     // Emit signal so Gui can create a reader node
     Q_EMIT layerAddedFromDrop(filePath, row, inFrame);
+
+    Q_EMIT compositingChanged();
 
     update();
     event->acceptProposedAction();
