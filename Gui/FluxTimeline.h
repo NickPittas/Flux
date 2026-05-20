@@ -50,10 +50,18 @@ struct FluxLayer {
     bool solo;
     int inPoint;         // frame number
     int outPoint;        // frame number
+    int originalFirstFrame;  // from reader node
+    int originalLastFrame;   // from reader node
     QColor color;        // layer bar color
 
     QString readerNodeId; // Natron node ID for the reader (set after node creation)
     NodePtr readerNode;   // Actual Natron node pointer (set after node creation)
+
+    // Node chain: Read -> FrameRange -> TimeOffset -> Transform -> Merge
+    NodePtr frameRangeNode;  // net.sf.openfx.FrameRange (trim in/out)
+    NodePtr timeOffsetNode;  // net.sf.openfx.timeOffset (move left/right)
+    NodePtr transformNode;   // net.sf.openfx.Transform (position/scale/rotate)
+    NodePtr mergeNode;       // net.sf.openfx.MergePlugin (compositing)
 
     FluxLayer()
         : type(QString::fromUtf8("footage"))
@@ -62,6 +70,8 @@ struct FluxLayer {
         , solo(false)
         , inPoint(0)
         , outPoint(100)
+        , originalFirstFrame(0)
+        , originalLastFrame(100)
         , color(QColor(80, 130, 200))
     {}
 };
@@ -155,6 +165,21 @@ protected:
 
     /** @brief Rebuild the compositing graph: create Merge chain and connect viewer. */
     void rebuildCompositingGraph();
+
+    /** @brief Create the full node chain for a layer: Read -> FrameRange -> TimeOffset -> Transform -> Merge */
+    void createLayerNodeChain(int layerIndex);
+
+    /** @brief Update the FrameRange node knobs for a layer (trim). */
+    void updateLayerTrimKnobs(int layerIndex);
+
+    /** @brief Update the TimeOffset node knob for a layer (move). */
+    void updateLayerMoveKnob(int layerIndex);
+
+    /** @brief Update FrameRange/TimeOffset knob values for a layer. */
+    void updateLayerNodeChainParams(int layerIndex);
+
+    /** @brief Reconnect Merge.B inputs after layer reorder (no node create/destroy). */
+    void reconnectMergeChain();
 
     // getGui() inherited from PanelWidget
 
