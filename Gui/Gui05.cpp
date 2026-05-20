@@ -535,15 +535,28 @@ Gui::setupFluxUi()
     // Signal wiring for Flux widgets
     // ====================================================================
 
-    // 1. Project Bin: fileRequested → create reader node
+    // 1. Project Bin: fileRequested → create reader node + add to timeline
+    //    (only fires on double-click, which creates a layer in the timeline)
     QObject::connect(projectBin, &FluxProjectBin::fileRequested, this,
-                     [this](const QString& filePath) {
+                     [this, timeline](const QString& filePath) {
                          if (!getApp()) {
                              return;
                          }
+                         // Add layer to timeline (which triggers layerAddedFromDrop)
+                         QFileInfo fi(filePath);
+                         QString name = fi.fileName();
+                         timeline->addLayer(name, filePath, QString::fromUtf8("footage"));
+                         int row = timeline->getLayers().size() - 1;
+
+                         // Create reader node
                          NodeCollectionPtr collection = std::dynamic_pointer_cast<NodeCollection>(getApp()->getProject());
                          CreateNodeArgs args(PLUGINID_NATRON_READ, collection);
-                         getApp()->createReader(filePath.toStdString(), args);
+                         NodePtr reader = getApp()->createReader(filePath.toStdString(), args);
+                         if (reader) {
+                             timeline->setLayerReaderNode(row, reader);
+                         }
+                         // Rebuild compositing after reader is assigned
+                         Q_EMIT timeline->compositingChanged();
                      });
 
     // 2. Timeline: layerAddedFromDrop → create reader node for dropped file
@@ -557,6 +570,8 @@ Gui::setupFluxUi()
                          NodePtr reader = getApp()->createReader(filePath.toStdString(), args);
                          if (reader) {
                              timeline->setLayerReaderNode(row, reader);
+                             // Rebuild compositing after reader is assigned
+                             rebuildCompositingGraph(timeline);
                          }
                      });
 
@@ -624,8 +639,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
 
     // For a single layer, connect it directly to the viewer
     if (layers.size() == 1) {
-        std::string readerName = layers[0].readerNodeId.toStdString();
-        NodePtr reader = getApp()->getNodeByFullySpecifiedName(readerName);
+        NodePtr reader = layers[0].readerNode;
         if (reader && viewerTab) {
             NodePtr viewerNode = viewerTab->getInternalNode()->getNode();
             if (viewerNode) {
@@ -652,8 +666,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
     NodePtr lastOutput;
 
     for (int i = 0; i < layers.size(); ++i) {
-        std::string readerName = layers[i].readerNodeId.toStdString();
-        NodePtr reader = getApp()->getNodeByFullySpecifiedName(readerName);
+        NodePtr reader = layers[i].readerNode;
         if (!reader) {
             continue;
         }
