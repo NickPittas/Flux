@@ -116,6 +116,7 @@ private:
     void setupUI();
     QListWidgetItem* createItem(const QString& filePath);
     void applyViewMode();
+    QPixmap generateThumbnail(const QString& filePath);
 
     QLineEdit* _searchField;
     FluxProjectBinListWidget* _fileList;

@@ -24,10 +24,12 @@
 #include <QUrl>
 #include <QFileDialog>
 #include <QPixmap>
+#include <QImage>
 #include <QFileInfo>
 #include <QPainter>
 #include <QMessageBox>
 #include <QDrag>
+#include <QProcess>
 
 #include "Gui/Gui.h"
 #include "Gui/GuiAppInstance.h"
@@ -86,6 +88,8 @@ FluxProjectBin::setupUI()
     // File list
     _fileList = new FluxProjectBinListWidget();
     _fileList->setDragEnabled(true);
+    _fileList->setDragDropMode(QAbstractItemView::DragOnly);
+    _fileList->setDefaultDropAction(Qt::CopyAction);
     _fileList->setSelectionMode(QListWidget::SingleSelection);
     _fileList->setWordWrap(true);
     _fileList->setSpacing(4);
@@ -173,17 +177,9 @@ FluxProjectBin::addFile(const QString& filePath)
     _files.append(filePath);
 
     // Generate and cache thumbnail (80x60)
-    QPixmap thumb;
-    if (thumb.load(filePath)) {
-        QPixmap scaled = thumb.scaled(80, 60, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-        QPixmap centered(80, 60);
-        centered.fill(Qt::darkGray);
-        QPainter painter(&centered);
-        int x = (80 - scaled.width()) / 2;
-        int y = (60 - scaled.height()) / 2;
-        painter.drawPixmap(x, y, scaled);
-        painter.end();
-        _thumbnailCache[filePath] = centered;
+    QPixmap thumb = generateThumbnail(filePath);
+    if (!thumb.isNull()) {
+        _thumbnailCache[filePath] = thumb;
     }
 
     QListWidgetItem* item = createItem(filePath);
@@ -220,19 +216,11 @@ FluxProjectBin::createItem(const QString& filePath)
             item->setIcon(QIcon(smallThumb));
         }
     } else if (!_thumbnailCache.contains(filePath)) {
-        // No cached thumbnail, try to load
-        QPixmap thumb;
-        if (thumb.load(filePath)) {
-            QPixmap scaled = thumb.scaled(80, 60, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            QPixmap centered(80, 60);
-            centered.fill(Qt::darkGray);
-            QPainter painter(&centered);
-            int x = (80 - scaled.width()) / 2;
-            int y = (60 - scaled.height()) / 2;
-            painter.drawPixmap(x, y, scaled);
-            painter.end();
-            _thumbnailCache[filePath] = centered;
-            item->setIcon(QIcon(centered));
+        // No cached thumbnail, try to generate
+        QPixmap thumb = generateThumbnail(filePath);
+        if (!thumb.isNull()) {
+            _thumbnailCache[filePath] = thumb;
+            item->setIcon(QIcon(thumb));
         } else {
             item->setIcon(QIcon::fromTheme(QString::fromUtf8("document-open"), QIcon()));
         }
@@ -320,6 +308,7 @@ FluxProjectBin::dropEvent(QDropEvent* event)
 void
 FluxProjectBinListWidget::startDrag(Qt::DropActions supportedActions)
 {
+    Q_UNUSED(supportedActions);
     QListWidgetItem* item = currentItem();
     if (!item) {
         return;
@@ -340,19 +329,130 @@ FluxProjectBinListWidget::startDrag(Qt::DropActions supportedActions)
     // Custom mime type with the file path as plain text
     mimeData->setData(QString::fromUtf8("application/x-flux-asset"), filePath.toUtf8());
 
+    // Also set plain text for broader compatibility
+    mimeData->setText(filePath);
+
     QDrag* drag = new QDrag(this);
     drag->setMimeData(mimeData);
 
-    // Create a drag pixmap from the item icon
+    // Create a drag pixmap from the item icon or a default
     QPixmap dragPixmap;
     if (!item->icon().isNull()) {
         dragPixmap = item->icon().pixmap(64, 48);
     }
-    if (!dragPixmap.isNull()) {
-        drag->setPixmap(dragPixmap);
+    if (dragPixmap.isNull()) {
+        // Create a default drag pixmap
+        dragPixmap = QPixmap(64, 48);
+        dragPixmap.fill(QColor(80, 130, 200, 180));
+        QPainter painter(&dragPixmap);
+        painter.setPen(Qt::white);
+        QFont font;
+        font.setPointSize(8);
+        painter.setFont(font);
+        QFileInfo fi(filePath);
+        QString name = fi.fileName();
+        if (name.length() > 10) {
+            name = name.left(9) + QString::fromUtf8("...");
+        }
+        painter.drawText(dragPixmap.rect(), Qt::AlignCenter, name);
+        painter.end();
+    }
+    drag->setPixmap(dragPixmap);
+    drag->setHotSpot(QPoint(dragPixmap.width() / 2, dragPixmap.height() / 2));
+
+    // Execute drag — must use Qt::CopyAction for cross-widget drops
+    Qt::DropAction result = drag->exec(Qt::CopyAction | Qt::MoveAction, Qt::CopyAction);
+    Q_UNUSED(result);
+}
+
+QPixmap
+FluxProjectBin::generateThumbnail(const QString& filePath)
+{
+    static const QStringList videoExts = QStringList()
+        << QString::fromUtf8("mov") << QString::fromUtf8("mp4")
+        << QString::fromUtf8("mxf") << QString::fromUtf8("avi")
+        << QString::fromUtf8("mkv") << QString::fromUtf8("webm")
+        << QString::fromUtf8("m4v") << QString::fromUtf8("mpg")
+        << QString::fromUtf8("mpeg") << QString::fromUtf8("wmv");
+
+    QFileInfo fi(filePath);
+    QString ext = fi.suffix().toLower();
+
+    QPixmap result;
+
+    if (videoExts.contains(ext)) {
+        // For video files, use ffmpeg to extract the first frame as JPEG
+        // Use QProcess to run: ffmpeg -i input.mov -vframes 1 -f image2pipe -vcodec mjpeg - 2>/dev/null
+        QProcess ffmpeg;
+        QStringList args;
+        args << QString::fromUtf8("-i") << filePath
+             << QString::fromUtf8("-vframes") << QString::fromUtf8("1")
+             << QString::fromUtf8("-f") << QString::fromUtf8("image2pipe")
+             << QString::fromUtf8("-vcodec") << QString::fromUtf8("mjpeg")
+             << QString::fromUtf8("-");
+        ffmpeg.start(QString::fromUtf8("ffmpeg"), args);
+        if (ffmpeg.waitForStarted(2000)) {
+            if (ffmpeg.waitForFinished(5000)) {
+                QByteArray jpegData = ffmpeg.readAllStandardOutput();
+                if (!jpegData.isEmpty()) {
+                    QImage frameImage;
+                    if (frameImage.loadFromData(jpegData, "JPEG")) {
+                        result = QPixmap::fromImage(frameImage);
+                    }
+                }
+            }
+        }
+        ffmpeg.kill();
+        ffmpeg.waitForFinished(1000);
+
+        // If ffmpeg failed, create a video placeholder thumbnail
+        if (result.isNull()) {
+            result = QPixmap(80, 60);
+            result.fill(QColor(40, 40, 50));
+            QPainter painter(&result);
+            painter.setPen(QColor(200, 200, 200));
+            QFont font;
+            font.setPointSize(14);
+            font.setBold(true);
+            painter.setFont(font);
+            painter.drawText(result.rect(), Qt::AlignCenter, QString::fromUtf8("🎬"));
+            painter.setPen(QColor(150, 150, 160));
+            font.setPointSize(7);
+            font.setBold(false);
+            painter.setFont(font);
+            painter.drawText(result.rect(), Qt::AlignBottom | Qt::AlignHCenter, ext.toUpper());
+            painter.end();
+        }
+    } else {
+        // For image files, use QPixmap::load
+        if (!result.load(filePath)) {
+            // Create a placeholder for unsupported formats
+            result = QPixmap(80, 60);
+            result.fill(QColor(40, 40, 50));
+            QPainter painter(&result);
+            painter.setPen(QColor(150, 150, 160));
+            QFont font;
+            font.setPointSize(7);
+            painter.setFont(font);
+            painter.drawText(result.rect(), Qt::AlignCenter, ext.toUpper());
+            painter.end();
+        }
     }
 
-    drag->exec(supportedActions, Qt::CopyAction);
+    // Scale to thumbnail size
+    if (!result.isNull()) {
+        QPixmap scaled = result.scaled(80, 60, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        QPixmap centered(80, 60);
+        centered.fill(QColor(30, 30, 38));
+        QPainter painter(&centered);
+        int x = (80 - scaled.width()) / 2;
+        int y = (60 - scaled.height()) / 2;
+        painter.drawPixmap(x, y, scaled);
+        painter.end();
+        result = centered;
+    }
+
+    return result;
 }
 
 NATRON_NAMESPACE_EXIT

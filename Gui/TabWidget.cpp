@@ -1334,7 +1334,14 @@ TabWidget::paintEvent(QPaintEvent* e)
 void
 TabWidget::dropEvent(QDropEvent* e)
 {
-    e->accept();
+    // Only handle tab-reordering drops (MIME type "Tab").
+    // For all other drops (e.g., Flux asset drag-and-drop), ignore
+    // the event so child widgets can handle it.
+    if (!e->mimeData()->hasFormat(QString::fromUtf8("Tab"))) {
+        e->ignore();
+        return;
+    }
+
     QString name( QString::fromUtf8( e->mimeData()->data( QString::fromUtf8("Tab") ) ) );
     PanelWidget* w;
     ScriptObject* obj;
