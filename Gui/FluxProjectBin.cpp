@@ -30,6 +30,8 @@
 #include <QMessageBox>
 #include <QDrag>
 #include <QProcess>
+#include <QApplication>
+#include <QMouseEvent>
 
 #include "Gui/Gui.h"
 #include "Gui/GuiAppInstance.h"
@@ -87,9 +89,8 @@ FluxProjectBin::setupUI()
 
     // File list
     _fileList = new FluxProjectBinListWidget();
-    _fileList->setDragEnabled(true);
-    _fileList->setDragDropMode(QAbstractItemView::DragOnly);
-    _fileList->setDefaultDropAction(Qt::CopyAction);
+    // Drag is handled manually via mousePressEvent/mouseMoveEvent/performDrag
+    // Do NOT enable QListWidget's built-in drag (it bypasses our custom MIME data)
     _fileList->setSelectionMode(QListWidget::SingleSelection);
     _fileList->setWordWrap(true);
     _fileList->setSpacing(4);
@@ -306,9 +307,33 @@ FluxProjectBin::dropEvent(QDropEvent* event)
 }
 
 void
-FluxProjectBinListWidget::startDrag(Qt::DropActions supportedActions)
+FluxProjectBinListWidget::mousePressEvent(QMouseEvent* event)
 {
-    Q_UNUSED(supportedActions);
+    if (event->button() == Qt::LeftButton) {
+        _dragStartPos = event->pos();
+        _isDragging = false;
+    }
+    QListWidget::mousePressEvent(event);
+}
+
+void
+FluxProjectBinListWidget::mouseMoveEvent(QMouseEvent* event)
+{
+    if (event->buttons() & Qt::LeftButton && !_isDragging) {
+        int distance = (event->pos() - _dragStartPos).manhattanLength();
+        if (distance > QApplication::startDragDistance()) {
+            _isDragging = true;
+            performDrag();
+            _isDragging = false;
+            return;
+        }
+    }
+    QListWidget::mouseMoveEvent(event);
+}
+
+void
+FluxProjectBinListWidget::performDrag()
+{
     QListWidgetItem* item = currentItem();
     if (!item) {
         return;

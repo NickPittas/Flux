@@ -59,12 +59,22 @@ public:
 
     explicit FluxProjectBinListWidget(QWidget* parent = nullptr)
         : QListWidget(parent)
+        , _dragStartPos()
+        , _isDragging(false)
     {
     }
 
 protected:
 
-    virtual void startDrag(Qt::DropActions supportedActions) OVERRIDE;
+    // Manual drag implementation — bypasses QListWidget's broken startDrag
+    virtual void mousePressEvent(QMouseEvent* event) OVERRIDE;
+    virtual void mouseMoveEvent(QMouseEvent* event) OVERRIDE;
+
+private:
+
+    QPoint _dragStartPos;
+    bool _isDragging;
+    void performDrag();
 };
 
 class FluxProjectBin
