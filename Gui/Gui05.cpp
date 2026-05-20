@@ -451,6 +451,8 @@ Gui::setupFluxUi()
 
     // Create and add FluxProjectBin widget
     FluxProjectBin* projectBin = new FluxProjectBin(this);
+    projectBin->setScriptName("fluxProjectBin");
+    projectBin->setLabel( tr("Project Bin").toStdString() );
     TabWidget::moveTab(projectBin, projectBin, projectBinPane);
 
     // ====================================================================
@@ -458,6 +460,8 @@ Gui::setupFluxUi()
     // ====================================================================
     // Flux Timeline as the primary tab
     FluxTimeline* timeline = new FluxTimeline(this);
+    timeline->setScriptName("fluxTimeline");
+    timeline->setLabel( tr("Timeline").toStdString() );
     TabWidget::moveTab(timeline, timeline, workshopPane);
 
     // Node Graph, Curve Editor, Dope Sheet as additional tabs (power users)
@@ -476,6 +480,8 @@ Gui::setupFluxUi()
     // ====================================================================
     // Flux Effects Stack
     FluxEffectsPanel* effectsPanel = new FluxEffectsPanel(this);
+    effectsPanel->setScriptName("fluxEffectsPanel");
+    effectsPanel->setLabel( tr("Effects").toStdString() );
     TabWidget::moveTab(effectsPanel, effectsPanel, propertiesPane);
 
     // Natron's properties bin
