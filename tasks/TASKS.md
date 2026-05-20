@@ -48,9 +48,9 @@ Last updated: 2026-05-21 (T019 interaction system complete)
 | T019-D | Effects Panel: enabled only when layer selected, adds effect to selected layer | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxEffectsPanel.{h,cpp} |
 | T019-E | End-to-end test: import → drag to timeline → select → add effect → play | IN_PROGRESS | nick | 2026-05-21 | — | — |
 | T019-F | Timeline interaction: bar drag, trim handles, layer reorder, playhead fix | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/FluxTimeline.{h,cpp} |
-| T019-G | Auto-create Merge nodes for compositing layers + connect viewer | PENDING | — | — | — | — |
+| T019-G | Auto-create Merge nodes for compositing layers + connect viewer | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/Gui05.cpp, FluxTimeline.{h,cpp} |
 | T020 | Create FluxTimeline widget | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxTimeline.{h,cpp} (merged into T019) |
-| T021 | Create Layer-to-Node Bridge (Merge chain for compositing) | PENDING | — | — | — | Engine/FluxLayerBridge.* |
+| T021 | Create Layer-to-Node Bridge (Merge chain for compositing) | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/Gui05.cpp (merged into T019-G) |
 | T022 | Create Effects Stack Panel | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxEffectsPanel.{h,cpp} (merged into T019) |
 | T023 | Create Dark Theme (After Effects-inspired) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/Gui20.cpp (mainstyle.qss + Flux colors) |
 | T024 | Create Project Bin | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxProjectBin.{h,cpp} (merged into T019) |
