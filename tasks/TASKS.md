@@ -1,6 +1,6 @@
 # Flux — Master Task List
 
-Last updated: 2026-05-20 (T019-A/B/C/D complete, T019-E pending user test)
+Last updated: 2026-05-21 (T019 interaction system complete)
 
 ## Active Phase: P2 (UI Shell)
 
@@ -41,14 +41,16 @@ Last updated: 2026-05-20 (T019-A/B/C/D complete, T019-E pending user test)
 
 | ID | Task | Status | Assigned | Started | Completed | File |
 |---|---|---|---|---|---|---|
-| T019 | Create FluxMainWindow (new layout) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/Gui05.cpp, Flux*.{h,cpp} |
+| T019 | Create FluxMainWindow (new layout) | DONE | forge | 2026-05-20 | 2026-05-21 | Gui/Gui05.cpp, Flux*.{h,cpp} |
 | T019-A | Project Bin: thumbnails, list view toggle, proper file import → reader node | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxProjectBin.{h,cpp} |
 | T019-B | Timeline: accept drops from Project Bin with ghost preview | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxTimeline.{h,cpp} |
 | T019-C | Timeline ↔ Viewer playhead sync (via TimeLine::seekFrame/frameChanged) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxTimeline.{h,cpp} |
 | T019-D | Effects Panel: enabled only when layer selected, adds effect to selected layer | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxEffectsPanel.{h,cpp} |
-| T019-E | End-to-end test: import → drag to timeline → select → add effect → play | PENDING | nick | — | — | — |
+| T019-E | End-to-end test: import → drag to timeline → select → add effect → play | IN_PROGRESS | nick | 2026-05-21 | — | — |
+| T019-F | Timeline interaction: bar drag, trim handles, layer reorder, playhead fix | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/FluxTimeline.{h,cpp} |
+| T019-G | Auto-create Merge nodes for compositing layers + connect viewer | PENDING | — | — | — | — |
 | T020 | Create FluxTimeline widget | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxTimeline.{h,cpp} (merged into T019) |
-| T021 | Create Layer-to-Node Bridge | PENDING | — | — | — | Engine/FluxLayerBridge.* |
+| T021 | Create Layer-to-Node Bridge (Merge chain for compositing) | PENDING | — | — | — | Engine/FluxLayerBridge.* |
 | T022 | Create Effects Stack Panel | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxEffectsPanel.{h,cpp} (merged into T019) |
 | T023 | Create Dark Theme (After Effects-inspired) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/Gui20.cpp (mainstyle.qss + Flux colors) |
 | T024 | Create Project Bin | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxProjectBin.{h,cpp} (merged into T019) |
