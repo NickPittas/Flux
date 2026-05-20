@@ -35,15 +35,37 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QToolButton>
 #include <QLineEdit>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QMap>
+#include <QPixmap>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
 #include "Gui/PanelWidget.h"
 
 NATRON_NAMESPACE_ENTER
+
+class FluxProjectBinListWidget
+    : public QListWidget
+{
+    GCC_DIAG_SUGGEST_OVERRIDE_OFF
+    Q_OBJECT
+    GCC_DIAG_SUGGEST_OVERRIDE_ON
+
+public:
+
+    explicit FluxProjectBinListWidget(QWidget* parent = nullptr)
+        : QListWidget(parent)
+    {
+    }
+
+protected:
+
+    virtual void startDrag(Qt::DropActions supportedActions) OVERRIDE;
+};
 
 class FluxProjectBin
     : public QWidget
@@ -82,6 +104,7 @@ public Q_SLOTS:
     void onImportButtonClicked();
     void onItemDoubleClicked(QListWidgetItem* item);
     void onSearchTextChanged(const QString& text);
+    void onViewModeToggled();
 
 protected:
 
@@ -92,13 +115,21 @@ private:
 
     void setupUI();
     QListWidgetItem* createItem(const QString& filePath);
+    void applyViewMode();
 
     QLineEdit* _searchField;
-    QListWidget* _fileList;
+    FluxProjectBinListWidget* _fileList;
     QLabel* _headerLabel;
     QPushButton* _importButton;
     QPushButton* _clearButton;
+    QToolButton* _viewModeButton;
     QStringList _files;
+
+    /** @brief Thumbnail cache: filePath -> QPixmap (80x60 thumbnail). */
+    QMap<QString, QPixmap> _thumbnailCache;
+
+    /** @brief true = thumbnail/icon mode, false = list mode. */
+    bool _thumbnailViewMode;
 };
 
 NATRON_NAMESPACE_EXIT

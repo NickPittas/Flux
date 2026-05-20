@@ -69,6 +69,8 @@
 #include "Gui/DopeSheetEditor.h"
 #include "Gui/PropertiesBinWrapper.h"
 
+#include "Engine/EffectInstance.h"
+
 
 NATRON_NAMESPACE_ENTER
 
@@ -526,6 +528,54 @@ Gui::setupFluxUi()
 
     // Default to Timeline displayed in workshop pane
     workshopPane->makeCurrentTab(0);
+
+    // ====================================================================
+    // Signal wiring for Flux widgets
+    // ====================================================================
+
+    // 1. Project Bin: fileRequested → create reader node
+    QObject::connect(projectBin, &FluxProjectBin::fileRequested, this,
+                     [this](const QString& filePath) {
+                         if (!getApp()) {
+                             return;
+                         }
+                         NodeCollectionPtr collection = std::dynamic_pointer_cast<NodeCollection>(getApp()->getProject());
+                         CreateNodeArgs args(PLUGINID_NATRON_READ, collection);
+                         getApp()->createReader(filePath.toStdString(), args);
+                     });
+
+    // 2. Timeline: layerAddedFromDrop → create reader node for dropped file
+    QObject::connect(timeline, &FluxTimeline::layerAddedFromDrop, this,
+                     [this](QString filePath, int /*row*/, int /*inFrame*/) {
+                         if (!getApp()) {
+                             return;
+                         }
+                         NodeCollectionPtr collection = std::dynamic_pointer_cast<NodeCollection>(getApp()->getProject());
+                         CreateNodeArgs args(PLUGINID_NATRON_READ, collection);
+                         getApp()->createReader(filePath.toStdString(), args);
+                     });
+
+    // 3. Timeline: layerSelected → Effects Panel setActiveLayer (with layer name lookup)
+    QObject::connect(timeline, &FluxTimeline::layerSelected, this,
+                     [this, timeline, effectsPanel](int index) {
+                         const QList<FluxLayer>& layers = timeline->getLayers();
+                         if (index >= 0 && index < layers.size()) {
+                             effectsPanel->setActiveLayer(index, layers[index].name);
+                         } else {
+                             effectsPanel->setActiveLayer(-1, QString());
+                         }
+                     });
+
+    // 4. Effects Panel: layerEffectAddRequested → create effect node
+    QObject::connect(effectsPanel, &FluxEffectsPanel::layerEffectAddRequested, this,
+                     [this](int /*layerIndex*/, QString pluginId) {
+                         if (!getApp() || pluginId.isEmpty()) {
+                             return;
+                         }
+                         NodeCollectionPtr collection = std::dynamic_pointer_cast<NodeCollection>(getApp()->getProject());
+                         CreateNodeArgs args(pluginId.toStdString(), collection);
+                         getApp()->createNode(args);
+                     });
 
     // Store references to Flux widgets for later access
     _imp->_fluxProjectBin = projectBin;

@@ -177,6 +177,11 @@ FluxEffectsPanel::setupUI()
     QObject::connect(_removeButton, SIGNAL(clicked()), this, SLOT(onRemoveButtonClicked()));
     QObject::connect(_effectList, SIGNAL(itemClicked(QListWidgetItem*)), this, SLOT(onEffectClicked(QListWidgetItem*)));
     QObject::connect(_effectList, SIGNAL(itemDoubleClicked(QListWidgetItem*)), this, SLOT(onEffectDoubleClicked(QListWidgetItem*)));
+
+    // T019-D: Start disabled since no layer is selected
+    _effectCombo->setEnabled(false);
+    _addButton->setEnabled(false);
+    _removeButton->setEnabled(false);
 }
 
 void
@@ -187,8 +192,16 @@ FluxEffectsPanel::setActiveLayer(int layerIndex,
 
     if (layerIndex >= 0) {
         _layerLabel->setText(QStringLiteral("Layer: %1").arg(layerName));
+        // T019-D: Enable controls when a layer is selected
+        _effectCombo->setEnabled(true);
+        _addButton->setEnabled(true);
+        _removeButton->setEnabled(true);
     } else {
         _layerLabel->setText(QStringLiteral("No layer selected"));
+        // T019-D: Disable controls when no layer is selected
+        _effectCombo->setEnabled(false);
+        _addButton->setEnabled(false);
+        _removeButton->setEnabled(false);
     }
 }
 
@@ -213,6 +226,11 @@ FluxEffectsPanel::removeEffect(int index)
 void
 FluxEffectsPanel::onAddButtonClicked()
 {
+    // T019-D: Safety check — no layer selected
+    if (_activeLayerIndex < 0) {
+        return;
+    }
+
     int idx = _effectCombo->currentIndex();
     if (idx <= 0) {
         return; // "-- Add Effect --" selected
@@ -223,6 +241,7 @@ FluxEffectsPanel::onAddButtonClicked()
 
     addEffect(pluginId, name);
     Q_EMIT effectAddRequested(pluginId);
+    Q_EMIT layerEffectAddRequested(_activeLayerIndex, pluginId);
 
     // Reset combo
     _effectCombo->setCurrentIndex(0);

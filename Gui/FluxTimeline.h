@@ -22,10 +22,16 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QTimer>
 #include <QStringList>
 #include <QList>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
+#include <QPoint>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
 #include "Gui/PanelWidget.h"
+
+#include "Engine/TimeLine.h"
 
 NATRON_NAMESPACE_ENTER
 
@@ -107,9 +113,15 @@ Q_SIGNALS:
     /** @brief Emitted when layers are reordered. */
     void layersReordered();
 
+    /** @brief Emitted when a layer is added from a drag-drop from the Project Bin. */
+    void layerAddedFromDrop(QString filePath, int row, int inFrame);
+
 public Q_SLOTS:
 
     void onPlayTimeout();
+
+    /** @brief Responds to external TimeLine frame changes (from Viewer, etc.). */
+    void onExternalFrameChanged(SequenceTime time, int reason);
 
 protected:
 
@@ -120,11 +132,17 @@ protected:
     virtual void wheelEvent(QWheelEvent* event) OVERRIDE;
     virtual void resizeEvent(QResizeEvent* event) OVERRIDE;
 
+    // Drag and drop support
+    virtual void dragEnterEvent(QDragEnterEvent* event) OVERRIDE;
+    virtual void dragMoveEvent(QDragMoveEvent* event) OVERRIDE;
+    virtual void dropEvent(QDropEvent* event) OVERRIDE;
+
 private:
 
     void drawTimeRuler(QPainter& painter, const QRect& rect);
     void drawLayerBars(QPainter& painter, const QRect& rect);
     void drawPlayhead(QPainter& painter, const QRect& rect);
+    void drawDragPreview(QPainter& painter, const QRect& rect);
     int frameToX(int frame) const;
     int xToFrame(int x) const;
     int yToLayer(int y) const;
@@ -154,6 +172,13 @@ private:
     bool _draggingLayer;
     int _dragLayerStartY;
     int _dragLayerIndex;
+
+    // Drag and drop state
+    bool _isDragOver;
+    QPoint _dragPreviewPos;
+
+    // Shared app timeline for playhead sync
+    TimeLinePtr _timeline;
 };
 
 NATRON_NAMESPACE_EXIT

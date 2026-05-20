@@ -12,8 +12,14 @@
 #include <QCursor>
 #include <QApplication>
 #include <QFileInfo>
+#include <QMimeData>
+#include <QUrl>
+#include <QDrag>
 
 #include "Gui/Gui.h"
+#include "Gui/GuiAppInstance.h"
+#include "Engine/Project.h"
+#include "Engine/AppInstance.h"
 
 NATRON_NAMESPACE_ENTER
 
@@ -34,13 +40,26 @@ FluxTimeline::FluxTimeline(Gui* gui,
       , _draggingLayer(false)
       , _dragLayerStartY(0)
       , _dragLayerIndex(-1)
+      , _isDragOver(false)
+      , _dragPreviewPos()
+      , _timeline()
 {
     setObjectName( QString::fromUtf8("FluxTimeline") );
     setMinimumHeight(120);
     setMouseTracking(true);
     setFocusPolicy(Qt::ClickFocus);
+    setAcceptDrops(true);
 
     QObject::connect(_playTimer, SIGNAL(timeout()), this, SLOT(onPlayTimeout()));
+
+    // T019-C: Connect to the app's shared TimeLine for playhead sync
+    if (gui && gui->getApp()) {
+        _timeline = gui->getApp()->getTimeLine();
+        if (_timeline) {
+            QObject::connect(_timeline.get(), SIGNAL(frameChanged(SequenceTime,int)),
+                             this, SLOT(onExternalFrameChanged(SequenceTime,int)));
+        }
+    }
 
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 }
@@ -159,8 +178,24 @@ FluxTimeline::onPlayTimeout()
     if (_currentFrame > _lastFrame) {
         _currentFrame = _firstFrame;
     }
+    // T019-C: Sync with shared timeline
+    if (_timeline) {
+        _timeline->seekFrame(SequenceTime(_currentFrame), false, nullptr, eTimelineChangeReasonPlaybackSeek);
+    }
     Q_EMIT frameChanged(_currentFrame);
     update();
+}
+
+void
+FluxTimeline::onExternalFrameChanged(SequenceTime time,
+                                     int /*reason*/)
+{
+    // T019-C: Update local frame from external source (Viewer, etc.)
+    // Do NOT re-emit frameChanged to avoid infinite loop.
+    if (time != _currentFrame) {
+        _currentFrame = time;
+        update();
+    }
 }
 
 void
@@ -187,6 +222,11 @@ FluxTimeline::paintEvent(QPaintEvent* /*event*/)
 
     // Playhead
     drawPlayhead(painter, totalRect);
+
+    // T019-B: Drag preview ghost bar
+    if (_isDragOver) {
+        drawDragPreview(painter, totalRect);
+    }
 
     // Separator lines
     painter.setPen(QColor(60, 60, 65));
@@ -358,6 +398,57 @@ FluxTimeline::drawPlayhead(QPainter& painter,
     painter.drawText(x + 4, 10, QString::number(_currentFrame));
 }
 
+void
+FluxTimeline::drawDragPreview(QPainter& painter,
+                              const QRect& /*rect*/)
+{
+    if (!_isDragOver) {
+        return;
+    }
+
+    int x = _dragPreviewPos.x();
+    int y = _dragPreviewPos.y();
+
+    // Only draw if in the layer bars area
+    if (x <= kLayerLabelWidth || y <= kTimeRulerHeight) {
+        return;
+    }
+
+    int inFrame = xToFrame(x);
+    int outFrame = inFrame + 50; // Default 50-frame duration for preview
+
+    // Determine which row the drop would land on
+    int row = (y - kTimeRulerHeight + _scrollOffsetY) / kLayerRowHeight;
+    if (row < 0) {
+        row = 0;
+    }
+    // Allow appending beyond existing layers
+    if (row > _layers.size()) {
+        row = _layers.size();
+    }
+
+    int barY = kTimeRulerHeight + row * kLayerRowHeight - _scrollOffsetY + 4;
+    int barX1 = frameToX(inFrame);
+    int barX2 = frameToX(outFrame);
+
+    // Semi-transparent ghost bar
+    QColor ghostColor(100, 160, 240, 100);
+    QRect ghostRect(barX1, barY, barX2 - barX1, kLayerRowHeight - 8);
+    painter.fillRect(ghostRect, ghostColor);
+
+    // Ghost border
+    painter.setPen(QPen(QColor(100, 160, 240, 180), 1, Qt::DashLine));
+    painter.drawRect(ghostRect);
+
+    // Ghost label
+    painter.setPen(QColor(200, 220, 255, 200));
+    QFont font;
+    font.setPointSize(8);
+    painter.setFont(font);
+    painter.drawText(ghostRect.adjusted(4, 0, -4, 0), Qt::AlignVCenter | Qt::AlignLeft,
+                     QString::fromUtf8("Drop here (frame %1)").arg(inFrame));
+}
+
 int
 FluxTimeline::frameToX(int frame) const
 {
@@ -405,6 +496,10 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
     if (y < kTimeRulerHeight && x > kLayerLabelWidth) {
         _draggingPlayhead = true;
         _currentFrame = xToFrame(x);
+        // T019-C: Sync with shared timeline
+        if (_timeline) {
+            _timeline->seekFrame(SequenceTime(_currentFrame), false, nullptr, eTimelineChangeReasonUserSeek);
+        }
         Q_EMIT frameChanged(_currentFrame);
         update();
         return;
@@ -429,6 +524,10 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             Q_EMIT layerSelected(layerIdx);
         }
         _currentFrame = xToFrame(x);
+        // T019-C: Sync with shared timeline
+        if (_timeline) {
+            _timeline->seekFrame(SequenceTime(_currentFrame), false, nullptr, eTimelineChangeReasonUserSeek);
+        }
         Q_EMIT frameChanged(_currentFrame);
         update();
     }
@@ -440,6 +539,10 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
     if (_draggingPlayhead) {
         int x = event->pos().x();
         _currentFrame = qBound(_firstFrame, xToFrame(x), _lastFrame);
+        // T019-C: Sync with shared timeline
+        if (_timeline) {
+            _timeline->seekFrame(SequenceTime(_currentFrame), false, nullptr, eTimelineChangeReasonUserSeek);
+        }
         Q_EMIT frameChanged(_currentFrame);
         update();
     }
@@ -471,13 +574,117 @@ FluxTimeline::wheelEvent(QWheelEvent* event)
         event->accept();
     }
 }
-
 void
 FluxTimeline::resizeEvent(QResizeEvent* event)
 {
     Q_UNUSED(event);
     updateZoom();
     update();
+}
+
+// T019-B: Drag and drop handlers
+
+void
+FluxTimeline::dragEnterEvent(QDragEnterEvent* event)
+{
+    if (event->mimeData()->hasFormat(QString::fromUtf8("application/x-flux-asset")) ||
+        event->mimeData()->hasUrls()) {
+        event->acceptProposedAction();
+        _isDragOver = true;
+        _dragPreviewPos = event->position().toPoint();
+        update();
+    }
+}
+
+void
+FluxTimeline::dragMoveEvent(QDragMoveEvent* event)
+{
+    if (_isDragOver) {
+        _dragPreviewPos = event->position().toPoint();
+        update();
+        event->accept();
+    }
+}
+
+void
+FluxTimeline::dropEvent(QDropEvent* event)
+{
+    _isDragOver = false;
+
+    QString filePath;
+
+    // Try custom mime type first
+    if (event->mimeData()->hasFormat(QString::fromUtf8("application/x-flux-asset"))) {
+        filePath = QString::fromUtf8(event->mimeData()->data(QString::fromUtf8("application/x-flux-asset")));
+    } else if (event->mimeData()->hasUrls()) {
+        const QList<QUrl> urls = event->mimeData()->urls();
+        for (const QUrl& url : urls) {
+            if (url.isLocalFile()) {
+                filePath = url.toLocalFile();
+                break;
+            }
+        }
+    }
+
+    if (filePath.isEmpty()) {
+        update();
+        return;
+    }
+
+    QPoint dropPos = event->position().toPoint();
+    int x = dropPos.x();
+    int y = dropPos.y();
+    // Determine inPoint from X position
+    int inFrame = _firstFrame;
+    if (x > kLayerLabelWidth) {
+        inFrame = xToFrame(x);
+    }
+
+    // Determine row from Y position
+    int row = _layers.size(); // Default: append at end
+    if (y > kTimeRulerHeight) {
+        int adjustedY = y - kTimeRulerHeight + _scrollOffsetY;
+        row = adjustedY / kLayerRowHeight;
+        if (row < 0) {
+            row = 0;
+        }
+        if (row > _layers.size()) {
+            row = _layers.size();
+        }
+    }
+
+    // Create the layer
+    QFileInfo fi(filePath);
+    QString layerName = fi.fileName();
+    if (layerName.isEmpty()) {
+        layerName = filePath;
+    }
+
+    FluxLayer layer;
+    layer.name = layerName;
+    layer.filePath = filePath;
+    layer.type = QString::fromUtf8("footage");
+    layer.inPoint = inFrame;
+    layer.outPoint = inFrame + 50; // Default 50-frame duration
+    layer.color = QColor(80, 130, 200);
+
+    // Insert at the determined row
+    if (row >= _layers.size()) {
+        _layers.append(layer);
+        row = _layers.size() - 1;
+    } else {
+        _layers.insert(row, layer);
+    }
+
+    // Select the new layer
+    _selectedLayer = row;
+    Q_EMIT layerSelected(row);
+
+    // Emit signal so Gui can create a reader node
+    Q_EMIT layerAddedFromDrop(filePath, row, inFrame);
+
+    update();
+    event->acceptProposedAction();
 }
 
 NATRON_NAMESPACE_EXIT

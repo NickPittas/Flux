@@ -1,6 +1,6 @@
 # Flux — Master Task List
 
-Last updated: 2026-05-20 (T019 done, T020/T022/T024 merged into T019)
+Last updated: 2026-05-20 (T019 subtasks A-D in progress)
 
 ## Active Phase: P2 (UI Shell)
 
@@ -41,7 +41,12 @@ Last updated: 2026-05-20 (T019 done, T020/T022/T024 merged into T019)
 
 | ID | Task | Status | Assigned | Started | Completed | File |
 |---|---|---|---|---|---|---|
-| T019 | Create FluxMainWindow (new layout) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/Gui05.cpp, Flux*.{h,cpp} |
+| T019 | Create FluxMainWindow (new layout) | IN_PROGRESS | forge | 2026-05-20 | — | Gui/Gui05.cpp, Flux*.{h,cpp} |
+| T019-A | Project Bin: thumbnails, list view toggle, proper file import → reader node | IN_PROGRESS | forge | 2026-05-20 | — | Gui/FluxProjectBin.{h,cpp} |
+| T019-B | Timeline: accept drops from Project Bin with ghost preview | PENDING | — | — | — | Gui/FluxTimeline.{h,cpp} |
+| T019-C | Timeline ↔ Viewer playhead sync (via TimeLine::seekFrame/frameChanged) | PENDING | — | — | — | Gui/FluxTimeline.{h,cpp} |
+| T019-D | Effects Panel: enabled only when layer selected, adds effect to selected layer | PENDING | — | — | — | Gui/FluxEffectsPanel.{h,cpp} |
+| T019-E | End-to-end test: import → drag to timeline → select → add effect → play | PENDING | — | — | — | — |
 | T020 | Create FluxTimeline widget | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxTimeline.{h,cpp} (merged into T019) |
 | T021 | Create Layer-to-Node Bridge | PENDING | — | — | — | Engine/FluxLayerBridge.* |
 | T022 | Create Effects Stack Panel | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxEffectsPanel.{h,cpp} (merged into T019) |

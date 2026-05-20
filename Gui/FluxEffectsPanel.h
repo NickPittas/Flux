@@ -67,6 +67,9 @@ Q_SIGNALS:
     /** @brief Emitted when effects are reordered. */
     void effectsReordered();
 
+    /** @brief Emitted when the user wants to add an effect to a specific layer. */
+    void layerEffectAddRequested(int layerIndex, QString pluginId);
+
 public Q_SLOTS:
 
     void onAddButtonClicked();
