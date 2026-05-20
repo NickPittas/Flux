@@ -6,7 +6,7 @@
 |---|---|---|---|---|---|---|
 | P0 | Project Setup | DONE | 2026-05-20 | 2026-05-20 | 6/6 | 100% |
 | P1 | Fork & Build | DONE | 2026-05-20 | 2026-05-20 | 9/12 | 100% |
-| P2 | UI Shell | IN_PROGRESS | 2026-05-20 | — | 0/8 | 0% |
+| P2 | UI Shell | IN_PROGRESS | 2026-05-20 | — | 1/8 | 12% |
 | P3 | Timeline | PENDING | — | — | 0/0 | 0% |
 | P4 | Effects + Properties | PENDING | — | — | 0/0 | 0% |
 | P5 | Import/Export | PENDING | — | — | 0/0 | 0% |
