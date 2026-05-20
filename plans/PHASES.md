@@ -5,7 +5,7 @@
 | Phase | Name | Status | Start | End | Tasks | Progress |
 |---|---|---|---|---|---|---|
 | P0 | Project Setup | DONE | 2026-05-20 | 2026-05-20 | 6/6 | 100% |
-| P1 | Fork & Build | IN_PROGRESS | 2026-05-20 | — | 0/12 | 0% |
+| P1 | Fork & Build | IN_PROGRESS | 2026-05-20 | — | 2/12 | 17% |
 | P2 | UI Shell | PENDING | — | — | 0/0 | 0% |
 | P3 | Timeline | PENDING | — | — | 0/0 | 0% |
 | P4 | Effects + Properties | PENDING | — | — | 0/0 | 0% |
