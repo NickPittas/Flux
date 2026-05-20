@@ -1,6 +1,6 @@
 # Flux — Master Task List
 
-Last updated: 2026-05-20 (T023 done, T019 next)
+Last updated: 2026-05-20 (T019 done, T025 next)
 
 ## Active Phase: P2 (UI Shell)
 
@@ -41,7 +41,7 @@ Last updated: 2026-05-20 (T023 done, T019 next)
 
 | ID | Task | Status | Assigned | Started | Completed | File |
 |---|---|---|---|---|---|---|
-| T019 | Create FluxMainWindow (new layout) | PENDING | — | — | — | Gui/FluxMainWindow.* |
+| T019 | Create FluxMainWindow (new layout) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/Gui05.cpp (setupFluxUi) |
 | T020 | Create FluxTimeline widget | PENDING | — | — | — | Gui/FluxTimeline.* |
 | T021 | Create Layer-to-Node Bridge | PENDING | — | — | — | Engine/FluxLayerBridge.* |
 | T022 | Create Effects Stack Panel | PENDING | — | — | — | Gui/FluxEffectsPanel.* |
