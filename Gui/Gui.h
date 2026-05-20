@@ -152,6 +152,12 @@ public:
     void minimize();
 
     static void loadStyleSheet();
+    static void loadFluxStyleSheet();
+
+    /** @brief When true, Flux UI mode is active (layer-based motion graphics)
+     *  instead of Natron's node-graph compositor UI.
+     */
+    static bool sFluxMode;
     ToolButton* findExistingToolButton(const QString & name) const;
     ToolButton* findOrCreateToolButton(const PluginGroupNodePtr& plugin);
 

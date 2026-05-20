@@ -952,7 +952,11 @@ GuiApplicationManager::initGui(const CLArgs& args)
     _imp->fontconfigUpdateWatcher->setFuture( QtConcurrent::run(_imp.get(), &GuiApplicationManagerPrivate::updateFontConfigCache) );
 #endif
 
-    Gui::loadStyleSheet();
+    if (Gui::sFluxMode) {
+        Gui::loadFluxStyleSheet();
+    } else {
+        Gui::loadStyleSheet();
+    }
 
     // Init documentation manager
     _imp->documentation.reset(new DocumentationManager);

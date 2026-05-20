@@ -81,6 +81,9 @@
 
 NATRON_NAMESPACE_ENTER
 
+// Static member initialization for Flux mode flag
+bool Gui::sFluxMode = true; // Default to Flux mode
+
 // Group ordering is set at every place in the code where GROUP_ORDER appears in the comments
 static std::string namedGroupsOrdered[NAMED_PLUGIN_GROUP_NO] = {
     PLUGIN_GROUP_IMAGE,
@@ -296,6 +299,61 @@ Gui::loadStyleSheet()
         Dialogs::errorDialog( tr("Stylesheet").toStdString(), tr("Failure to load stylesheet file ").toStdString() + qss.fileName().toStdString() );
     }
 } // Gui::loadStyleSheet
+
+void
+Gui::loadFluxStyleSheet()
+{
+    // Flux dark theme — After Effects-inspired color palette
+    // Uses the same %1-%11 parameter system as Natron's loadStyleSheet()
+    // but with colors tuned for motion graphics workflow
+
+    // Color palette (r,g,b 0-255)
+    const QColor fluxSunken(22, 22, 26);        // %1 — Darkest: timeline track bg, sunken panels
+    const QColor fluxBase(32, 32, 38);           // %2 — Panel backgrounds, input fields
+    const QColor fluxRaised(45, 45, 52);         // %3 — Button faces, raised elements
+    const QColor fluxSelection(66, 133, 244);    // %4 — Selection highlight (Google blue)
+    const QColor fluxText(210, 210, 215);        // %5 — Primary text
+    const QColor fluxAltText(140, 140, 150);     // %6 — Secondary/muted text
+    const QColor fluxInterp(76, 175, 80);        // %7 — Interpolated keyframes (green)
+    const QColor fluxKeyframe(255, 171, 0);      // %8 — Keyframe markers (amber)
+    const QColor fluxExpr(171, 71, 188);         // %9 — Expression indicators (purple)
+    const QColor fluxTimeline(26, 26, 30);       // %10 — Timeline ruler/header bg
+    const QColor fluxHover(55, 55, 65);          // %11 — Hover state for buttons/menus
+
+    QFile qss(QStringLiteral(":/Resources/Stylesheets/flux-dark.qss"));
+    if ( qss.open(QIODevice::ReadOnly | QIODevice::Text) ) {
+        QString styleSheet = QString::fromUtf8(qss.readAll())
+            .arg(fluxSunken.name())          // %1
+            .arg(fluxBase.name())            // %2
+            .arg(fluxRaised.name())          // %3
+            .arg(fluxSelection.name())       // %4
+            .arg(fluxText.name())            // %5
+            .arg(fluxAltText.name())         // %6
+            .arg(fluxInterp.name())          // %7
+            .arg(fluxKeyframe.name())        // %8
+            .arg(fluxExpr.name())            // %9
+            .arg(fluxTimeline.name())        // %10
+            .arg(fluxHover.name());          // %11
+        qApp->setStyleSheet(styleSheet);
+
+        // Also set the application palette for widgets that don't use QSS
+        QPalette p;
+        p.setColor(QPalette::Window, fluxBase);
+        p.setColor(QPalette::WindowText, fluxText);
+        p.setColor(QPalette::Base, fluxSunken);
+        p.setColor(QPalette::AlternateBase, fluxBase);
+        p.setColor(QPalette::Text, fluxText);
+        p.setColor(QPalette::Button, fluxRaised);
+        p.setColor(QPalette::ButtonText, fluxText);
+        p.setColor(QPalette::BrightText, Qt::white);
+        p.setColor(QPalette::Highlight, fluxSelection);
+        p.setColor(QPalette::HighlightedText, Qt::white);
+        p.setColor(QPalette::ToolTipBase, fluxRaised);
+        p.setColor(QPalette::ToolTipText, fluxText);
+        p.setColor(QPalette::PlaceholderText, fluxAltText);
+        qApp->setPalette(p);
+    }
+} // Gui::loadFluxStyleSheet
 
 void
 Gui::maximize(TabWidget* what)
