@@ -71,31 +71,31 @@ AppManager (singleton, Engine/)
 ## Flux Layout (Target)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ Menu: File | Edit | Composition | Layer | Effects | View    │
-├──────────────────────────────┬──────────────────────────────┤
-│                              │  Effects Stack               │
-│     Viewport                 │  ┌──────────────────────┐    │
-│     (ViewerGL)               │  │ Transform             │    │
-│                              │  │ Blur                  │    │
-│                              │  │ Color Correct         │    │
-│                              │  │ + Add Effect          │    │
-│                              │  └──────────────────────┘    │
-│                              ├──────────────────────────────┤
-│                              │  Properties                  │
-│                              │  (DockablePanel for selected │
-│                              │   effect/layer)              │
-├──────────────────────────────┴──────────────────────────────┤
-│  Timeline                                                   │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │ TimeRuler: |  0   5   10  15  20  25  30  35  40      │ │
-│  ├──────────┬─────────────────────────────────────────────┤ │
-│  │ Controls │ Layer 3: Text "Title"    ████░░░░░░░░░░    │ │
-│  │ ▶ ⏸ ⏹   │ Layer 2: Blur           ████████████░░    │ │
-│  │ 24fps    │ Layer 1: Footage.mov     ████████████████  │ │
-│  └──────────┴─────────────────────────────────────────────┤ │
-│  └────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│ Menu: File | Edit | Composition | Layer | Effects | View           │
+├────────────────┬────────────────────────┬──────────────────────────┤
+│                │                        │  Effects Stack           │
+│  Project Bin   │                        │  ┌────────────────────┐  │
+│  ┌──────────┐  │     Viewport           │  │ Transform          │  │
+│  │ bg.mov   │  │     (ViewerGL)         │  │ Blur               │  │
+│  │ logo.png │  │                        │  │ Color Correct      │  │
+│  │ title.svg│  │                        │  │ + Add Effect       │  │
+│  │          │  │                        │  └────────────────────┘  │
+│  │ Import ▼ │  │                        ├──────────────────────────┤
+│  └──────────┘  │                        │  Properties              │
+│                │                        │  (DockablePanel for      │
+│                │                        │   selected effect/layer) │
+├────────────────┴────────────────────────┴──────────────────────────┤
+│  Timeline                                                          │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │ TimeRuler: |  0   5   10  15  20  25  30  35  40              │ │
+│  ├──────────┬─────────────────────────────────────────────────────┤ │
+│  │ Controls │ Layer 3: Text "Title"    ████░░░░░░░░░░             │ │
+│  │ ▶ ⏸ ⏹   │ Layer 2: Blur           ████████████░░             │ │
+│  │ 24fps    │ Layer 1: Footage.mov     ████████████████           │ │
+│  └──────────┴─────────────────────────────────────────────────────┤ │
+│  └────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -108,7 +108,7 @@ AppManager (singleton, Engine/)
 
 **Approach**:
 - Subclass `Gui` (or replace `setupUi()` via a flag)
-- Create 4 main panel areas: Viewport, Right Panel (Effects + Properties), Timeline, Project
+- Create 4 main panel areas: **Project Bin** (top-left), **Viewport** (top-center), **Right Panel** (Effects + Properties), **Timeline** (bottom)
 - Use existing `TabWidget` and `Splitter` classes for dockable panels
 - Create a new `FluxTimeline` widget (custom QWidget)
 
@@ -226,20 +226,34 @@ AppManager (singleton, Engine/)
 
 ---
 
-### T024: Create Project Panel
+### T024: Create Project Bin (top-left panel)
 
-**Objective**: Panel showing imported files/assets in the project.
+**Objective**: Panel showing imported files/assets in the project. This is the top-left column in the Flux layout — the first thing users see when importing footage.
 
 **Approach**:
-- QTreeView with file items (name, type, resolution, duration)
-- Drag files from file manager to import
-- Double-click to add as a layer to the timeline
-- Thumbnail preview for images/video
+- QWidget with a QListView/QTreeView showing imported assets
+- Each item shows: thumbnail, filename, resolution, duration, framerate, codec
+- **Import**: Drag-and-drop from file manager, or File → Import menu, or "Import" button at bottom
+- **Add to timeline**: Double-click an asset to create a new layer, or drag from Project Bin to Timeline
+- **Thumbnail preview**: Generate thumbnails for images and video (first frame)
+- **Asset info**: Right-click for properties, reveal in file manager, replace footage
+- **Filter/search**: Text filter to find assets by name
+
+**Integration with Engine**:
+- Each imported asset creates a `Node` (ReadOIIO/ReadFFmpeg) but does NOT connect it to the render tree until dragged to timeline
+- The Project Bin is essentially a "library" of available reader nodes
+- When an asset is added to the timeline, the Layer-to-Node Bridge connects the existing reader node into the Merge chain
 
 **Files to create**:
-- `Gui/FluxProjectPanel.h/cpp`
+- `Gui/FluxProjectBin.h/cpp`
+- `Gui/FluxProjectBinModel.h/cpp` (QAbstractItemModel for the asset list)
+- `Gui/FluxProjectBinItem.h/cpp` (individual asset item with metadata)
 
-**Validation**: Files appear in project panel, can be dragged to timeline.
+**Files to modify**:
+- `Gui/Gui.h/cpp` — add FluxProjectBin* member, create in setupFluxUi()
+- `Engine/AppInstance` — hook into project file loading to populate the bin
+
+**Validation**: Import files via drag-and-drop, see thumbnails, double-click to add layer to timeline.
 
 ---
 
@@ -287,14 +301,14 @@ AppManager (singleton, Engine/)
 |---|---|---|---|
 | 1 | T023: Dark Theme | Nothing | 0.5 day |
 | 2 | T019: FluxMainWindow | T023 | 1-2 days |
-| 3 | T025: Flux Menu System | T019 | 0.5 day |
-| 4 | T020: FluxTimeline | T019 | 2-3 days |
-| 5 | T021: Layer-to-Node Bridge | T020 | 2-3 days |
-| 6 | T022: Effects Stack Panel | T021 | 1-2 days |
-| 7 | T024: Project Panel | T019 | 1 day |
+| 3 | T024: Project Bin | T019 | 1-1.5 days |
+| 4 | T025: Flux Menu System | T019 | 0.5 day |
+| 5 | T020: FluxTimeline | T019 | 2-3 days |
+| 6 | T021: Layer-to-Node Bridge | T020, T024 | 2-3 days |
+| 7 | T022: Effects Stack Panel | T021 | 1-2 days |
 | 8 | T026: Integration Test | All above | 1 day |
 
-**Total**: ~9-14 days
+**Total**: ~10-14 days
 
 ---
 
@@ -329,7 +343,9 @@ AppManager (singleton, Engine/)
 | `FluxPlaybackControls.h/cpp` | Play/pause/stop controls |
 | `FluxEffectsPanel.h/cpp` | Effects stack per layer |
 | `FluxEffectPickerDialog.h/cpp` | Effect browser/picker |
-| `FluxProjectPanel.h/cpp` | Project file tree |
+| `FluxProjectBin.h/cpp` | Project Bin (imported assets with thumbnails) |
+| `FluxProjectBinModel.h/cpp` | Data model for Project Bin asset list |
+| `FluxProjectBinItem.h/cpp` | Individual asset item with metadata |
 
 ### New Files (in `Engine/`)
 
@@ -342,7 +358,7 @@ AppManager (singleton, Engine/)
 
 | File | Change |
 |---|---|
-| `Gui/Gui.h` | Add `setupFluxUi()`, `FluxTimeline*`, `FluxEffectsPanel*`, etc. |
+| `Gui/Gui.h` | Add `setupFluxUi()`, `FluxTimeline*`, `FluxEffectsPanel*`, `FluxProjectBin*`, etc. |
 | `Gui/Gui.cpp` | Conditional `setupUi()` → `setupFluxUi()` |
 | `Gui/Gui05.cpp` | New `setupFluxUi()` implementation |
 | `Gui/GuiApplicationManager.cpp` | Load Flux stylesheet, set Flux mode |
