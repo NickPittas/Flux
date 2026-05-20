@@ -1,6 +1,6 @@
 # Flux — Master Task List
 
-Last updated: 2026-05-20 (T023 done, T019 next)
+Last updated: 2026-05-20 (T019 done, T020/T022/T024 merged into T019)
 
 ## Active Phase: P2 (UI Shell)
 
@@ -41,12 +41,12 @@ Last updated: 2026-05-20 (T023 done, T019 next)
 
 | ID | Task | Status | Assigned | Started | Completed | File |
 |---|---|---|---|---|---|---|
-| T019 | Create FluxMainWindow (new layout) | PENDING | — | — | — | Gui/FluxMainWindow.* |
-| T020 | Create FluxTimeline widget | PENDING | — | — | — | Gui/FluxTimeline.* |
+| T019 | Create FluxMainWindow (new layout) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/Gui05.cpp, Flux*.{h,cpp} |
+| T020 | Create FluxTimeline widget | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxTimeline.{h,cpp} (merged into T019) |
 | T021 | Create Layer-to-Node Bridge | PENDING | — | — | — | Engine/FluxLayerBridge.* |
-| T022 | Create Effects Stack Panel | PENDING | — | — | — | Gui/FluxEffectsPanel.* |
+| T022 | Create Effects Stack Panel | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxEffectsPanel.{h,cpp} (merged into T019) |
 | T023 | Create Dark Theme (After Effects-inspired) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/Gui20.cpp (mainstyle.qss + Flux colors) |
-| T024 | Create Project Panel | PENDING | — | — | — | Gui/FluxProjectPanel.* |
+| T024 | Create Project Bin | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxProjectBin.{h,cpp} (merged into T019) |
 | T025 | Create Flux Menu System | PENDING | — | — | — | Gui/Gui.cpp |
 | T026 | Integration Test (end-to-end) | PENDING | — | — | — | — |
 
