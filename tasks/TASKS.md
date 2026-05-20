@@ -21,7 +21,7 @@ Last updated: 2026-05-20 (T006 done, P0 complete)
 
 | ID | Task | Status | Assigned | Started | Completed | File |
 |---|---|---|---|---|---|---|
-| T007 | Install Natron build dependencies on Linux | PENDING | — | — | — | — |
+| T007 | Install Natron build dependencies on Linux | DONE | forge | 2026-05-20 | 2026-05-20 | — |
 | T008 | Build Natron RB-2.6 from source | PENDING | — | — | — | — |
 | T009 | Run Natron GUI, verify it works | PENDING | — | — | — | — |
 | T010 | Build Engine/ as shared library (strip Gui/) | PENDING | — | — | — | — |
