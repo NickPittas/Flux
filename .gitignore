@@ -301,3 +301,9 @@ moc_predefs.h
 # shiboken-generated files
 Engine/Qt5
 Gui/Qt5
+# OpenFX plugin source repos (built separately)
+openfx-io/
+openfx-misc/
+
+# Built plugins
+plugins/
