@@ -49,6 +49,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/RegisteredTabs.h"
 #include "Gui/GuiFwd.h"
 #include "Gui/LogWindow.h"
+#include "Engine/EngineFwd.h"
 
 
 #define kPropertiesBinName "properties"
@@ -301,6 +302,9 @@ public:
     class FluxProjectBin* _fluxProjectBin;
     class FluxTimeline* _fluxTimeline;
     class FluxEffectsPanel* _fluxEffectsPanel;
+
+    // Flux compositing graph - Merge nodes for layer compositing
+    std::list<NodePtr> _fluxMergeNodes;
 };
 
 NATRON_NAMESPACE_EXIT

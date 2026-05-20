@@ -13,6 +13,12 @@
 
 #include "Global/Macros.h"
 
+#include "Engine/Node.h"
+#include "Engine/NodeGroup.h"
+#include "Engine/Plugin.h"
+#include "Engine/Project.h"
+#include "Engine/AppInstance.h"
+
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QWidget>
@@ -47,6 +53,7 @@ struct FluxLayer {
     QColor color;        // layer bar color
 
     QString readerNodeId; // Natron node ID for the reader (set after node creation)
+    NodePtr readerNode;   // Actual Natron node pointer (set after node creation)
 
     FluxLayer()
         : type(QString::fromUtf8("footage"))
@@ -101,6 +108,9 @@ public:
     /** @brief Stop playback. */
     void stop();
 
+    /** @brief Set the reader NodePtr for a layer (called after node creation). */
+    void setLayerReaderNode(int index, const NodePtr& node);
+
 Q_SIGNALS:
 
     /** @brief Emitted when the playhead moves. */
@@ -142,6 +152,11 @@ protected:
     virtual void dragEnterEvent(QDragEnterEvent* event) OVERRIDE;
     virtual void dragMoveEvent(QDragMoveEvent* event) OVERRIDE;
     virtual void dropEvent(QDropEvent* event) OVERRIDE;
+
+    /** @brief Rebuild the compositing graph: create Merge chain and connect viewer. */
+    void rebuildCompositingGraph();
+
+    // getGui() inherited from PanelWidget
 
 private:
 
@@ -203,6 +218,9 @@ private:
 
     // Shared app timeline for playhead sync
     TimeLinePtr _timeline;
+
+    // Compositing graph
+    QList<NodePtr> _mergeNodes; // Merge nodes in the chain
 };
 
 NATRON_NAMESPACE_EXIT

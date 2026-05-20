@@ -46,6 +46,7 @@
 #include "Engine/Project.h"
 #include "Engine/TimeLine.h"
 #include "Engine/CreateNodeArgs.h"
+#include "Engine/ViewerInstance.h"
 
 #include "Gui/AboutWindow.h"
 #include "Gui/AutoHideToolBar.h"
@@ -547,13 +548,16 @@ Gui::setupFluxUi()
 
     // 2. Timeline: layerAddedFromDrop → create reader node for dropped file
     QObject::connect(timeline, &FluxTimeline::layerAddedFromDrop, this,
-                     [this](QString filePath, int /*row*/, int /*inFrame*/) {
+                     [this, timeline](QString filePath, int row, int /*inFrame*/) {
                          if (!getApp()) {
                              return;
                          }
                          NodeCollectionPtr collection = std::dynamic_pointer_cast<NodeCollection>(getApp()->getProject());
                          CreateNodeArgs args(PLUGINID_NATRON_READ, collection);
-                         getApp()->createReader(filePath.toStdString(), args);
+                         NodePtr reader = getApp()->createReader(filePath.toStdString(), args);
+                         if (reader) {
+                             timeline->setLayerReaderNode(row, reader);
+                         }
                      });
 
     // 3. Timeline: layerSelected → Effects Panel setActiveLayer (with layer name lookup)
@@ -578,10 +582,10 @@ Gui::setupFluxUi()
                          getApp()->createNode(args);
                      });
 
-    // 5. Timeline: compositingChanged → rebuild Merge node chain (placeholder)
+    // 5. Timeline: compositingChanged → rebuild Merge node chain + connect viewer
     QObject::connect(timeline, &FluxTimeline::compositingChanged, this,
-                     []() {
-                         qDebug() << "FLUX: compositingChanged signal received — Merge rebuild goes here";
+                     [this, timeline]() {
+                         rebuildCompositingGraph(timeline);
                      });
 
     // Store references to Flux widgets for later access
@@ -591,5 +595,110 @@ Gui::setupFluxUi()
 
     fprintf(stderr, "FLUX: Layout created successfully\n");
 } // Gui::setupFluxUi
+
+void
+Gui::rebuildCompositingGraph(FluxTimeline* timeline)
+{
+    if (!getApp() || !timeline) {
+        return;
+    }
+
+    const QList<FluxLayer>& layers = timeline->getLayers();
+    if (layers.isEmpty()) {
+        return;
+    }
+
+    // Find the first viewer
+    ViewerTab* viewerTab = nullptr;
+    {
+        QMutexLocker l(&_imp->_viewerTabsMutex);
+        if (!_imp->_viewerTabs.empty()) {
+            viewerTab = _imp->_viewerTabs.front();
+        }
+    }
+
+    NodeCollectionPtr collection = std::dynamic_pointer_cast<NodeCollection>(getApp()->getProject());
+    if (!collection) {
+        return;
+    }
+
+    // For a single layer, connect it directly to the viewer
+    if (layers.size() == 1) {
+        std::string readerName = layers[0].readerNodeId.toStdString();
+        NodePtr reader = getApp()->getNodeByFullySpecifiedName(readerName);
+        if (reader && viewerTab) {
+            NodePtr viewerNode = viewerTab->getInternalNode()->getNode();
+            if (viewerNode) {
+                viewerNode->disconnectInput(0);
+                viewerNode->connectInput(reader, 0);
+            }
+        }
+        return;
+    }
+
+    // Multiple layers: create a chain of Merge nodes
+    // Bottom layer (index 0) = background
+    // Each subsequent layer composites on top
+    // Layer[N] → Merge[N-1].A, Merge[N-2].output → Merge[N-1].B
+
+    // Clean up old merge nodes
+    for (NodePtr node : _imp->_fluxMergeNodes) {
+        if (node) {
+            node->deactivate(std::list<NodePtr>(), false, true);
+        }
+    }
+    _imp->_fluxMergeNodes.clear();
+
+    NodePtr lastOutput;
+
+    for (int i = 0; i < layers.size(); ++i) {
+        std::string readerName = layers[i].readerNodeId.toStdString();
+        NodePtr reader = getApp()->getNodeByFullySpecifiedName(readerName);
+        if (!reader) {
+            continue;
+        }
+
+        if (i == 0) {
+            // First layer is the background — just remember it
+            lastOutput = reader;
+            continue;
+        }
+
+        // Create a Merge node for this layer
+        CreateNodeArgs mergeArgs("net.sf.openfx.MergePlugin", collection);
+        NodePtr mergeNode = getApp()->createNode(mergeArgs);
+        if (!mergeNode) {
+            // Fallback: try the Natron built-in merge
+            CreateNodeArgs mergeArgs2(PLUGINID_OFX_MERGE, collection);
+            mergeNode = getApp()->createNode(mergeArgs2);
+        }
+        if (!mergeNode) {
+            continue;
+        }
+
+        _imp->_fluxMergeNodes.push_back(mergeNode);
+
+        // Connect: A input (index 0) = current layer (foreground)
+        //          B input (index 1) = previous output (background)
+        mergeNode->connectInput(reader, 0);   // A = foreground
+        if (lastOutput) {
+            mergeNode->connectInput(lastOutput, 1); // B = background
+        }
+
+        lastOutput = mergeNode;
+    }
+
+    // Connect the final Merge output to the viewer
+    if (lastOutput && viewerTab) {
+        NodePtr viewerNode = viewerTab->getInternalNode()->getNode();
+        if (viewerNode) {
+            viewerNode->disconnectInput(0);
+            viewerNode->connectInput(lastOutput, 0);
+        }
+    }
+
+    fprintf(stderr, "FLUX: Compositing graph rebuilt with %d layers, %d merge nodes\n",
+            (int)layers.size(), (int)_imp->_fluxMergeNodes.size());
+}
 
 NATRON_NAMESPACE_EXIT

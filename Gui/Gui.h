@@ -700,6 +700,8 @@ private:
 
     void setupFluxUi();
 
+    void rebuildCompositingGraph(class FluxTimeline* timeline);
+
     void wipeLayout();
 
     void createDefaultLayoutInternal(bool wipePrevious);

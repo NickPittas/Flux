@@ -250,6 +250,7 @@ GuiPrivate::GuiPrivate(const GuiAppInstancePtr& app,
     , _fluxProjectBin(0)
     , _fluxTimeline(0)
     , _fluxEffectsPanel(0)
+    , _fluxMergeNodes()
 {
 }
 

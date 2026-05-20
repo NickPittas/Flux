@@ -908,4 +908,13 @@ FluxTimeline::dropEvent(QDropEvent* event)
     event->acceptProposedAction();
 }
 
+void
+FluxTimeline::setLayerReaderNode(int layerIndex,
+                                 const NodePtr& node)
+{
+    if (layerIndex >= 0 && layerIndex < _layers.size()) {
+        _layers[layerIndex].readerNode = node;
+    }
+}
+
 NATRON_NAMESPACE_EXIT
