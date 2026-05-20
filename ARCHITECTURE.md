@@ -11,23 +11,45 @@
 
 ---
 
-## Tech Stack
+## Tech Stack (Validated)
 
-| Layer | Technology | Rationale |
+| Layer | Technology | Version (Validated) | Status |
+|---|---|---|---|
+| **UI Framework** | Qt6 | 6.11.1 | Working (Wayland via xcb compat) |
+| **Render Engine** | Natron Engine (C++17) | gui-sbk6 branch | Building, all targets compile |
+| **GPU Pipeline** | OpenGL (via Natron ViewerGL) | 4.6 (NVIDIA RTX 4090) | Working |
+| **Video I/O** | FFmpeg (via OpenFX-IO ReadFFmpeg) | FFmpeg 7.x | Validated with mov, mp4 |
+| **Image I/O** | OpenImageIO (via OpenFX-IO ReadOIIO) | 3.1.12 | Validated with jpg, png |
+| **Color Management** | OpenColorIO (integrated in Natron) | 2.4.2 | Validated with Nuke OCIO config |
+| **Plugin System** | OpenFX 1.4 (hosted by Natron) | — | IO.ofx + Misc.ofx built and installed |
+| **Animation** | Natron Curve/Keyframe system | — | Available |
+| **Rotoscoping** | Natron RotoContext | — | Available |
+| **Tracking** | Natron TrackerContext + openMVG | — | Available |
+| **Serialization** | Natron XML project format (.ntp) | — | Working |
+| **Build System** | CMake | 4.3 | Working |
+| **Scripting** | Python 3 (via Natron's Python integration) | 3.14 | Working (PyConfig API fix applied) |
+| **Compiler** | GCC | 16.1 | Working |
+| **OS** | Fedora 44, KDE Plasma, Wayland | — | Working |
+
+### Build Environment
+
+- **OS**: Fedora 44, KDE Plasma, Wayland (not X11)
+- **GPU**: NVIDIA RTX 4090, driver 595.71.05, OpenGL 4.6
+- **Qt**: Qt6 6.11.1 (Qt5 not used — PySide2 unavailable for Python 3.14)
+- **Python**: 3.14 (system default), PySide6 + Shiboken6 from Fedora repos
+- **Natron base**: `gui-sbk6` branch (has Qt6 fixes, QRegExp→QRegularExpression, Shiboken6 adaptation)
+
+### P1 Validation Results (2026-05-20)
+
+| Capability | Status | Evidence |
 |---|---|---|
-| **UI Framework** | Qt5 (5.15+) or Qt6 (6.3+) | Native to Natron Engine, eliminates IPC bottleneck, dockable panels, OpenGL widgets |
-| **Render Engine** | Natron Engine (C++17) | Battle-tested: 32-bit float pipeline, OCIO, OIIO, FFmpeg, OpenFX, cache, animation |
-| **GPU Pipeline** | OpenGL (via Natron's existing GL pipeline) | Already working in Natron. Future: Vulkan migration if needed |
-| **Video I/O** | FFmpeg (via OpenFX-IO ReadFFmpeg/WriteFFmpeg) | mov, mp4, mxf, ProRes, H264, H265 |
-| **Image I/O** | OpenImageIO (via OpenFX-IO ReadOIIO/WriteOIIO) | EXR, TIFF (8/16/32-bit), PNG, JPEG, PSD, DPX |
-| **Color Management** | OpenColorIO (integrated in Natron) | Industry-standard, GPU shader generation, ACES support |
-| **Plugin System** | OpenFX 1.4 (hosted by Natron) | Access to existing plugin ecosystem (openfx-misc, openfx-arena, openfx-gmic, commercial) |
-| **Animation** | Natron Curve/Keyframe system | Keyframes, Bezier interpolation, expressions (Python) |
-| **Rotoscoping** | Natron RotoContext | Bezier shapes, feathering, motion blur |
-| **Tracking** | Natron TrackerContext + openMVG | Point tracking, planar tracking |
-| **Serialization** | Natron XML project format | Human-readable, diffable |
-| **Build System** | CMake 3.16.7+ | Matches Natron build system |
-| **Scripting** | Python 3 (via Natron's Python integration) | Expressions, automation, plugin scripting |
+| Natron builds from source | Validated | All targets: NatronEngine, NatronGui, Natron, NatronRenderer |
+| GUI launches on Wayland | Validated | Via xcb compat + OpenGL 4.6 |
+| Image import (jpg, png) | Validated | ReadOIIO via OpenFX-IO plugin |
+| Video import (mov, mp4) | Validated | ReadFFmpeg via OpenFX-IO plugin |
+| OCIO color management | Validated | Working with Nuke OCIO config from /opt/Nuke |
+| OpenFX effects | Validated | Misc.ofx: Merge, Transform, ColorCorrect, Grade, Roto, Shuffle, etc. |
+| Plugin installation | Validated | /usr/OFX/Plugins/ standard path |
 
 ---
 
@@ -41,7 +63,7 @@
 
 ### ADR-002: Fork Natron
 - **Date**: 2026-05-20
-- **Decision**: Fork Natron RB-2.6 under GPL2 rather than building from scratch
+- **Decision**: Fork Natron (gui-sbk6 branch) under GPL2 rather than building from scratch
 - **Rationale**: Natron provides years of proven engine code. Building from scratch would take months before rendering a single frame.
 - **Consequence**: GPL2 license. Inherited codebase has C++98 heritage (now C++17).
 
@@ -49,6 +71,12 @@
 - **Date**: 2026-05-20
 - **Decision**: Primary UI is a layer-based timeline (After Effects paradigm). Node graph is secondary.
 - **Rationale**: Motion graphics requires a timeline, not a node graph. Layers are UI abstractions over Natron nodes internally.
+
+### ADR-004: gui-sbk6 branch over RB-2.6
+- **Date**: 2026-05-20
+- **Decision**: Base Flux on the `gui-sbk6` branch instead of RB-2.6 or RB-2.7
+- **Rationale**: RB-2.6 lacks Qt6 support. RB-2.7 has partial Qt6 support but misses QRegExp→QRegularExpression substitution and other fixes. The `gui-sbk6` branch has complete Qt6 adaptation including Shiboken6 support.
+- **Consequence**: We carry 3 extra patches on top of gui-sbk6 (Shiboken --clang-option, qhttpserver Q_PROPERTY fix, NodeGroup char16_t cast).
 
 ---
 
@@ -133,7 +161,7 @@ Layer 1: "BG" (Footage.mov)   ->   ReadFFmpeg
 - **Trim** = time range parameters on reader nodes
 - **Precomps** = Natron Group nodes
 
-The Layer-to-Node bridge is the core new code in Flux. It translates timeline operations into Natron node graph operations.
+The Layer-to-Node bridge (`Engine/FluxLayerBridge`) is the core new code in Flux. It translates timeline operations into Natron node graph operations.
 
 ---
 
@@ -142,42 +170,56 @@ The Layer-to-Node bridge is the core new code in Flux. It translates timeline op
 | Capability | Natron Component | Status |
 |---|---|---|
 | 32-bit float rendering pipeline | Engine/ | Battle-tested |
-| OCIO color management | Engine/ + Settings | Full integration |
-| Image I/O (EXR, TIFF, PSD, etc.) | OpenFX-IO (ReadOIIO) | Production-grade |
-| Video I/O (mov, mp4, mxf) | OpenFX-IO (ReadFFmpeg) | Production-grade |
-| OpenFX plugin host | Engine/ + HostSupport/ | OFX 1.4 compliant |
-| RAM + Disk cache | Engine/Cache | LRU, tiled, multi-threaded |
-| Keyframe animation | Engine/Curve, Engine/Knob | Full Bezier interpolation |
-| Rotoscoping | Engine/RotoContext | Bezier shapes, feathering |
-| Tracking | Engine/TrackerContext | Point + planar tracking |
-| Python scripting | Engine/ Python integration | Expressions, plugins |
-| Multi-threaded rendering | Engine/ ThreadPool | Production-grade |
-| Headless rendering | Renderer/ | CLI batch rendering |
-| Crash reporting | BreakpadClient/ | Separate process safety |
+| OCIO color management | Engine/ + Settings | Validated |
+| Image I/O (EXR, TIFF, PSD, etc.) | OpenFX-IO (ReadOIIO) | Validated |
+| Video I/O (mov, mp4, mxf) | OpenFX-IO (ReadFFmpeg) | Validated |
+| OpenFX plugin host | Engine/ + HostSupport/ | Validated |
+| RAM + Disk cache | Engine/Cache | Available |
+| Keyframe animation | Engine/Curve, Engine/Knob | Available |
+| Rotoscoping | Engine/RotoContext | Available |
+| Tracking | Engine/TrackerContext | Available |
+| Python scripting | Engine/ Python integration | Working |
+| Multi-threaded rendering | Engine/ ThreadPool | Available |
+| Headless rendering | Renderer/ | Available |
+| Crash reporting | BreakpadClient/ | Available |
 
 ---
 
 ## What Flux Builds New
 
-| Component | Description | Complexity |
-|---|---|---|
-| **Flux Application Shell** | New main window, menu bar, panel management | Medium |
-| **Timeline Panel** | Layer-based timeline widget | High |
-| **Layer-to-Node Bridge** | Translates timeline ops to node graph ops | High |
-| **Effects Stack Panel** | Per-layer effect list (vertical stack) | Medium |
-| **Properties Panel** | Per-effect parameter inspector | Medium (reuse Natron Knob UI) |
-| **Dark Theme** | Qt stylesheet, After AE-inspired | Low |
-| **Shape Layers** | Rect, ellipse, star, bezier | Medium |
-| **Text Layers** | Text rendering with animation | High |
-| **Export Templates** | Saveable export configurations | Low |
-| **Improved Cache** | Persistent disk cache, background rendering | Medium |
+| Component | Description | Phase | Status |
+|---|---|---|---|
+| **FluxMainWindow** | New layout: Viewport + Right Panel + Timeline | P2 | Planned |
+| **FluxTimeline** | Layer-based timeline widget | P2/P3 | Planned |
+| **FluxLayerBridge** | Layer-to-Node translation engine | P2/P3 | Planned |
+| **FluxEffectsPanel** | Per-layer effect stack UI | P2 | Planned |
+| **FluxProjectPanel** | Project file tree | P2 | Planned |
+| **Dark Theme** | Qt stylesheet, After Effects-inspired | P2 | Planned |
+| **Flux Menu System** | Composition-focused menus | P2 | Planned |
+| **Shape Layers** | Rect, ellipse, star, bezier | P6 | Planned |
+| **Text Layers** | Text rendering with animation | P6 | Planned |
+| **Export Templates** | Saveable export configurations | P5 | Planned |
+| **Improved Cache** | Persistent disk cache, background rendering | P7 | Planned |
+
+### Natron GUI Components We Keep
+
+| Component | Reason |
+|---|---|
+| `TabWidget` | Dockable panel container — works well |
+| `Splitter` | Panel resizing — works well |
+| `ViewerGL` (QOpenGLWidget) | OpenGL frame rendering — works well |
+| `ViewerTab` | Viewer panel controls — restyle only |
+| `DockablePanel` | Knob parameter UI — works well |
+| `CurveEditor` | Keyframe curve editing — works well |
+| `DopeSheet` | Timeline keyframe view — works well |
+| `NodeGraph` (QGraphicsView) | Hidden tab for power users |
 
 ---
 
-## Repository Structure (Flux Fork of Natron RB-2.6)
+## Repository Structure
 
 ```
-flux/                              <- Forked from NatronGitHub/Natron (RB-2.6)
+flux/                              <- Forked from NatronGitHub/Natron (gui-sbk6 branch)
 ├── Engine/                        <- KEEP: Core rendering engine (329 files)
 ├── Global/                        <- KEEP: Shared utilities (32 files)
 ├── HostSupport/                   <- KEEP: OpenFX host (3 files)
@@ -188,16 +230,37 @@ flux/                              <- Forked from NatronGitHub/Natron (RB-2.6)
 ├── Tests/                         <- KEEP: Existing test suite
 ├── Documentation/                 <- KEEP: Natron docs (reference)
 ├── PythonBin/                     <- KEEP: Python scripting support
-├── Gui/                           <- REDESIGN: Flux UI replaces Natron Qt widgets (745 files)
-├── App/                           <- REDESIGN: Flux application shell
-├── Shiboken/                      <- EVALUATE: Python bindings generator
+├── Gui/                           <- EXTEND: Flux UI added, Natron widgets kept
+│   ├── (existing Natron GUI)      <- KEPT: TabWidget, ViewerGL, DockablePanel, etc.
+│   ├── FluxTimeline.h/cpp         <- NEW: Layer-based timeline
+│   ├── FluxTimeRuler.h/cpp        <- NEW: Time ruler with playhead
+│   ├── FluxLayerRow.h/cpp         <- NEW: Single layer row
+│   ├── FluxPlaybackControls.h/cpp <- NEW: Play/pause/stop controls
+│   ├── FluxEffectsPanel.h/cpp     <- NEW: Effects stack per layer
+│   ├── FluxEffectPickerDialog.h/cpp <- NEW: Effect browser
+│   └── FluxProjectPanel.h/cpp     <- NEW: Project file tree
+├── Engine/
+│   ├── (existing Natron Engine)   <- KEPT: All rendering, caching, I/O
+│   ├── FluxLayerBridge.h/cpp      <- NEW: Layer-to-Node translation
+│   └── FluxLayer.h/cpp            <- NEW: Layer data model
+├── App/                           <- EXTEND: Flux mode flag in main window
+├── Shiboken/                      <- KEEP: Python bindings generator
+├── Resources/
+│   └── themes/
+│       └── flux-dark.qss          <- NEW: Dark theme stylesheet
+├── openfx-io/                     <- EXTERNAL: Built separately, installed to /usr/OFX/Plugins/
+├── openfx-misc/                   <- EXTERNAL: Built separately, installed to /usr/OFX/Plugins/
 │
 ├── ARCHITECTURE.md                <- This file
 ├── AGENTS.md                      <- Project-specific agent guidelines
 ├── plans/                         <- Phase plans and status
 │   ├── PHASES.md                  <- Phase overview
-│   └── phase-1.md                 <- Detailed phase 1 plan
-├── tasks/                         <- Task tracking
+│   ├── phase-1.md                 <- P1 plan (completed)
+│   ├── phase-2.md                 <- P2 plan (current)
+│   ├── 2026-05-20-engine-node-system-1.0.md      <- Engine API: nodes, signals
+│   ├── 2026-05-20-engine-rendering-cache-1.0.md  <- Engine API: rendering, cache
+│   └── 2026-05-20-engine-params-serialization-1.0.md <- Engine API: knobs, serialization
+├── tasks/
 │   └── TASKS.md                   <- Master task list
 └── CMakeLists.txt                 <- Modified Natron root CMake
 ```
@@ -206,16 +269,61 @@ flux/                              <- Forked from NatronGitHub/Natron (RB-2.6)
 
 ## Build Phases
 
-| Phase | Deliverable | Est. Duration | Key Validation |
-|---|---|---|---|
-| **P0: Setup** | Project infrastructure, plans, tasks | 1 day | All tracking files created |
-| **P1: Fork & Build** | Natron builds, engine validated | 3-5 days | Real images/videos imported, OCIO tested, cache tested |
-| **P2: UI Shell** | Flux app shell, dockable panels, viewport | 1-2 weeks | Frame displays in viewport |
-| **P3: Timeline** | Layer-based timeline, Layer-to-Node bridge | 2-3 weeks | Layers drive node graph, playback works |
-| **P4: Effects + Properties** | Effects stack, property inspector | 1-2 weeks | Effects applied per-layer, parameters editable |
-| **P5: Import/Export** | File browser, export dialog | 1 week | All formats work end-to-end |
-| **P6: Shapes + Text** | Shape/text layer types | 2-3 weeks | Shapes render, text renders, both animatable |
-| **P7: Polish + Cache** | Improved cache, undo/redo, performance | 2-3 weeks | 1080p 5-layer real-time target met |
+| Phase | Deliverable | Est. Duration | Status | Key Validation |
+|---|---|---|---|---|
+| **P0: Setup** | Project infrastructure, plans, tasks | 1 day | DONE | All tracking files created |
+| **P1: Fork & Build** | Natron builds, engine validated | 1 day | DONE | Real images/videos imported, OCIO tested |
+| **P2: UI Shell** | Flux app shell, dark theme, panels, timeline | 2-3 weeks | IN_PROGRESS | Flux layout with layer timeline |
+| **P3: Timeline** | Layer-to-Node bridge, playback | 2-3 weeks | PENDING | Layers drive node graph |
+| **P4: Effects + Properties** | Effects stack, property inspector | 1-2 weeks | PENDING | Effects applied per-layer |
+| **P5: Import/Export** | File browser, export dialog | 1 week | PENDING | All formats work end-to-end |
+| **P6: Shapes + Text** | Shape/text layer types | 2-3 weeks | PENDING | Shapes and text render |
+| **P7: Polish + Cache** | Improved cache, undo/redo, performance | 2-3 weeks | PENDING | 1080p 5-layer real-time target |
+
+### P2 Tasks (Current)
+
+| ID | Task | Est. Time |
+|---|---|---|
+| T023 | Dark Theme (flux-dark.qss) | 0.5 day |
+| T019 | FluxMainWindow (new layout) | 1-2 days |
+| T025 | Flux Menu System | 0.5 day |
+| T020 | FluxTimeline widget | 2-3 days |
+| T021 | Layer-to-Node Bridge | 2-3 days |
+| T022 | Effects Stack Panel | 1-2 days |
+| T024 | Project Panel | 1 day |
+| T026 | Integration Test | 1 day |
+
+---
+
+## Flux UI Layout (Target)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Menu: File | Edit | Composition | Layer | Effects | View    │
+├──────────────────────────────┬──────────────────────────────┤
+│                              │  Effects Stack               │
+│     Viewport                 │  ┌──────────────────────┐    │
+│     (ViewerGL)               │  │ Transform             │    │
+│                              │  │ Blur                  │    │
+│                              │  │ Color Correct         │    │
+│                              │  │ + Add Effect          │    │
+│                              │  └──────────────────────┘    │
+│                              ├──────────────────────────────┤
+│                              │  Properties                  │
+│                              │  (DockablePanel for selected │
+│                              │   effect/layer)              │
+├──────────────────────────────┴──────────────────────────────┤
+│  Timeline                                                   │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ TimeRuler: |  0   5   10  15  20  25  30  35  40      │ │
+│  ├──────────┬─────────────────────────────────────────────┤ │
+│  │ Controls │ Layer 3: Text "Title"    ████░░░░░░░░░░    │ │
+│  │ ▶ ⏸ ⏹   │ Layer 2: Blur           ████████████░░    │ │
+│  │ 24fps    │ Layer 1: Footage.mov     ████████████████  │ │
+│  └──────────┴─────────────────────────────────────────────┤ │
+│  └────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -251,10 +359,13 @@ Natron already achieves this for compositing workloads. Flux adds minimal overhe
 
 ## Notes for Development
 
-- **Platform:** Linux-first. Cross-platform is a bonus.
+- **Platform:** Linux-first (Fedora 44, Wayland). Cross-platform is a bonus.
+- **Wayland:** Natron runs via xcb compat layer. Native Wayland support depends on Qt6 Wayland EGL fixing its GLES default (Natron uses desktop GLSL).
 - **No .aep support:** Clean break from After Effects.
-- **Qt dependency:** Accepted. Qt Core + Widgets + OpenGL is ~30MB. Worth it for native engine integration.
+- **Qt dependency:** Accepted. Qt6 Core + Widgets + OpenGL + Wayland is required.
 - **Testing:** Every feature validated with real-world artifacts (images, videos). No feature is "done" until tested.
 - **Task tracking:** All tasks in `tasks/TASKS.md`. All phases in `plans/PHASES.md`.
 - **Code review:** Every implementation reviewed before marking complete.
 - **500-line max per file:** Carry this forward for new code.
+- **OpenFX plugins:** Built separately from main Natron build. Installed to `/usr/OFX/Plugins/`.
+- **Run command:** `QT_PLUGIN_PATH=/usr/lib64/qt6/plugins QT_QPA_PLATFORM=xcb /path/to/Natron`
