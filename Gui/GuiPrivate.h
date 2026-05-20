@@ -294,6 +294,13 @@ public:
 
     ///True= yes overwrite
     bool checkProjectLockAndWarn(const QString& projectPath, const QString& projectName);
+
+    // ====================================================================
+    // Flux-specific widgets
+    // ====================================================================
+    class FluxProjectBin* _fluxProjectBin;
+    class FluxTimeline* _fluxTimeline;
+    class FluxEffectsPanel* _fluxEffectsPanel;
 };
 
 NATRON_NAMESPACE_EXIT

@@ -247,6 +247,9 @@ GuiPrivate::GuiPrivate(const GuiAppInstancePtr& app,
     , keyPressEventHasVisitedFocusWidget(false)
     , keyUpEventHasVisitedFocusWidget(false)
     , applicationConsoleVisible(true)
+    , _fluxProjectBin(0)
+    , _fluxTimeline(0)
+    , _fluxEffectsPanel(0)
 {
 }
 

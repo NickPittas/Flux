@@ -63,6 +63,12 @@
 #include "Gui/TabWidget.h"
 #include "Gui/ViewerTab.h"
 
+#include "Gui/FluxProjectBin.h"
+#include "Gui/FluxTimeline.h"
+#include "Gui/FluxEffectsPanel.h"
+#include "Gui/DopeSheetEditor.h"
+#include "Gui/PropertiesBinWrapper.h"
+
 
 NATRON_NAMESPACE_ENTER
 
@@ -134,7 +140,11 @@ Gui::setupUi()
     _imp->_errorLog = new LogWindow(0);
     _imp->_errorLog->hide();
 
-    createDefaultLayoutInternal(false);
+    if (sFluxMode) {
+        setupFluxUi();
+    } else {
+        createDefaultLayoutInternal(false);
+    }
 
 
     initProjectGuiKnobs();
@@ -400,5 +410,123 @@ Gui::wipeLayout()
         _imp->_splitters.push_back(newSplitter);
     }
 } // Gui::wipeLayout
+
+void
+Gui::setupFluxUi()
+{
+    // ====================================================================
+    // Flux Layout:
+    //   Top row:    Project Bin (20%) | Viewport (50%) | Effects+Properties (30%)
+    //   Bottom row: Timeline (with Node Graph / Curve Editor / Dope Sheet as tabs)
+    // ====================================================================
+
+    // ====================================================================
+    // TOP-CENTER: Main pane (will hold viewers)
+    // ====================================================================
+    TabWidget* mainPane = new TabWidget(this, _imp->_leftRightSplitter);
+    {
+        QMutexLocker l(&_imp->_panesMutex);
+        _imp->_panes.push_back(mainPane);
+    }
+    mainPane->setObjectName_mt_safe( QString::fromUtf8("fluxMainPane") );
+    mainPane->setAsAnchor(true);
+
+    // ====================================================================
+    // TOP-RIGHT: Properties pane (split horizontally from main)
+    // ====================================================================
+    TabWidget* propertiesPane = mainPane->splitHorizontally(false);
+    propertiesPane->setObjectName_mt_safe( QString::fromUtf8("fluxPropertiesPane") );
+
+    // ====================================================================
+    // BOTTOM: Workshop pane (split vertically from main)
+    // ====================================================================
+    TabWidget* workshopPane = mainPane->splitVertically(false);
+    workshopPane->setObjectName_mt_safe( QString::fromUtf8("fluxWorkshopPane") );
+
+    // ====================================================================
+    // TOP-LEFT: Project Bin (split horizontally from main, left side)
+    // ====================================================================
+    TabWidget* projectBinPane = mainPane->splitHorizontally(false);
+    projectBinPane->setObjectName_mt_safe( QString::fromUtf8("fluxProjectBinPane") );
+
+    // Create and add FluxProjectBin widget
+    FluxProjectBin* projectBin = new FluxProjectBin(this);
+    TabWidget::moveTab(projectBin, projectBin, projectBinPane);
+
+    // ====================================================================
+    // Populate workshop pane (bottom)
+    // ====================================================================
+    // Flux Timeline as the primary tab
+    FluxTimeline* timeline = new FluxTimeline(this);
+    TabWidget::moveTab(timeline, timeline, workshopPane);
+
+    // Node Graph, Curve Editor, Dope Sheet as additional tabs (power users)
+    if (_imp->_nodeGraphArea) {
+        TabWidget::moveTab(_imp->_nodeGraphArea, _imp->_nodeGraphArea, workshopPane);
+    }
+    if (_imp->_curveEditor) {
+        TabWidget::moveTab(_imp->_curveEditor, _imp->_curveEditor, workshopPane);
+    }
+    if (_imp->_dopeSheetEditor) {
+        TabWidget::moveTab(_imp->_dopeSheetEditor, _imp->_dopeSheetEditor, workshopPane);
+    }
+
+    // ====================================================================
+    // Populate properties pane (top-right)
+    // ====================================================================
+    // Flux Effects Stack
+    FluxEffectsPanel* effectsPanel = new FluxEffectsPanel(this);
+    TabWidget::moveTab(effectsPanel, effectsPanel, propertiesPane);
+
+    // Natron's properties bin
+    if (_imp->_propertiesBin) {
+        TabWidget::moveTab(_imp->_propertiesBin, _imp->_propertiesBin, propertiesPane);
+    }
+
+    // ====================================================================
+    // Move viewers and histograms to main pane (top-center)
+    // ====================================================================
+    {
+        QMutexLocker l(&_imp->_viewerTabsMutex);
+        for (std::list<ViewerTab*>::iterator it2 = _imp->_viewerTabs.begin(); it2 != _imp->_viewerTabs.end(); ++it2) {
+            TabWidget::moveTab(*it2, *it2, mainPane);
+        }
+    }
+    {
+        QMutexLocker l(&_imp->_histogramsMutex);
+        for (std::list<Histogram*>::iterator it2 = _imp->_histograms.begin(); it2 != _imp->_histograms.end(); ++it2) {
+            TabWidget::moveTab(*it2, *it2, mainPane);
+        }
+    }
+
+    // ====================================================================
+    // Set pane sizes
+    // ====================================================================
+    // Top row: Project Bin (20%) | Main/Viewport (50%) | Properties (30%)
+    Splitter* topSplitter = dynamic_cast<Splitter*>(mainPane->parentWidget());
+    if (topSplitter) {
+        QList<int> topSizes;
+        topSizes << (width() * 0.20) << (width() * 0.50) << (width() * 0.30);
+        topSplitter->setSizes_mt_safe(topSizes);
+    }
+
+    // Top/bottom: 70% / 30%
+    Splitter* vertSplitter = dynamic_cast<Splitter*>(workshopPane->parentWidget());
+    if (vertSplitter) {
+        QList<int> vertSizes;
+        vertSizes << (height() * 0.70) << (height() * 0.30);
+        vertSplitter->setSizes_mt_safe(vertSizes);
+    }
+
+    // Default to Timeline displayed in workshop pane
+    workshopPane->makeCurrentTab(0);
+
+    // Store references to Flux widgets for later access
+    _imp->_fluxProjectBin = projectBin;
+    _imp->_fluxTimeline = timeline;
+    _imp->_fluxEffectsPanel = effectsPanel;
+
+    fprintf(stderr, "FLUX: Layout created successfully\n");
+} // Gui::setupFluxUi
 
 NATRON_NAMESPACE_EXIT

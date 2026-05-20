@@ -698,6 +698,8 @@ private:
 
     void setupUi();
 
+    void setupFluxUi();
+
     void wipeLayout();
 
     void createDefaultLayoutInternal(bool wipePrevious);
