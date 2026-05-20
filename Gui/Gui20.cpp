@@ -304,56 +304,79 @@ void
 Gui::loadFluxStyleSheet()
 {
     // Flux dark theme — After Effects-inspired color palette
-    // Uses the same %1-%11 parameter system as Natron's loadStyleSheet()
-    // but with colors tuned for motion graphics workflow
+    // Reuses Natron's mainstyle.qss template with custom colors.
+    //
+    // Parameter mapping (same as loadStyleSheet):
+    //   %1  = selection-color
+    //   %2  = medium background (panel bg)
+    //   %3  = soft background (raised/button faces)
+    //   %4  = strong background (sunken/tabs)
+    //   %5  = text colour
+    //   %6  = interpolated value color
+    //   %7  = keyframe value color
+    //   %8  = disabled editable text (black)
+    //   %9  = expression background color
+    //   %10 = altered text colour
+    //   %11 = mouse over selection color
 
-    // Color palette (r,g,b 0-255)
-    const QColor fluxSunken(22, 22, 26);        // %1 — Darkest: timeline track bg, sunken panels
-    const QColor fluxBase(32, 32, 38);           // %2 — Panel backgrounds, input fields
-    const QColor fluxRaised(45, 45, 52);         // %3 — Button faces, raised elements
-    const QColor fluxSelection(66, 133, 244);    // %4 — Selection highlight (Google blue)
-    const QColor fluxText(210, 210, 215);        // %5 — Primary text
-    const QColor fluxAltText(140, 140, 150);     // %6 — Secondary/muted text
-    const QColor fluxInterp(76, 175, 80);        // %7 — Interpolated keyframes (green)
-    const QColor fluxKeyframe(255, 171, 0);      // %8 — Keyframe markers (amber)
-    const QColor fluxExpr(171, 71, 188);         // %9 — Expression indicators (purple)
-    const QColor fluxTimeline(26, 26, 30);       // %10 — Timeline ruler/header bg
-    const QColor fluxHover(55, 55, 65);          // %11 — Hover state for buttons/menus
+    const QColor fluxSelection(66, 133, 244);     // %1  — Google blue
+    const QColor fluxBase(32, 32, 38);            // %2  — Panel backgrounds
+    const QColor fluxRaised(48, 48, 56);          // %3  — Button faces, raised elements
+    const QColor fluxSunken(22, 22, 26);          // %4  — Sunken panels, tab bg
+    const QColor fluxText(210, 210, 215);         // %5  — Primary text
+    const QColor fluxInterp(76, 175, 80);         // %6  — Interpolated keyframes (green)
+    const QColor fluxKeyframe(255, 171, 0);       // %7  — Keyframe markers (amber)
+    const QColor fluxDisabled(0, 0, 0);           // %8  — Disabled editable text (black)
+    const QColor fluxExpr(171, 71, 188);          // %9  — Expression indicators (purple)
+    const QColor fluxAltText(120, 180, 255);      // %10 — Altered text (light blue)
+    const QColor fluxHover(255, 191, 120);        // %11 — Mouse-over selection (warm orange)
 
-    QFile qss(QStringLiteral(":/Resources/Stylesheets/flux-dark.qss"));
+    // Set the application palette first (for widgets that don't use QSS)
+    QPalette p = qApp->palette();
+    p.setBrush(QPalette::Window, fluxBase);
+    p.setBrush(QPalette::WindowText, fluxText);
+    p.setBrush(QPalette::Base, fluxSunken);
+    p.setBrush(QPalette::AlternateBase, fluxBase);
+    p.setBrush(QPalette::Text, fluxText);
+    p.setBrush(QPalette::Button, fluxRaised);
+    p.setBrush(QPalette::ButtonText, fluxText);
+    p.setBrush(QPalette::Light, fluxRaised);
+    p.setBrush(QPalette::Dark, fluxSunken);
+    p.setBrush(QPalette::Mid, fluxBase);
+    p.setBrush(QPalette::BrightText, fluxText);
+    p.setBrush(QPalette::Link, fluxSelection);
+    p.setBrush(QPalette::LinkVisited, fluxSelection);
+    p.setBrush(QPalette::Highlight, fluxSelection);
+    p.setBrush(QPalette::HighlightedText, Qt::white);
+    p.setBrush(QPalette::ToolTipBase, fluxRaised);
+    p.setBrush(QPalette::ToolTipText, fluxText);
+    p.setBrush(QPalette::PlaceholderText, fluxAltText);
+    qApp->setPalette(p);
+
+    // Load Natron's mainstyle.qss template with Flux colors
+    QFile qss(QStringLiteral(":/Resources/Stylesheets/mainstyle.qss"));
     if ( qss.open(QIODevice::ReadOnly | QIODevice::Text) ) {
-        QString styleSheet = QString::fromUtf8(qss.readAll())
-            .arg(fluxSunken.name())          // %1
-            .arg(fluxBase.name())            // %2
-            .arg(fluxRaised.name())          // %3
-            .arg(fluxSelection.name())       // %4
-            .arg(fluxText.name())            // %5
-            .arg(fluxAltText.name())         // %6
-            .arg(fluxInterp.name())          // %7
-            .arg(fluxKeyframe.name())        // %8
-            .arg(fluxExpr.name())            // %9
-            .arg(fluxTimeline.name())        // %10
-            .arg(fluxHover.name());          // %11
-        qApp->setStyleSheet(styleSheet);
-
-        // Also set the application palette for widgets that don't use QSS
-        QPalette p;
-        p.setColor(QPalette::Window, fluxBase);
-        p.setColor(QPalette::WindowText, fluxText);
-        p.setColor(QPalette::Base, fluxSunken);
-        p.setColor(QPalette::AlternateBase, fluxBase);
-        p.setColor(QPalette::Text, fluxText);
-        p.setColor(QPalette::Button, fluxRaised);
-        p.setColor(QPalette::ButtonText, fluxText);
-        p.setColor(QPalette::BrightText, Qt::white);
-        p.setColor(QPalette::Highlight, fluxSelection);
-        p.setColor(QPalette::HighlightedText, Qt::white);
-        p.setColor(QPalette::ToolTipBase, fluxRaised);
-        p.setColor(QPalette::ToolTipText, fluxText);
-        p.setColor(QPalette::PlaceholderText, fluxAltText);
-        qApp->setPalette(p);
+        QTextStream in(&qss);
+        QString content = QString::fromUtf8("QWidget { font-family: \"%1\"; font-size: %2pt; }\n"
+                                            "QListView { font-family: \"%1\"; font-size: %2pt; }\n"
+                                            "QComboBox::drop-down { font-family: \"%1\"; font-size: %2pt; }\n"
+                                            "QInputDialog { font-family: \"%1\"; font-size: %2pt; }\n"
+                                            ).arg(appFont).arg(appFontSize);
+        content += in.readAll();
+        qApp->setStyleSheet( content
+                             .arg( qcolor_to_qstring(fluxSelection) )  // %1: selection-color
+                             .arg( qcolor_to_qstring(fluxBase) )       // %2: medium background
+                             .arg( qcolor_to_qstring(fluxRaised) )     // %3: soft background
+                             .arg( qcolor_to_qstring(fluxSunken) )     // %4: strong background
+                             .arg( qcolor_to_qstring(fluxText) )       // %5: text colour
+                             .arg( qcolor_to_qstring(fluxInterp) )     // %6: interpolated value color
+                             .arg( qcolor_to_qstring(fluxKeyframe) )   // %7: keyframe value color
+                             .arg( qcolor_to_qstring(fluxDisabled) )   // %8: disabled editable text
+                             .arg( qcolor_to_qstring(fluxExpr) )       // %9: expression background color
+                             .arg( qcolor_to_qstring(fluxAltText) )    // %10: altered text color
+                             .arg( qcolor_to_qstring(fluxHover) ) );   // %11: mouse over selection color
     } else {
-        qDebug() << "Flux: failed to open flux-dark.qss from resource system";
+        Dialogs::errorDialog( tr("Stylesheet").toStdString(), tr("Failure to load Flux stylesheet file ").toStdString() + qss.fileName().toStdString() );
     }
 } // Gui::loadFluxStyleSheet
 
