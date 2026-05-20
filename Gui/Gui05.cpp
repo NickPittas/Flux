@@ -62,8 +62,6 @@
 #include "Gui/Splitter.h"
 #include "Gui/TabWidget.h"
 #include "Gui/ViewerTab.h"
-#include "Gui/DopeSheetEditor.h"
-#include "Gui/PropertiesBinWrapper.h"
 
 
 NATRON_NAMESPACE_ENTER
@@ -136,11 +134,7 @@ Gui::setupUi()
     _imp->_errorLog = new LogWindow(0);
     _imp->_errorLog->hide();
 
-    if (sFluxMode) {
-        setupFluxUi();
-    } else {
-        createDefaultLayoutInternal(false);
-    }
+    createDefaultLayoutInternal(false);
 
 
     initProjectGuiKnobs();
@@ -406,90 +400,5 @@ Gui::wipeLayout()
         _imp->_splitters.push_back(newSplitter);
     }
 } // Gui::wipeLayout
-
-void
-Gui::setupFluxUi()
-{
-    /// Create the main pane (will become the top-left: Project Bin)
-    TabWidget* projectBinPane = new TabWidget(this, _imp->_leftRightSplitter);
-    {
-        QMutexLocker l(&_imp->_panesMutex);
-        _imp->_panes.push_back(projectBinPane);
-    }
-    projectBinPane->setObjectName_mt_safe( QString::fromUtf8("fluxProjectBin") );
-    projectBinPane->setAsAnchor(false);
-
-    _imp->_leftRightSplitter->addWidget(projectBinPane);
-
-    QList<int> sizes;
-    sizes << _imp->_toolBox->sizeHint().width() << width();
-    _imp->_leftRightSplitter->setSizes_mt_safe(sizes);
-
-    // Split the main area into top and bottom (vertical split)
-    // projectBinPane is top-left; we split vertically to get bottom row
-    TabWidget* bottomPane = projectBinPane->splitVertically(false);
-    // Now projectBinPane is top, bottomPane is bottom (Timeline)
-
-    // Split the top row horizontally to get viewport in the middle
-    TabWidget* viewportPane = projectBinPane->splitHorizontally(false);
-    // Now: projectBinPane = top-left, viewportPane = top-right
-
-    // Split viewportPane horizontally to get effects+properties on the right
-    TabWidget* effectsPane = viewportPane->splitHorizontally(false);
-    // Now: projectBinPane = top-left, viewportPane = top-center, effectsPane = top-right
-
-    // Set top row splitter sizes: 20% | 50% | 30%
-    Splitter* topSplitter = dynamic_cast<Splitter*>( projectBinPane->parentWidget() );
-    if (topSplitter) {
-        QList<int> topSizes;
-        topSizes << width() * 0.20 << width() * 0.50 << width() * 0.30;
-        topSplitter->setSizes_mt_safe(topSizes);
-    }
-
-    // Set vertical splitter sizes: 70% top | 30% bottom
-    Splitter* vertSplitter = dynamic_cast<Splitter*>( bottomPane->parentWidget() );
-    if (vertSplitter && vertSplitter->orientation() == Qt::Vertical) {
-        QList<int> vertSizes;
-        vertSizes << height() * 0.70 << height() * 0.30;
-        vertSplitter->setSizes_mt_safe(vertSizes);
-    }
-
-    // Move viewers to the viewport pane (top-center)
-    {
-        QMutexLocker l(&_imp->_viewerTabsMutex);
-        for (std::list<ViewerTab*>::iterator it = _imp->_viewerTabs.begin(); it != _imp->_viewerTabs.end(); ++it) {
-            TabWidget::moveTab(*it, *it, viewportPane);
-        }
-    }
-
-    // Move histograms to viewport pane too
-    {
-        QMutexLocker l(&_imp->_histogramsMutex);
-        for (std::list<Histogram*>::iterator it = _imp->_histograms.begin(); it != _imp->_histograms.end(); ++it) {
-            TabWidget::moveTab(*it, *it, viewportPane);
-        }
-    }
-
-    // Move properties bin to the effects pane (top-right)
-    TabWidget::moveTab(_imp->_propertiesBin, _imp->_propertiesBin, effectsPane);
-
-    // Move node graph, curve editor, dope sheet to the bottom pane (Timeline area)
-    // The node graph is hidden but available as a tab for power users
-    TabWidget::moveTab(_imp->_nodeGraphArea, _imp->_nodeGraphArea, bottomPane);
-    TabWidget::moveTab(_imp->_curveEditor, _imp->_curveEditor, bottomPane);
-    TabWidget::moveTab(_imp->_dopeSheetEditor, _imp->_dopeSheetEditor, bottomPane);
-
-    // Default to showing the dope sheet in the bottom pane (closest to a timeline)
-    bottomPane->makeCurrentTab(0);
-
-    // Default to showing the viewer in the viewport pane
-    viewportPane->makeCurrentTab(0);
-
-    // Set tab labels for clarity
-    projectBinPane->setObjectName_mt_safe( QString::fromUtf8("Project Bin") );
-    viewportPane->setObjectName_mt_safe( QString::fromUtf8("Viewport") );
-    effectsPane->setObjectName_mt_safe( QString::fromUtf8("Effects") );
-    bottomPane->setObjectName_mt_safe( QString::fromUtf8("Timeline") );
-}
 
 NATRON_NAMESPACE_EXIT

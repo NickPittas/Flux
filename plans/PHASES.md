@@ -6,7 +6,7 @@
 |---|---|---|---|---|---|---|
 | P0 | Project Setup | DONE | 2026-05-20 | 2026-05-20 | 6/6 | 100% |
 | P1 | Fork & Build | DONE | 2026-05-20 | 2026-05-20 | 9/12 | 100% |
-| P2 | UI Shell | IN_PROGRESS | 2026-05-20 | — | 2/8 | 25% |
+| P2 | UI Shell | IN_PROGRESS | 2026-05-20 | — | 1/8 | 12% |
 | P3 | Timeline | PENDING | — | — | 0/0 | 0% |
 | P4 | Effects + Properties | PENDING | — | — | 0/0 | 0% |
 | P5 | Import/Export | PENDING | — | — | 0/0 | 0% |
@@ -77,17 +77,7 @@
 
 **Dependencies**: P1 complete
 
-**Detailed Plan**: See `plans/phase-2.md`
-
-**Progress**:
-- [x] T023: Dark theme (flux-dark.qss via mainstyle.qss + Flux colors)
-- [x] T019: Flux main window layout (Project Bin | Viewport | Effects+Props / Timeline)
-- [ ] T025: Flux menu system
-- [ ] T024: Project Bin panel
-- [ ] T020: FluxTimeline widget
-- [ ] T021: Layer-to-Node Bridge
-- [ ] T022: Effects Stack Panel
-- [ ] T026: Integration test
+**Detailed Plan**: To be created
 
 **Exit Criteria**:
 - Flux application launches with a main window (replaces Natron GUI)
