@@ -352,6 +352,8 @@ Gui::loadFluxStyleSheet()
         p.setColor(QPalette::ToolTipText, fluxText);
         p.setColor(QPalette::PlaceholderText, fluxAltText);
         qApp->setPalette(p);
+    } else {
+        qDebug() << "Flux: failed to open flux-dark.qss from resource system";
     }
 } // Gui::loadFluxStyleSheet
 
