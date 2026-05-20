@@ -253,7 +253,6 @@ FluxProjectBin::onImportButtonClicked()
 
     for (const QString& file : files) {
         addFile(file);
-        Q_EMIT fileRequested(file);
     }
 }
 
