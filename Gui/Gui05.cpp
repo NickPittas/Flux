@@ -645,11 +645,11 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
     }
     _imp->_fluxMergeNodes.clear();
 
-    // Each layer gets a node chain: Read → FrameRange → TimeOffset → Transform → Merge
-    // Merge.A = this layer's Transform output (foreground)
-    // Merge.B = previous layer's Merge output (background), or first layer has no Merge
+    // Each layer gets ONE FluxLayer gizmo (Read → FrameRange → TimeOffset → Transform)
+    // Merge nodes are OUTSIDE the gizmo, connecting gizmo outputs.
+    // Layer order: top layer = A (foreground), bottom = B (background)
 
-    NodePtr lastMergeOutput;
+    NodePtr lastOutput; // Previous layer's output (gizmo output or merge output)
 
     for (int i = 0; i < layers.size(); ++i) {
         FluxLayer& layer = layers[i];
@@ -677,121 +677,95 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             layer.outPoint = mediaLast - mediaFirst + layer.inPoint;
         }
 
-        // 1. FrameRange node — trims the clip to in/out points
-        std::string frName = reader->getScriptName() + "_FrameRange";
-        CreateNodeArgs frArgs("net.sf.openfx.FrameRange", collection);
-        NodePtr frameRangeNode = getApp()->createNode(frArgs);
-        if (frameRangeNode) {
-            frameRangeNode->connectInput(reader, 0);
-            // Set frame range knobs
-            KnobIPtr frKnob = frameRangeNode->getKnobByName("frameRange");
-            if (frKnob) {
-                KnobInt* frInt = dynamic_cast<KnobInt*>(frKnob.get());
-                if (frInt) {
-                    int trimIn = mediaFirst + (layer.inPoint - layer.inPoint); // absolute frame
-                    int trimOut = mediaFirst + (layer.outPoint - layer.inPoint);
-                    frInt->setValue(trimIn, ViewSpec::all(), 0);
-                    frInt->setValue(trimOut, ViewSpec::all(), 1);
-                }
-            }
-            // Set hold/blank behavior
-            KnobIPtr beforeKnob = frameRangeNode->getKnobByName("before");
-            if (beforeKnob) {
-                KnobChoice* beforeChoice = dynamic_cast<KnobChoice*>(beforeKnob.get());
-                if (beforeChoice) {
-                    beforeChoice->setValue(0, ViewSpec::all());
-                }
-            }
-            KnobIPtr afterKnob = frameRangeNode->getKnobByName("after");
-            if (afterKnob) {
-                KnobChoice* afterChoice = dynamic_cast<KnobChoice*>(afterKnob.get());
-                if (afterChoice) {
-                    afterChoice->setValue(0, ViewSpec::all());
-                }
-            }
-            layer.frameRangeNode = frameRangeNode;
-            _imp->_fluxMergeNodes.push_back(frameRangeNode);
+        // Create the FluxLayer gizmo for this layer
+        // The gizmo wraps: Input → FrameRange → TimeOffset → Transform → Output
+        // We connect reader → gizmo.Input, and gizmo.Output goes to Merge
+        std::string gizmoName = "FluxLayer_" + reader->getScriptName();
+        CreateNodeArgs gizmoArgs("flux.layer", collection);
+        NodePtr gizmoNode = getApp()->createNode(gizmoArgs);
+        if (!gizmoNode) {
+            // Fallback: try without the dot
+            CreateNodeArgs gizmoArgs2("fluxlayer", collection);
+            gizmoNode = getApp()->createNode(gizmoArgs2);
         }
 
-        // 2. TimeOffset node — positions the clip in the timeline
-        NodePtr timeOffsetInput = frameRangeNode ? frameRangeNode : reader;
-        CreateNodeArgs toArgs("net.sf.openfx.timeOffset", collection);
-        NodePtr timeOffsetNode = getApp()->createNode(toArgs);
-        if (timeOffsetNode) {
-            timeOffsetNode->connectInput(timeOffsetInput, 0);
-            // Set offset value: shift from media start to timeline position
-            KnobIPtr offsetKnob = timeOffsetNode->getKnobByName("timeOffset");
+        NodePtr layerOutput; // What the next Merge will connect to
+
+        if (gizmoNode) {
+            // Connect reader output → gizmo input (input index 0)
+            gizmoNode->connectInput(reader, 0);
+
+            // Set FrameRange knobs on the gizmo (firstFrame, lastFrame)
+            KnobIPtr firstKnob = gizmoNode->getKnobByName("firstFrame");
+            if (firstKnob) {
+                KnobInt* firstInt = dynamic_cast<KnobInt*>(firstKnob.get());
+                if (firstInt) {
+                    firstInt->setValue(mediaFirst + (layer.inPoint - layer.inPoint), ViewSpec::all());
+                }
+            }
+            KnobIPtr lastKnob = gizmoNode->getKnobByName("lastFrame");
+            if (lastKnob) {
+                KnobInt* lastInt = dynamic_cast<KnobInt*>(lastKnob.get());
+                if (lastInt) {
+                    lastInt->setValue(mediaFirst + (layer.outPoint - layer.inPoint), ViewSpec::all());
+                }
+            }
+
+            // Set TimeOffset knob on the gizmo
+            KnobIPtr offsetKnob = gizmoNode->getKnobByName("timeOffset");
             if (offsetKnob) {
                 KnobInt* offsetInt = dynamic_cast<KnobInt*>(offsetKnob.get());
                 if (offsetInt) {
-                    // Offset = layer.inPoint - mediaFirst (shifts media to timeline position)
                     offsetInt->setValue(layer.inPoint - mediaFirst, ViewSpec::all());
                 }
             }
-            layer.timeOffsetNode = timeOffsetNode;
-            _imp->_fluxMergeNodes.push_back(timeOffsetNode);
+
+            layer.gizmoNode = gizmoNode;
+            _imp->_fluxMergeNodes.push_back(gizmoNode);
+            layerOutput = gizmoNode;
+        } else {
+            // Gizmo not found — use reader directly as fallback
+            layerOutput = reader;
         }
 
-        // 3. Transform node — for position/scale/rotation
-        NodePtr transformInput = timeOffsetNode ? timeOffsetNode : (frameRangeNode ? frameRangeNode : reader);
-        CreateNodeArgs trArgs("net.sf.openfx.Transform", collection);
-        NodePtr transformNode = getApp()->createNode(trArgs);
-        if (transformNode) {
-            transformNode->connectInput(transformInput, 0);
-            layer.transformNode = transformNode;
-            _imp->_fluxMergeNodes.push_back(transformNode);
-        }
-
-        // 4. Merge node — composites this layer with the previous
-        NodePtr mergeInput = transformNode ? transformNode : (timeOffsetNode ? timeOffsetNode : (frameRangeNode ? frameRangeNode : reader));
+        // Create Merge node (outside the gizmo) for all layers except the first
         if (i == 0) {
-            // First layer: no Merge needed, just remember its output
-            lastMergeOutput = mergeInput;
+            lastOutput = layerOutput;
             continue;
         }
 
-        CreateNodeArgs mgArgs("net.sf.openfx.MergePlugin", collection);
+        CreateNodeArgs mgArgs(PLUGINID_OFX_MERGE, collection);
         NodePtr mergeNode = getApp()->createNode(mgArgs);
         if (!mergeNode) {
-            CreateNodeArgs mgArgs2(PLUGINID_OFX_MERGE, collection);
+            CreateNodeArgs mgArgs2("net.sf.openfx.MergePlugin", collection);
             mergeNode = getApp()->createNode(mgArgs2);
         }
         if (!mergeNode) {
-            lastMergeOutput = mergeInput;
+            lastOutput = layerOutput;
             continue;
         }
 
-        // Connect: A = this layer (foreground), B = previous output (background)
-        mergeNode->connectInput(mergeInput, 0);         // A = foreground
-        if (lastMergeOutput) {
-            mergeNode->connectInput(lastMergeOutput, 1); // B = background
+        // Connect: A = this layer (foreground, top), B = previous output (background)
+        mergeNode->connectInput(layerOutput, 0);    // A = foreground
+        if (lastOutput) {
+            mergeNode->connectInput(lastOutput, 1);  // B = background
         }
 
         layer.mergeNode = mergeNode;
         _imp->_fluxMergeNodes.push_back(mergeNode);
-        lastMergeOutput = mergeNode;
+        lastOutput = mergeNode;
     }
 
     // Connect the final output to the viewer
-    if (lastMergeOutput && viewerTab) {
+    if (lastOutput && viewerTab) {
         NodePtr viewerNode = viewerTab->getInternalNode()->getNode();
         if (viewerNode) {
             viewerNode->disconnectInput(0);
-            viewerNode->connectInput(lastMergeOutput, 0);
+            viewerNode->connectInput(lastOutput, 0);
         }
     }
 
-    // Update the timeline layer data (layers is a local copy, push it back)
-    // The timeline's getLayers() returns a const ref, so we update individual layers
-    // via setLayerReaderNode or by direct index access where needed.
-    // Since we modified the local 'layers' copy, we need to write them back.
-    for (int i = 0; i < layers.size() && i < timeline->getLayers().size(); ++i) {
-        // Layers were fetched as a mutable copy; modifications to node pointers
-        // need to be reflected back. However getLayers() returns const.
-        // The node chain pointers are stored in our local layers copy and used above.
-    }
-
-    fprintf(stderr, "FLUX: Compositing graph rebuilt with %d layers, %d chain nodes\n",
+    fprintf(stderr, "FLUX: Compositing graph rebuilt with %d layers, %d nodes (gizmos + merges)\n",
             (int)layers.size(), (int)_imp->_fluxMergeNodes.size());
 }
 

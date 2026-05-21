@@ -57,11 +57,9 @@ struct FluxLayer {
     QString readerNodeId; // Natron node ID for the reader (set after node creation)
     NodePtr readerNode;   // Actual Natron node pointer (set after node creation)
 
-    // Node chain: Read -> FrameRange -> TimeOffset -> Transform -> Merge
-    NodePtr frameRangeNode;  // net.sf.openfx.FrameRange (trim in/out)
-    NodePtr timeOffsetNode;  // net.sf.openfx.timeOffset (move left/right)
-    NodePtr transformNode;   // net.sf.openfx.Transform (position/scale/rotate)
-    NodePtr mergeNode;       // net.sf.openfx.MergePlugin (compositing)
+    // Gizmo: FluxLayer PyPlug wrapping FrameRange -> TimeOffset -> Transform
+    NodePtr gizmoNode;       // flux.layer gizmo (one per layer)
+    NodePtr mergeNode;       // net.sf.openfx.MergePlugin (compositing, outside gizmo)
 
     FluxLayer()
         : type(QString::fromUtf8("footage"))

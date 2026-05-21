@@ -943,28 +943,34 @@ FluxTimeline::updateLayerNodeChainParams(int layerIndex)
     if (layerIndex < 0 || layerIndex >= _layers.size()) {
         return;
     }
-    const FluxLayer& layer = _layers[layerIndex];
+    FluxLayer& layer = _layers[layerIndex];
+    if (!layer.gizmoNode) {
+        return;
+    }
 
-    // Update FrameRange node: set firstFrame/lastFrame to match trim
-    if (layer.frameRangeNode) {
-        KnobIPtr firstKnob = layer.frameRangeNode->getKnobByName(std::string("frameRange"));
-        if (firstKnob) {
-            KnobIntBasePtr intKnob = std::dynamic_pointer_cast<KnobIntBase>(firstKnob);
-            if (intKnob) {
-                intKnob->setValue(layer.inPoint, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited);
-                intKnob->setValue(layer.outPoint, ViewSpec::all(), 1, eValueChangedReasonNatronGuiEdited);
-            }
+    // Update FrameRange knobs on the gizmo (firstFrame and lastFrame)
+    KnobIPtr firstFrameKnob = layer.gizmoNode->getKnobByName(std::string("firstFrame"));
+    if (firstFrameKnob) {
+        KnobIntBasePtr intKnob = std::dynamic_pointer_cast<KnobIntBase>(firstFrameKnob);
+        if (intKnob) {
+            intKnob->setValue(layer.inPoint, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited);
         }
     }
 
-    // Update TimeOffset node: shift = inPoint (since FrameRange outputs from 0)
-    if (layer.timeOffsetNode) {
-        KnobIPtr offsetKnob = layer.timeOffsetNode->getKnobByName(std::string("timeOffset"));
-        if (offsetKnob) {
-            KnobIntBasePtr intKnob = std::dynamic_pointer_cast<KnobIntBase>(offsetKnob);
-            if (intKnob) {
-                intKnob->setValue(layer.inPoint, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited);
-            }
+    KnobIPtr lastFrameKnob = layer.gizmoNode->getKnobByName(std::string("lastFrame"));
+    if (lastFrameKnob) {
+        KnobIntBasePtr intKnob = std::dynamic_pointer_cast<KnobIntBase>(lastFrameKnob);
+        if (intKnob) {
+            intKnob->setValue(layer.outPoint, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited);
+        }
+    }
+
+    // Update TimeOffset knob on the gizmo
+    KnobIPtr offsetKnob = layer.gizmoNode->getKnobByName(std::string("timeOffset"));
+    if (offsetKnob) {
+        KnobIntBasePtr intKnob = std::dynamic_pointer_cast<KnobIntBase>(offsetKnob);
+        if (intKnob) {
+            intKnob->setValue(layer.inPoint, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited);
         }
     }
 }
@@ -972,120 +978,14 @@ FluxTimeline::updateLayerNodeChainParams(int layerIndex)
 void
 FluxTimeline::createLayerNodeChain(int layerIndex)
 {
-    if (layerIndex < 0 || layerIndex >= _layers.size()) {
-        return;
-    }
-    FluxLayer& layer = _layers[layerIndex];
-    if (!layer.readerNode) {
-        return;
-    }
-
-    GuiAppInstancePtr guiApp = getGui()->getApp();
-    if (!guiApp) {
-        return;
-    }
-
-    // Create FrameRange node
-    CreateNodeArgs frameRangeArgs;
-    frameRangeArgs.setProperty<std::string>(kCreateNodeArgsPropPluginID, "net.sf.openfx.FrameRange");
-    frameRangeArgs.setProperty<std::string>(kCreateNodeArgsPropNodeInitialName,
-                                            (layer.name.toStdString() + "_FrameRange"));
-    NodePtr frameRangeNode = guiApp->createNode(frameRangeArgs);
-    if (frameRangeNode) {
-        layer.frameRangeNode = frameRangeNode;
-        frameRangeNode->connectInput(layer.readerNode, 0);
-    }
-
-    // Create TimeOffset node
-    CreateNodeArgs timeOffsetArgs;
-    timeOffsetArgs.setProperty<std::string>(kCreateNodeArgsPropPluginID, "net.sf.openfx.timeOffset");
-    timeOffsetArgs.setProperty<std::string>(kCreateNodeArgsPropNodeInitialName,
-                                            (layer.name.toStdString() + "_TimeOffset"));
-    NodePtr timeOffsetNode = guiApp->createNode(timeOffsetArgs);
-    if (timeOffsetNode) {
-        layer.timeOffsetNode = timeOffsetNode;
-        if (frameRangeNode) {
-            timeOffsetNode->connectInput(frameRangeNode, 0);
-        } else {
-            timeOffsetNode->connectInput(layer.readerNode, 0);
-        }
-    }
-
-    // Create Transform node
-    CreateNodeArgs transformArgs;
-    transformArgs.setProperty<std::string>(kCreateNodeArgsPropPluginID, "net.sf.openfx.Transform");
-    transformArgs.setProperty<std::string>(kCreateNodeArgsPropNodeInitialName,
-                                           (layer.name.toStdString() + "_Transform"));
-    NodePtr transformNode = guiApp->createNode(transformArgs);
-    if (transformNode) {
-        layer.transformNode = transformNode;
-        if (timeOffsetNode) {
-            transformNode->connectInput(timeOffsetNode, 0);
-        } else if (frameRangeNode) {
-            transformNode->connectInput(frameRangeNode, 0);
-        } else {
-            transformNode->connectInput(layer.readerNode, 0);
-        }
-    }
-
-    // Create Merge node
-    CreateNodeArgs mergeArgs;
-    mergeArgs.setProperty<std::string>(kCreateNodeArgsPropPluginID, "net.sf.openfx.MergePlugin");
-    mergeArgs.setProperty<std::string>(kCreateNodeArgsPropNodeInitialName,
-                                       (layer.name.toStdString() + "_Merge"));
-    NodePtr mergeNode = guiApp->createNode(mergeArgs);
-    if (mergeNode) {
-        layer.mergeNode = mergeNode;
-        // Connect A input to Transform (or the chain head)
-        if (transformNode) {
-            mergeNode->connectInput(transformNode, 0);
-        } else if (timeOffsetNode) {
-            mergeNode->connectInput(timeOffsetNode, 0);
-        } else if (frameRangeNode) {
-            mergeNode->connectInput(frameRangeNode, 0);
-        } else {
-            mergeNode->connectInput(layer.readerNode, 0);
-        }
-    }
-
-    // Set initial FrameRange values
-    updateLayerNodeChainParams(layerIndex);
+    // Node chain creation is now handled by rebuildCompositingGraph in Gui05.cpp
+    // which creates the FluxLayer PyPlug gizmo per layer
 }
 
 void
 FluxTimeline::reconnectMergeChain()
 {
-    // For each layer, connect its Merge.B to the previous layer's Merge output
-    for (int i = 0; i < _layers.size(); ++i) {
-        if (!_layers[i].mergeNode) {
-            continue;
-        }
-        if (i == 0) {
-            // Bottom layer: disconnect B input (no background)
-            _layers[i].mergeNode->disconnectInput(1);
-        } else if (_layers[i - 1].mergeNode) {
-            // Connect B input to previous layer's Merge output
-            _layers[i].mergeNode->connectInput(_layers[i - 1].mergeNode, 1);
-        }
-    }
-
-    // Connect viewer to the top layer's Merge output
-    if (getGui() && !_layers.isEmpty()) {
-        // Find top layer (last in list = top)
-        for (int i = _layers.size() - 1; i >= 0; --i) {
-            if (_layers[i].mergeNode) {
-                ViewerTab* viewer = getGui()->getActiveViewer();
-                if (viewer) {
-                    NodePtr viewerNode = viewer->getInternalNode()->getNode();
-                    if (viewerNode) {
-                        viewerNode->disconnectInput(0);
-                        viewerNode->connectInput(_layers[i].mergeNode, 0);
-                    }
-                }
-                break;
-            }
-        }
-    }
+    // Merge chain reconnection is now handled by rebuildCompositingGraph in Gui05.cpp
+    // which creates Merge nodes outside the gizmos
 }
-
 NATRON_NAMESPACE_EXIT
