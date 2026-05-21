@@ -681,7 +681,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
         // The gizmo wraps: Input → FrameRange → TimeOffset → Transform → Output
         // We connect reader → gizmo.Input, and gizmo.Output goes to Merge
         std::string gizmoName = "FluxLayer_" + reader->getScriptName();
-        CreateNodeArgs gizmoArgs("flux.layer", collection);
+        CreateNodeArgs gizmoArgs("net.sf.openfx.FluxLayer", collection);
         NodePtr gizmoNode = getApp()->createNode(gizmoArgs);
         if (!gizmoNode) {
             // Fallback: try without the dot
