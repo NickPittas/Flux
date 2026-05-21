@@ -1,6 +1,6 @@
 # Flux — Master Task List
 
-Last updated: 2026-05-21 (handoff report: FluxLayer gizmo work is blocked/needs rework)
+Last updated: 2026-05-21 (handoff report: FluxLayer gizmo work is blocked/needs rework; stable gizmo-level parameter contract added)
 
 ## Active Phase: P2.5 (FluxLayer Gizmo correction)
 
@@ -50,11 +50,27 @@ Last updated: 2026-05-21 (handoff report: FluxLayer gizmo work is blocked/needs 
 | T019-F | Timeline interaction: bar drag, trim handles, layer reorder, playhead fix | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/FluxTimeline.{h,cpp} |
 | T019-G | Auto-create Merge nodes for compositing layers + connect viewer | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/Gui05.cpp, FluxTimeline.{h,cpp} |
 | T019-H | FluxLayer PyPlug gizmo (Read→FrameRange→TimeOffset→Transform) | IN_PROGRESS | forge | 2026-05-21 | — | Plugins/FluxLayer.py |
+| T019-H1 | Define/enforce stable FluxLayer gizmo-level parameter contract (no internal node-name lookups) | PENDING | forge | — | — | Plugins/FluxLayer.py, Gui/FluxTimeline.cpp |
 | T019-I | Fix timeline drop: one gizmo per layer, Merge chain outside | PENDING | forge | — | — | Gui/Gui05.cpp, FluxTimeline.cpp |
 | T019-J | Fix trim: update both firstFrame AND lastFrame on gizmo | PENDING | forge | — | — | Gui/FluxTimeline.cpp |
 | T019-K | Fix move: update timeOffset knob on gizmo | PENDING | forge | — | — | Gui/FluxTimeline.cpp |
 | T019-L | Fix second footage: each layer gets its own gizmo/reader | PENDING | forge | — | — | Gui/Gui05.cpp |
 | T019-M | Clean node graph layout (tree, not stacked) | PENDING | forge | — | — | Gui/Gui05.cpp |
+
+### Critical P2.5 Contract: Stable FluxLayer Gizmo Parameters
+
+The FluxLayer PyPlug must expose stable group-level parameters that do **not** include internal node auto-numbering. C++ timeline code must only access parameters on the specific layer's `gizmoNode` using stable names such as:
+
+- `frameRange`
+- `timeOffset`
+- `translate`
+- `scale`
+- `rotate`
+- `center`
+- `motionBlur`
+- `shutter`
+
+Do **not** use internal auto-generated names like `FrameRange1frameRange`, `FrameRange2frameRange`, `TimeOffset1timeOffset`, or `Transform1center` from C++ timeline code. Internal node names change as multiple gizmos/layers are created. The PyPlug must use `setAsAlias()` or equivalent Natron PyPlug aliasing so each gizmo instance presents the same stable external parameter names. Each timeline layer must store a direct `gizmoNode` pointer/reference and update that layer's gizmo parameters directly.
 | T020 | Create FluxTimeline widget | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxTimeline.{h,cpp} (merged into T019) |
 | T021 | Create Layer-to-Node Bridge (Merge chain for compositing) | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/Gui05.cpp (merged into T019-G) |
 | T022 | Create Effects Stack Panel | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxEffectsPanel.{h,cpp} (merged into T019) |

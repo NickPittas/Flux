@@ -33,8 +33,32 @@ The following earlier work was validated before the FluxLayer gizmo effort:
 7. Timeline UI move/trim interactions were confirmed visually working, but they did **not** correctly drive the underlying node parameters.
 
 ## Current problem
+## Critical Contract: Stable Gizmo-Level Parameters
 
-The layer-to-node architecture attempted so far is wrong/broken.
+The FluxLayer PyPlug must expose stable group-level parameters. C++ must never depend on internal node auto-numbered names such as `FrameRange1frameRange`, `FrameRange2frameRange`, `TimeOffset1timeOffset`, or `Transform1center`.
+
+Required external parameter names on every FluxLayer gizmo instance:
+
+- `frameRange`
+- `timeOffset`
+- `translate`
+- `scale`
+- `rotate`
+- `center`
+- `motionBlur`
+- `shutter`
+
+The PyPlug should create those parameters on the group and alias/link them to the internal node knobs. Timeline code must store a direct reference to each layer's `gizmoNode` and update parameters on that exact node:
+
+```cpp
+layer.gizmoNode->getKnobByName("frameRange");
+layer.gizmoNode->getKnobByName("timeOffset");
+```
+
+not by searching node names globally and not by guessing internal generated node names.
+
+## Current Status
+
 
 Observed problems from Nick:
 
