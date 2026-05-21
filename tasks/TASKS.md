@@ -1,6 +1,6 @@
 # Flux — Master Task List
 
-Last updated: 2026-05-21 (T019 interaction system complete)
+Last updated: 2026-05-21 (FluxLayer PyPlug gizmo plan added)
 
 ## Active Phase: P2 (UI Shell)
 
@@ -46,9 +46,15 @@ Last updated: 2026-05-21 (T019 interaction system complete)
 | T019-B | Timeline: accept drops from Project Bin with ghost preview | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxTimeline.{h,cpp} |
 | T019-C | Timeline ↔ Viewer playhead sync (via TimeLine::seekFrame/frameChanged) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxTimeline.{h,cpp} |
 | T019-D | Effects Panel: enabled only when layer selected, adds effect to selected layer | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxEffectsPanel.{h,cpp} |
-| T019-E | End-to-end test: import → drag to timeline → select → add effect → play | IN_PROGRESS | nick | 2026-05-21 | — | — |
+| T019-E | End-to-end test: import → drag to timeline → select → add effect → play | PENDING | nick | 2026-05-21 | — | — |
 | T019-F | Timeline interaction: bar drag, trim handles, layer reorder, playhead fix | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/FluxTimeline.{h,cpp} |
 | T019-G | Auto-create Merge nodes for compositing layers + connect viewer | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/Gui05.cpp, FluxTimeline.{h,cpp} |
+| T019-H | FluxLayer PyPlug gizmo (Read→FrameRange→TimeOffset→Transform) | IN_PROGRESS | forge | 2026-05-21 | — | Plugins/FluxLayer.py |
+| T019-I | Fix timeline drop: one gizmo per layer, Merge chain outside | PENDING | forge | — | — | Gui/Gui05.cpp, FluxTimeline.cpp |
+| T019-J | Fix trim: update both firstFrame AND lastFrame on gizmo | PENDING | forge | — | — | Gui/FluxTimeline.cpp |
+| T019-K | Fix move: update timeOffset knob on gizmo | PENDING | forge | — | — | Gui/FluxTimeline.cpp |
+| T019-L | Fix second footage: each layer gets its own gizmo/reader | PENDING | forge | — | — | Gui/Gui05.cpp |
+| T019-M | Clean node graph layout (tree, not stacked) | PENDING | forge | — | — | Gui/Gui05.cpp |
 | T020 | Create FluxTimeline widget | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxTimeline.{h,cpp} (merged into T019) |
 | T021 | Create Layer-to-Node Bridge (Merge chain for compositing) | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/Gui05.cpp (merged into T019-G) |
 | T022 | Create Effects Stack Panel | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxEffectsPanel.{h,cpp} (merged into T019) |

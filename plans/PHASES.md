@@ -7,6 +7,7 @@
 | P0 | Project Setup | DONE | 2026-05-20 | 2026-05-20 | 6/6 | 100% |
 | P1 | Fork & Build | DONE | 2026-05-20 | 2026-05-20 | 9/12 | 100% |
 | P2 | UI Shell | IN_PROGRESS | 2026-05-20 | — | 7/8 | 87% |
+| P2.5 | FluxLayer Gizmo | IN_PROGRESS | 2026-05-21 | — | 0/5 | 0% |
 | P3 | Timeline | PENDING | — | — | 0/0 | 0% |
 | P4 | Effects + Properties | PENDING | — | — | 0/0 | 0% |
 | P5 | Import/Export | PENDING | — | — | 0/0 | 0% |
@@ -92,6 +93,32 @@
 **Remaining**:
 - T025: Flux Menu System
 - T026: Integration Test
+- T027-T031: FluxLayer Gizmo (PyPlug) + compositing fix
+
+---
+
+## P2.5: FluxLayer Gizmo
+
+**Goal**: Create a PyPlug gizmo that wraps Read → FrameRange → TimeOffset → Transform into one node per layer. Merge nodes stay outside. Fix compositing, trim, move, and multi-layer bugs.
+
+**Started**: 2026-05-21
+
+**Dependencies**: P2 in progress
+
+**Tasks**:
+- T027: Create FluxLayer.py PyPlug gizmo (Read→FrameRange→TimeOffset→Transform)
+- T028: Install gizmo in Natron plugin path
+- T029: Update timeline drop handler to create one gizmo per layer (not chain of nodes)
+- T030: Fix trim (update both firstFrame AND lastFrame) and move (update timeOffset) on gizmo knobs
+- T031: Fix multi-layer compositing: Merge chain outside gizmos, viewer to last Merge, clean layout
+
+**Exit Criteria**:
+- One gizmo per layer in the node graph
+- Trim updates both in AND out frame range
+- Move updates timeOffset
+- Second footage connects to its own gizmo
+- Merge chain composites correctly
+- Viewer shows composited output
 
 **Exit Criteria**:
 - Flux application launches with a main window (replaces Natron GUI)
