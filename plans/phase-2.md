@@ -240,9 +240,10 @@ AppManager (singleton, Engine/)
 - **Filter/search**: Text filter to find assets by name
 
 **Integration with Engine**:
-- Each imported asset creates a `Node` (ReadOIIO/ReadFFmpeg) but does NOT connect it to the render tree until dragged to timeline
-- The Project Bin is essentially a "library" of available reader nodes
-- When an asset is added to the timeline, the Layer-to-Node Bridge connects the existing reader node into the Merge chain
+- Imported assets are tracked as Project Bin entries only; import must not create render-tree nodes or timeline layers
+- Dragging an asset to the timeline creates that layer's node setup
+- Current required design: one FluxLayer PyPlug gizmo per timeline layer, with a Read node inside the gizmo, then external Merge nodes compose the layer gizmos
+- When an asset is dropped to the timeline, the Layer-to-Node Bridge creates the gizmo, sets the internal Read filename, initializes frame range/center from real media metadata, and connects the external Merge chain
 
 **Files to create**:
 - `Gui/FluxProjectBin.h/cpp`

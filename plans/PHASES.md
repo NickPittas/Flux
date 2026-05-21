@@ -101,6 +101,8 @@
 
 **Goal**: Create a PyPlug gizmo that wraps Read → FrameRange → TimeOffset → Transform into one node per layer. Merge nodes stay outside. Fix compositing, trim, move, and multi-layer bugs.
 
+**Current status (2026-05-21)**: **BLOCKED / NEEDS REWORK**. The first FluxLayer implementation was not accepted. Do not trust current unverified PyPlug/C++ parameter names. Future work must follow `FinalPlugin.py` exactly and verify the PyPlug in Natron before C++ integration.
+
 **Started**: 2026-05-21
 
 **Dependencies**: P2 in progress

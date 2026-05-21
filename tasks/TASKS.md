@@ -1,8 +1,8 @@
 # Flux — Master Task List
 
-Last updated: 2026-05-21 (FluxLayer PyPlug gizmo plan added)
+Last updated: 2026-05-21 (handoff report: FluxLayer gizmo work is blocked/needs rework)
 
-## Active Phase: P2 (UI Shell)
+## Active Phase: P2.5 (FluxLayer Gizmo correction)
 
 ### P0 Tasks
 
