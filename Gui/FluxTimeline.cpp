@@ -2437,3 +2437,6 @@ FluxTimeline::restoreFromProjectSerialization(const FluxTimelineSerialization& s
     update();
 }
 NATRON_NAMESPACE_EXIT
+
+NATRON_NAMESPACE_USING
+#include "moc_FluxTimeline.cpp"

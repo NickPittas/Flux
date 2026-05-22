@@ -302,6 +302,7 @@ public:
     class FluxProjectBin* _fluxProjectBin;
     class FluxTimeline* _fluxTimeline;
     class FluxEffectsPanel* _fluxEffectsPanel;
+    class FluxExportPanel* _fluxExportPanel;
 
     // Flux compositing graph - Merge nodes for layer compositing
     std::list<NodePtr> _fluxMergeNodes;
@@ -310,6 +311,11 @@ public:
     // Created once when the first layer is added. Every layer's Merge B
     // input connects here (or chains from the previous Merge).
     NodePtr _fluxBgReformatNode;
+
+    // Flux export nodes — Reformat + Write for the Export panel
+    NodePtr _fluxExportReformatNode;
+    NodePtr _fluxExportWriteNode;
+    NodePtr _fluxFinalOutputNode;
 };
 
 NATRON_NAMESPACE_EXIT

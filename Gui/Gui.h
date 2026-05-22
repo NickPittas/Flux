@@ -363,6 +363,7 @@ public:
 
     /** @brief Returns the Flux effects stack panel (may be null if not in Flux mode). */
     class FluxEffectsPanel* getFluxEffectsPanel() const;
+    class FluxExportPanel* getFluxExportPanel() const;
     class FluxTimeline* getFluxTimeline() const;
     NodePtr getFluxBgReformatNode() const;
     void setFluxBgReformatNode(const NodePtr& node);

@@ -545,6 +545,15 @@ Gui::getFluxEffectsPanel() const
     return _imp->_fluxEffectsPanel;
 }
 
+FluxExportPanel*
+Gui::getFluxExportPanel() const
+{
+    if (!_imp) {
+        return nullptr;
+    }
+    return _imp->_fluxExportPanel;
+}
+
 FluxTimeline*
 Gui::getFluxTimeline() const
 {

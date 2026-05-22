@@ -26,6 +26,7 @@
 #include "Gui.h"
 
 #include <cassert>
+#include <limits>
 #include <stdexcept>
 
 #include <QCoreApplication>
@@ -70,10 +71,12 @@
 #include "Gui/FluxProjectBin.h"
 #include "Gui/FluxTimeline.h"
 #include "Gui/FluxEffectsPanel.h"
+#include "Gui/FluxExportPanel.h"
 #include "Gui/DopeSheetEditor.h"
 #include "Gui/PropertiesBinWrapper.h"
 
 #include "Engine/EffectInstance.h"
+#include "Engine/OutputEffectInstance.h"
 #include "Engine/Knob.h"
 #include "Engine/KnobTypes.h"
 #include "Engine/KnobFile.h"
@@ -504,6 +507,12 @@ Gui::setupFluxUi()
     effectsPanel->setLabel( tr("Effects").toStdString() );
     TabWidget::moveTab(effectsPanel, effectsPanel, propertiesPane);
 
+    // Flux Export/Render panel
+    FluxExportPanel* exportPanel = new FluxExportPanel(this);
+    exportPanel->setScriptName("fluxExportPanel");
+    exportPanel->setLabel( tr("Export").toStdString() );
+    TabWidget::moveTab(exportPanel, exportPanel, propertiesPane);
+
     // Natron's properties bin
     if (_imp->_propertiesBin) {
         TabWidget::moveTab(_imp->_propertiesBin, _imp->_propertiesBin, propertiesPane);
@@ -679,6 +688,94 @@ Gui::setupFluxUi()
     _imp->_fluxProjectBin = projectBin;
     _imp->_fluxTimeline = timeline;
     _imp->_fluxEffectsPanel = effectsPanel;
+    _imp->_fluxExportPanel = exportPanel;
+
+    // Create Flux export nodes (disabled Reformat + Write)
+    {
+        NodeCollectionPtr collection = std::dynamic_pointer_cast<NodeCollection>(getApp()->getProject());
+        
+        // Reformat node (disabled by default — user can enable to override format)
+        CreateNodeArgs reformatArgs("net.sf.openfx.Reformat", collection);
+        reformatArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+        reformatArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+        reformatArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+        reformatArgs.setProperty<bool>(kCreateNodeArgsPropSilent, true);
+        _imp->_fluxExportReformatNode = getApp()->createNode(reformatArgs);
+        if (_imp->_fluxExportReformatNode) {
+            _imp->_fluxExportReformatNode->setNodeDisabled(true);
+            _imp->_fluxExportReformatNode->setPosition(0, -400); // off-screen
+        }
+
+        // Write node
+        CreateNodeArgs writeArgs(PLUGINID_NATRON_WRITE, collection);
+        writeArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+        writeArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+        writeArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+        writeArgs.setProperty<bool>(kCreateNodeArgsPropSilent, true);
+        _imp->_fluxExportWriteNode = getApp()->createNode(writeArgs);
+        if (_imp->_fluxExportWriteNode) {
+            _imp->_fluxExportWriteNode->setPosition(0, -450); // off-screen
+        }
+
+        // Connect Reformat -> Write
+        if (_imp->_fluxExportReformatNode && _imp->_fluxExportWriteNode) {
+            _imp->_fluxExportWriteNode->disconnectInput(0);
+            _imp->_fluxExportWriteNode->connectInput(_imp->_fluxExportReformatNode, 0);
+        }
+
+        // Pass nodes to the export panel
+        exportPanel->setExportNodes(_imp->_fluxExportReformatNode, _imp->_fluxExportWriteNode);
+
+        // Wire render signal
+        QObject::connect(exportPanel, &FluxExportPanel::renderRequested, this, [this]() {
+            if (!_imp->_fluxExportWriteNode || !_imp->_fluxExportWriteNode->isActivated()) {
+                return;
+            }
+            
+            // Ensure timeline exists
+            if (!_imp->_fluxTimeline) {
+                return;
+            }
+
+            // Get frame range from export panel
+            FluxExportPanel* panel = _imp->_fluxExportPanel;
+            int firstFrame = panel ? panel->_firstFrameSpin->value() : std::numeric_limits<int>::min();
+            int lastFrame = panel ? panel->_lastFrameSpin->value() : std::numeric_limits<int>::max();
+            if (firstFrame > lastFrame) {
+                int tmp = firstFrame;
+                firstFrame = lastFrame;
+                lastFrame = tmp;
+            }
+
+            // Connect export chain to the true final output (includes adjustment effects)
+            NodePtr finalOutput = _imp->_fluxFinalOutputNode;
+            if (!finalOutput) {
+                Dialogs::warningDialog(tr("Render").toStdString(),
+                                       tr("No layers to render. Add at least one layer to the timeline.").toStdString());
+                return;
+            }
+            if (_imp->_fluxExportReformatNode) {
+                _imp->_fluxExportReformatNode->disconnectInput(0);
+                _imp->_fluxExportReformatNode->connectInput(finalOutput, 0);
+            }
+
+            // Fire render
+            EffectInstancePtr effect = _imp->_fluxExportWriteNode->getEffectInstance();
+            if (effect) {
+                AppInstance::RenderWork w;
+                w.writer = dynamic_cast<OutputEffectInstance*>( effect.get() );
+                if (w.writer) {
+                    w.firstFrame = firstFrame;
+                    w.lastFrame = lastFrame;
+                    w.frameStep = 1;
+                    w.useRenderStats = false;
+                    std::list<AppInstance::RenderWork> workList;
+                    workList.push_back(w);
+                    getApp()->startWritersRendering(false, workList);
+                }
+            }
+        });
+    }
 
     fprintf(stderr, "FLUX: Layout created successfully\n");
 } // Gui::setupFluxUi
@@ -1228,6 +1325,9 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
 
     fprintf(stderr, "FLUX: Compositing graph rebuilt with %d layers, %d nodes (gizmos + merges)\n",
             (int)layers.size(), (int)_imp->_fluxMergeNodes.size());
+
+    // Store final output node for export panel
+    _imp->_fluxFinalOutputNode = lastOutput;
 }
 
 void
