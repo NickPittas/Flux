@@ -41,6 +41,17 @@ CLANG_DIAG_ON(uninitialized)
 
 NATRON_NAMESPACE_ENTER
 
+struct FluxEffect {
+    QString pluginId;
+    QString label;
+    NodePtr node;
+    bool enabled;
+
+    FluxEffect()
+        : enabled(true)
+    {}
+};
+
 struct FluxLayer {
     QString name;
     QString filePath;    // empty for solid/adjustment/null layers
@@ -68,6 +79,7 @@ struct FluxLayer {
     // Gizmo: FluxLayer PyPlug wrapping FrameRange -> TimeOffset -> Transform
     NodePtr gizmoNode;       // flux.layer gizmo (one per layer)
     NodePtr mergeNode;       // net.sf.openfx.MergePlugin (compositing, outside gizmo)
+    QList<FluxEffect> effects; // ordered child effects; adjustment rows contain only effects
 
     FluxLayer()
         : type(QString::fromUtf8("footage"))
@@ -115,7 +127,7 @@ public:
     void removeLayer(int index);
 
     /** @brief Duplicate a layer using Natron's native copy/paste. */
-    void duplicateLayer(int index);
+    bool duplicateLayer(int index);
 
     /** @brief Split a layer at the playhead: duplicate + trim. */
     void splitLayer(int index, int frame);
@@ -134,6 +146,9 @@ public:
 
     /** @brief Get the current frame. */
     int getCurrentFrame() const;
+
+    /** @brief Get selected timeline row, or -1. */
+    int getSelectedLayerIndex() const;
 
     /** @brief Set the reader NodePtr for a layer (called after node creation). */
     void setLayerReaderNode(int index, const NodePtr& node);
@@ -165,6 +180,7 @@ public Q_SLOTS:
 
 protected:
 
+    virtual bool event(QEvent* event) OVERRIDE;
     virtual void paintEvent(QPaintEvent* event) OVERRIDE;
     virtual void mousePressEvent(QMouseEvent* event) OVERRIDE;
     virtual void mouseMoveEvent(QMouseEvent* event) OVERRIDE;
@@ -210,6 +226,18 @@ private:
     int xToFrame(int x) const;
     int yToLayer(int y) const;
     void updateZoom();
+    void clampScrollOffsets();
+    void fitToView();
+    void showNodeCreationDialog();
+
+    /** @brief Row capability helpers for T046 */
+    bool isAdjustmentRow(int index) const;
+    bool isNullRow(int index) const;
+    bool canTrimRow(int index) const;
+    bool canHorizontallyMoveRow(int index) const;
+    bool canDuplicateRow(int index) const;
+    bool canSplitRow(int index) const;
+    bool canAddEffectToRow(int index) const;
 
     /** @brief Determine what's under the mouse: nothing, bar body, left trim handle, right trim handle */
     enum HitZone { eHitNone, eHitBarBody, eHitTrimLeft, eHitTrimRight };
@@ -226,11 +254,13 @@ private:
 
     // Layout constants
     static const int kTimeRulerHeight = 28;
-    static const int kLayerLabelWidth = 140;
+    static const int kControlColumnWidth = 56; // fixed width for L/V/S controls
     static const int kLayerRowHeight = 30;
     static const int kPlayheadWidth = 2;
 
     static const int kTrimHandleWidth = 6; // pixels for trim handles at bar edges
+
+    int _layerLabelWidth; // runtime total left-panel width (default 180)
 
     // Interaction modes
     enum InteractionMode {
@@ -239,7 +269,9 @@ private:
         eModeMoveBar,        // dragging a layer bar horizontally
         eModeTrimLeft,       // trimming the left (in) edge of a bar
         eModeTrimRight,      // trimming the right (out) edge of a bar
-        eModeReorderLayer    // dragging a layer up/down to reorder
+        eModeReorderLayer,   // dragging a layer up/down to reorder
+        eModePan,            // middle-mouse or Alt+Left pan (both axes)
+        eModeResizePanel     // resizing the left label panel
     };
 
     InteractionMode _interactionMode;
@@ -252,6 +284,14 @@ private:
     int _interactionOrigTrimStart; // original trimStart at drag start
     int _interactionOrigTrimEnd;   // original trimEnd at drag start
     int _reorderTargetRow;     // target row for layer reordering
+
+    // Middle-mouse pan state
+    int _panStartScrollX;      // _scrollOffsetX at pan start
+    int _panStartScrollY;      // _scrollOffsetY at pan start
+
+    // Panel resize state
+    int _resizeStartX;         // mouse X at resize start
+    int _resizeStartWidth;     // _layerLabelWidth at resize start
 
     // Drag and drop state
     bool _isDragOver;

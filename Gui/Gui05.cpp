@@ -594,6 +594,12 @@ Gui::setupFluxUi()
                           const QList<FluxLayer>& layers = timeline->getLayers();
                           if (index >= 0 && index < layers.size()) {
                               effectsPanel->setActiveLayer(index, layers[index].name);
+                              for (int e = 0; e < layers[index].effects.size(); ++e) {
+                                  const FluxEffect& effect = layers[index].effects[e];
+                                  if (effect.node && effect.node->isActivated()) {
+                                      effectsPanel->addEffect(effect.pluginId, effect.label);
+                                  }
+                              }
 
                               if (layers[index].gizmoNode) {
                                   NodeGuiPtr nodeGui = std::dynamic_pointer_cast<NodeGui>(layers[index].gizmoNode->getNodeGui());
@@ -614,15 +620,53 @@ Gui::setupFluxUi()
                           redrawAllViewers();
                       });
 
-    // 4. Effects Panel: layerEffectAddRequested → create effect node
-    QObject::connect(effectsPanel, &FluxEffectsPanel::layerEffectAddRequested, this,
-                     [this](int /*layerIndex*/, QString pluginId) {
-                         if (!getApp() || pluginId.isEmpty()) {
+    // 4. Effects Panel: select/remove actual effect nodes owned by the timeline model.
+    QObject::connect(effectsPanel, &FluxEffectsPanel::effectSelected, this,
+                     [this, timeline](int effectIndex) {
+                         int layerIndex = timeline->getSelectedLayerIndex();
+                         const QList<FluxLayer>& layers = timeline->getLayers();
+                         if (layerIndex < 0 || layerIndex >= layers.size() ||
+                             effectIndex < 0 || effectIndex >= layers[layerIndex].effects.size()) {
                              return;
                          }
-                         NodeCollectionPtr collection = std::dynamic_pointer_cast<NodeCollection>(getApp()->getProject());
-                         CreateNodeArgs args(pluginId.toStdString(), collection);
-                         getApp()->createNode(args);
+                         NodePtr node = layers[layerIndex].effects[effectIndex].node;
+                         if (!node || !node->isActivated()) {
+                             return;
+                         }
+                         NodeGuiPtr nodeGui = std::dynamic_pointer_cast<NodeGui>(node->getNodeGui());
+                         if (nodeGui) {
+                             nodeGui->setVisibleSettingsPanel(true);
+                             NodeSettingsPanel* settingsPanel = nodeGui->getSettingPanel();
+                             if (settingsPanel) {
+                                 DockablePanel* dockPanel = static_cast<DockablePanel*>(settingsPanel);
+                                 putSettingsPanelFirst(dockPanel);
+                             }
+                         }
+                     });
+
+    QObject::connect(effectsPanel, &FluxEffectsPanel::effectRemoved, this,
+                     [this, timeline, effectsPanel](int effectIndex) {
+                         int layerIndex = timeline->getSelectedLayerIndex();
+                         const QList<FluxLayer>& constLayers = timeline->getLayers();
+                         if (layerIndex < 0 || layerIndex >= constLayers.size()) {
+                             return;
+                         }
+                         QList<FluxLayer>& layers = const_cast<QList<FluxLayer>&>(constLayers);
+                         if (effectIndex < 0 || effectIndex >= layers[layerIndex].effects.size() || layers[layerIndex].locked) {
+                             return;
+                         }
+                         FluxEffect effect = layers[layerIndex].effects.takeAt(effectIndex);
+                         if (effect.node && effect.node->isActivated()) {
+                             effect.node->deactivate(std::list<NodePtr>(), false, true);
+                         }
+                         rebuildCompositingGraph(timeline);
+                         effectsPanel->setActiveLayer(layerIndex, layers[layerIndex].name);
+                         for (int e = 0; e < layers[layerIndex].effects.size(); ++e) {
+                             const FluxEffect& remaining = layers[layerIndex].effects[e];
+                             if (remaining.node && remaining.node->isActivated()) {
+                                 effectsPanel->addEffect(remaining.pluginId, remaining.label);
+                             }
+                         }
                      });
 
     // 5. Timeline: compositingChanged → rebuild Merge node chain + connect viewer
@@ -647,9 +691,6 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
     }
 
     const QList<FluxLayer>& constLayers = timeline->getLayers();
-    if (constLayers.isEmpty()) {
-        return;
-    }
     // We need mutable access to set gizmoNode/mergeNode on each layer
     QList<FluxLayer>& layers = const_cast<QList<FluxLayer>&>(constLayers);
 
@@ -669,6 +710,10 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
 
     // Clear tracking list only — do NOT deactivate/destroy existing nodes
     _imp->_fluxMergeNodes.clear();
+
+    // Track whether any stale effect references were pruned during this rebuild
+    // so we can refresh the effects panel afterward.
+    bool effectsPruned = false;
 
     // ====================================================================
     // Node Graph Layout — Per-Layer Vertical Branch Stack
@@ -715,8 +760,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
     const double kGizmoOffsetX = -200.0; // branch column: Read + Gizmo go LEFT of main pipe
     const double kYStart = 0.0;          // Reformat Y position (top of tree)
     const double kYSpacing = 120.0;      // vertical gap between each node row
-    const int kNodesPerLayer = 3;        // rows per layer: [Read|Solid] / Gizmo / Merge(+effects)
-    // Future: Insert effect-stack nodes at row index 2..N-1 between gizmo and merge.
+    const int kNodesPerLayer = 3;        // minimum rows per layer: [Read|Solid] / Gizmo / Merge
 
     // -- Ensure background Reformat node exists --
     if (!_imp->_fluxBgReformatNode) {
@@ -750,6 +794,12 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
 
     NodePtr lastOutput = _imp->_fluxBgReformatNode; // Start with the background canvas
 
+    // Compute solo state for disabled-logic during wiring (adjustment rows excluded)
+    bool anySoloed = false;
+    for (int si = 0; si < layers.size(); ++si) {
+        if (layers[si].solo && layers[si].type != QString::fromUtf8("adjustment")) { anySoloed = true; break; }
+    }
+
     // Build Merge chain bottom-to-top so that top timeline layers composite on top.
     // i=0 in the loop processes the bottom-most pixel-producing layer first (onto the Reformat bg),
     // then each subsequent layer goes on top, ending with the top timeline layer as foreground.
@@ -758,12 +808,48 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
         const FluxLayer& l = layers[i];
         if (l.type == QString::fromUtf8("null")) continue;
         if (l.type == QString::fromUtf8("footage") && l.filePath.isEmpty()) continue;
+        if (l.type == QString::fromUtf8("adjustment") && l.effects.isEmpty()) continue;
         pixelLayers.push_back(i);
     }
 
+    int graphRow = 1;
     for (int pi = 0; pi < pixelLayers.size(); ++pi) {
         int i = pixelLayers[pi];
         FluxLayer& layer = layers[i];
+
+        if (layer.type == QString::fromUtf8("adjustment")) {
+            NodePtr adjustmentOutput = lastOutput;
+            double effectY = kYStart + graphRow * kYSpacing;
+            for (int e = layer.effects.size() - 1; e >= 0; --e) {
+                if (!layer.effects[e].node || !layer.effects[e].node->isActivated()) {
+                    fprintf(stderr, "FLUX: Dropping stale adjustment effect reference from row %d\n", i);
+                    layer.effects.removeAt(e);
+                    effectsPruned = true;
+                }
+            }
+            for (int e = 0; e < layer.effects.size(); ++e) {
+                FluxEffect& effect = layer.effects[e];
+                // Adjustment effects are main-pipe operations — position at kCenterX
+                effect.node->setPosition(kCenterX, effectY + e * kYSpacing);
+                if (effect.node->getNInputs() > 0) {
+                    effect.node->disconnectInput(0);
+                    if (adjustmentOutput && !effect.node->connectInput(adjustmentOutput, 0)) {
+                        fprintf(stderr, "FLUX ERROR: adjustment effect connectInput(%s <- %s) failed for row %d\n",
+                                effect.node->getLabel().c_str(), adjustmentOutput->getLabel().c_str(), i);
+                    }
+                }
+                // Adjustment rows: mute only, solo does not apply
+                bool adjVisible = !layer.muted;
+                effect.node->setNodeDisabled(!effect.enabled || !adjVisible);
+                _imp->_fluxMergeNodes.push_back(effect.node);
+                adjustmentOutput = effect.node;
+            }
+            if (adjustmentOutput) {
+                lastOutput = adjustmentOutput;
+            }
+            graphRow += qMax(1, layer.effects.size());
+            continue;
+        }
 
         fprintf(stderr, "FLUX REBUILD: layer[%d] '%s' inPoint=%d outPoint=%d timeOffset=%d hasGizmo=%d nodeInit=%d\n",
                 i, layer.name.toStdString().c_str(), layer.inPoint, layer.outPoint, layer.timeOffset,
@@ -965,7 +1051,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
         //   Row 1: FluxLayer gizmo (footage only)
         //   Row 2+: Merge (main pipe) — row index kNodesPerLayer-1
         {
-            double branchTopY = kYStart + (pi * kNodesPerLayer + 1) * kYSpacing;
+            double branchTopY = kYStart + graphRow * kYSpacing;
 
             if (layer.type == QString::fromUtf8("footage") && layer.readerNode) {
                 // Footage: Read at branch top, Gizmo one row below
@@ -990,6 +1076,32 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
         _imp->_fluxMergeNodes.push_back(layer.gizmoNode);
 
         NodePtr layerOutput = layer.gizmoNode;
+        {
+            int sourceRows = (layer.type == QString::fromUtf8("footage") && layer.readerNode) ? 2 : 1;
+            double effectY = kYStart + (graphRow + sourceRows) * kYSpacing;
+            for (int e = layer.effects.size() - 1; e >= 0; --e) {
+                if (!layer.effects[e].node || !layer.effects[e].node->isActivated()) {
+                    fprintf(stderr, "FLUX: Dropping stale effect reference from layer %d '%s'\n",
+                            i, layer.name.toStdString().c_str());
+                    layer.effects.removeAt(e);
+                    effectsPruned = true;
+                }
+            }
+            for (int e = 0; e < layer.effects.size(); ++e) {
+                FluxEffect& effect = layer.effects[e];
+                effect.node->setPosition(kCenterX + kGizmoOffsetX, effectY + e * kYSpacing);
+                if (effect.node->getNInputs() > 0) {
+                    effect.node->disconnectInput(0);
+                    if (layerOutput && !effect.node->connectInput(layerOutput, 0)) {
+                        fprintf(stderr, "FLUX ERROR: effect connectInput(%s <- %s) failed for layer %d\n",
+                                effect.node->getLabel().c_str(), layerOutput->getLabel().c_str(), i);
+                    }
+                }
+                effect.node->setNodeDisabled(!effect.enabled);
+                _imp->_fluxMergeNodes.push_back(effect.node);
+                layerOutput = effect.node;
+            }
+        }
 
         // -- Create Merge node ONLY if this layer doesn't have one yet --
         if (!layer.mergeNode) {
@@ -1043,7 +1155,8 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
         {
             // Merge sits at the bottom of this layer's branch, on the main pipe.
             // Y = branchTopY + (kNodesPerLayer - 1) * kYSpacing
-            double mergeY = kYStart + (pi * kNodesPerLayer + kNodesPerLayer) * kYSpacing;
+            int sourceRows = (layer.type == QString::fromUtf8("footage") && layer.readerNode) ? 2 : 1;
+            double mergeY = kYStart + (graphRow + sourceRows + layer.effects.size()) * kYSpacing;
             layer.mergeNode->setPosition(kCenterX, mergeY);
 
             // Disconnect stale inputs before reconnecting (handles layer deletion/reorder)
@@ -1062,10 +1175,17 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                 fprintf(stderr, "FLUX ERROR: Merge connectInput(%d,A=%s) failed for layer %d\n",
                         1, layerOutput->getLabel().c_str(), i);
             }
+
+            // Set merge disabled state based on mute/solo
+            layer.mergeNode->setNodeDisabled(layer.muted || (anySoloed && !layer.solo));
         }
 
         _imp->_fluxMergeNodes.push_back(layer.mergeNode);
         lastOutput = layer.mergeNode;
+        {
+            int sourceRows = (layer.type == QString::fromUtf8("footage") && layer.readerNode) ? 2 : 1;
+            graphRow += qMax(kNodesPerLayer, sourceRows + layer.effects.size() + 1);
+        }
     }
 
     // Connect the final output to the viewer
@@ -1091,6 +1211,21 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
 
     // Update the timeline display
     timeline->update();
+
+    // If stale effect references were pruned, refresh the effects panel
+    // so the UI matches the model (avoids ghost rows for manually-deleted nodes).
+    if (effectsPruned && _imp->_fluxEffectsPanel) {
+        int selected = timeline->getSelectedLayerIndex();
+        if (selected >= 0 && selected < layers.size()) {
+            _imp->_fluxEffectsPanel->setActiveLayer(selected, layers[selected].name);
+            for (int e = 0; e < layers[selected].effects.size(); ++e) {
+                const FluxEffect& fx = layers[selected].effects[e];
+                if (fx.node && fx.node->isActivated()) {
+                    _imp->_fluxEffectsPanel->addEffect(fx.pluginId, fx.label);
+                }
+            }
+        }
+    }
 
     fprintf(stderr, "FLUX: Compositing graph rebuilt with %d layers, %d nodes (gizmos + merges)\n",
             (int)layers.size(), (int)_imp->_fluxMergeNodes.size());

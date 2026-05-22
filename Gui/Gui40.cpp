@@ -70,6 +70,7 @@
 #include "Gui/ViewerGL.h"
 #include "Gui/ViewerTab.h"
 #include "Gui/NodeSettingsPanel.h"
+#include "Gui/FluxEffectsPanel.h"
 
 
 NATRON_NAMESPACE_ENTER
@@ -533,6 +534,15 @@ Gui::getNodeGraph() const
         return nullptr;
     }
     return _imp->_nodeGraphArea;
+}
+
+FluxEffectsPanel*
+Gui::getFluxEffectsPanel() const
+{
+    if (!_imp) {
+        return nullptr;
+    }
+    return _imp->_fluxEffectsPanel;
 }
 
 CurveEditor*

@@ -360,6 +360,9 @@ public:
     DopeSheetEditor * getDopeSheetEditor() const;
     ScriptEditor* getScriptEditor() const;
     ProgressPanel* getProgressPanel() const;
+
+    /** @brief Returns the Flux effects stack panel (may be null if not in Flux mode). */
+    class FluxEffectsPanel* getFluxEffectsPanel() const;
     QVBoxLayout* getPropertiesLayout() const;
     PropertiesBinWrapper* getPropertiesBin() const;
     const RegisteredTabs & getRegisteredTabs() const;

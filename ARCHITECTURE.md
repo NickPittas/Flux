@@ -360,10 +360,11 @@ Natron already achieves this for compositing workloads. Flux adds minimal overhe
 | Undo | Ctrl+Z |
 | Redo | Ctrl+Shift+Z |
 | RAM Preview | Numpad 0 |
-| Fit to View | Shift+/ |
-| Zoom In | = |
-| Zoom Out | - |
-| Pan | Middle Mouse Drag |
+| Fit to View | F |
+| Zoom In | Scroll Up |
+| Zoom Out | Scroll Down |
+| Pan | Alt+Drag / Middle Mouse Drag |
+| Scroll Horizontal | Ctrl+Scroll / Horizontal Wheel / Trackpad |
 
 ---
 

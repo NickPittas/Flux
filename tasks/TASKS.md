@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-22
 
-## Active Phase: P3 (Timeline)
+## Active Phase: P4 (Effects + Properties)
 
 ### P0 Tasks
 
@@ -63,7 +63,7 @@ Last updated: 2026-05-22
 | T023 | Create Dark Theme (After Effects-inspired) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/Gui20.cpp |
 | T024 | Create Project Bin | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxProjectBin.{h,cpp} |
 | T025 | Create Flux Menu System | PENDING | — | — | — | Gui/Gui.cpp |
-| T026 | Integration Test (end-to-end) | PENDING | — | — | — | — |
+| T026 | Integration Test (end-to-end) — live P3 signoff: wheel zoom/scroll, Alt-drag, F, label resize, Add Effect, Reset In/Out approved | DONE | nick | 2026-05-22 | 2026-05-22 | Manual test |
 
 ---
 
@@ -78,13 +78,23 @@ Last updated: 2026-05-22
 | T036 | Split layer (Ctrl+Shift+D) — duplicate + trim original outPoint / duplicate inPoint at playhead | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.cpp |
 | T037 | Duplicate layer (Ctrl+D) — keyboard shortcut + context menu; native Natron copy/paste; Read+Gizmo+Merge for footage, Gizmo+Merge for solids | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.cpp, Gui/Gui05.cpp |
 | T038 | Delete layer (Delete key) — deactivates Read/Gizmo/Merge and rebuild reconnects remaining chain | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.cpp, Gui/Gui05.cpp |
-| T039 | Layer bar context menu: Add Solid/Null, Delete, Duplicate, Split implemented. Still needs: add effects, reset in/out points. | IN_PROGRESS | forge | 2026-05-22 | — | Gui/FluxTimeline.cpp |
-| T040 | Timeline scroll + fit-to-view + frame selected layers | PENDING | — | — | — | Gui/FluxTimeline.cpp |
+| T039 | Layer bar context menu: Add Solid/Null, Delete, Duplicate, Split, Add Effect, Reset In/Out Points — all implemented | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.cpp |
+| T040 | Timeline zoom/scroll/pan: plain wheel zoom, Ctrl+wheel horizontal scroll, horizontal wheel/trackpad horizontal scroll, Alt+drag/middle-drag pan, F fit-to-view, resizable label/name panel with fixed L/V/S control column | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.cpp |
 | T041 | Frame range from project settings — synced via Project::frameRangeChanged signal → FluxTimeline::setFrameRange | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/Gui05.cpp, Gui/FluxTimeline.cpp |
 | T042 | Background/Reformat anchor: auto-create Reformat node (project format) at top of chain, inputs disconnected each rebuild. Pure source canvas. | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/Gui05.cpp |
 
 ---
 
-## P4+ Tasks
+## P4 Tasks (Effects + Properties)
 
-_To be planned when P3 nears completion._
+| ID | Task | Status | Assigned | Started | Completed | File |
+|---|---|---|---|---|---|---|
+| T043 | Map Natron plugin discovery/categories and choose effect insertion API for Flux layer branches | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxEffectsPanel.{h,cpp}, Gui/Gui05.cpp |
+| T044 | Timeline Tab uses Natron's existing node search dialog; selected layer gets effect at bottom of its stack; no selection creates adjustment-effect row after final merge. Verified live: Tab opens Natron node search; selected layer adds effect at bottom of stack; no selection/context empty-space creates adjustment effect row; effect settings opens on creation. | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.{h,cpp}, Gui/Gui05.cpp |
+| T045 | Rebuild graph with effect-aware timeline order: per-layer child effects before that layer's Merge, adjustment rows between Merges by timeline position. Verified live: per-layer child effects wire before Merge, adjustment effects wire by timeline order, stale/manual-deleted effect nodes are pruned, graph reconnects to valid nodes. | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/Gui05.cpp |
+| T046 | Treat effect/adjustment rows like layer stack entries for move/delete/lock/duplicate/split where applicable, without recreating nodes. Verified live: adjustment rows support select/reorder/delete/lock/mute/Add Effect, solo disabled, main-pipe nodegraph verticality preserved on move, null rows support select/reorder/delete/lock, unsupported duplicate/split/trim/reset safely blocked, effect-bearing layer duplicate/split deferred to T049/T050. | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.{h,cpp}, Gui/Gui05.cpp |
+| T047 | Show/select actual effect nodes and Natron knob panels; remove hardcoded Flux effect picker as source of truth. Verified live: Effects panel lists actual model effects, click/double-click reopens Natron settings panel, remove deactivates/removes from model and refreshes UI. | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxEffectsPanel.{h,cpp}, Gui/Gui05.cpp |
+| T048 | P4 integration test: Tab-add effects to selected layers and no-selection adjustment rows, reorder in timeline, verify render updates | PENDING | — | — | — | Manual test |
+| T049 | Duplicate effect-bearing layers and adjustment rows — deep-copy owned effect nodes, preserve parameters/order, reconnect copied chains without sharing NodePtr ownership | PENDING | — | — | — | Gui/FluxTimeline.{h,cpp}, Gui/Gui05.cpp |
+| T050 | Split effect-bearing layers — duplicate full child effect stack, preserve parameters, trim original/duplicate safely without sharing nodes | PENDING | — | — | — | Gui/FluxTimeline.{h,cpp}, Gui/Gui05.cpp |
+| T051 | Adjustment row time-range semantics — design and implement trim/split/time-limited adjustment effects | PENDING | — | — | — | Gui/FluxTimeline.{h,cpp}, Gui/Gui05.cpp |

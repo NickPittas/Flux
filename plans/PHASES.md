@@ -7,8 +7,8 @@
 | P0 | Project Setup | DONE | 2026-05-20 | 2026-05-20 | 100% |
 | P1 | Fork & Build | DONE | 2026-05-20 | 2026-05-20 | 100% |
 | P2 | UI Shell | DONE | 2026-05-20 | 2026-05-21 | 100% |
-| P3 | Timeline | IN_PROGRESS | 2026-05-21 | — | 82% |
-| P4 | Effects + Properties | PENDING | — | — | 0% |
+| P3 | Timeline | DONE | 2026-05-21 | 2026-05-22 | 100% |
+| P4 | Effects + Properties | IN_PROGRESS | 2026-05-22 | — | 80% |
 | P5 | Import/Export | PENDING | — | — | 0% |
 | P6 | Shapes + Text | PENDING | — | — | 0% |
 | P7 | Polish + Cache | PENDING | — | — | 0% |
@@ -84,11 +84,13 @@
 
 ---
 
-## P3: Timeline (IN PROGRESS)
+## P3: Timeline (COMPLETE)
 
 **Goal**: Full-featured timeline with playback controls, layer types, solo/mute/lock, keyboard shortcuts.
 
 **Started**: 2026-05-21
+
+**Completed**: 2026-05-22
 
 **Dependencies**: P2 complete
 
@@ -113,11 +115,12 @@
 - Merge input mapping: 0=B/background, 1=A/foreground (documented and enforced)
 - Project Bin: empty-space double-click opens import; item double-click adds footage as layer
 - Timeline duration synced to project frame range via Project::frameRangeChanged signal
+- Context menu complete: Add Solid/Null, Delete, Duplicate, Split, Add Effect, Reset In/Out Points
+- Zoom/scroll/pan: plain wheel zoom, Ctrl+wheel horizontal scroll, horizontal wheel/trackpad horizontal scroll, Alt+drag/middle-drag pan, F fit-to-view
+- Resizable layer header panel: label/name column drag-resizable, fixed L/V/S control column stays pinned
 
-**Remaining**:
-- Zoom timeline horizontally (scroll wheel)
-- Scroll timeline vertically
-- Fit to view / frame selected layers
+**Signoff**:
+- Live manual approval on 2026-05-22: plain wheel zoom, Ctrl+wheel horizontal scroll, Alt-drag pan, F fit-to-view, label resize, Add Effect, and Reset In/Out all verified.
 
 **Exit Criteria**:
 - Playback controls (play/pause/stop, fps display)
@@ -127,21 +130,38 @@
 - Split layer (Ctrl+Shift+D) — DONE
 - Duplicate layer (Ctrl+D) — DONE
 - Delete layer (Delete key) — DONE
-- Zoom timeline horizontally (scroll wheel)
-- Scroll timeline vertically
-- Layer bar context menu (delete, duplicate, split, properties)
-- Playhead follow during playback
+- Zoom timeline horizontally (scroll wheel) — DONE
+- Horizontal scroll via Ctrl+wheel / horizontal wheel / trackpad — DONE
+- Layer bar context menu (delete, duplicate, split, properties) — DONE
+- Playhead follow during playback — DONE
 - Frame range from project settings — DONE
 
 ---
 
-## P4: Effects + Properties
+## P4: Effects + Properties (IN PROGRESS)
 
 **Goal**: Effects stack panel per layer, properties panel for selected effect/layer.
 
 **Estimated Duration**: 1-2 weeks
 
 **Dependencies**: P3 complete
+
+**Started**: 2026-05-22
+
+**Completed so far**:
+- T043: Mapped Natron plugin discovery (`AppManager::getPluginsList()` / plugin tree), effect node creation, and safe chain insertion API.
+- T044 live-approved: Timeline Tab uses Natron's existing node search dialog; selected layers receive effects at bottom of stack; empty-space context creates adjustment effect rows; effect settings panel opens on creation.
+- T045 live-approved: Per-layer child effects wire before that layer's Merge; adjustment effects wire by timeline position; stale/manual-deleted effect references are pruned on rebuild and graph reconnects to valid nodes.
+- T046 live-approved: Adjustment rows support select/reorder/delete/lock/mute/Add Effect, solo disabled, main-pipe nodegraph verticality preserved on move; null rows support select/reorder/delete/lock; unsupported duplicate/split/trim/reset safely blocked; effect-bearing layer duplicate/split deferred to T049/T050.
+- T047 live-approved: Effects panel lists actual model effects; click/double-click reopens Natron settings panel; remove button deactivates node, removes from model, rebuilds graph, and refreshes panel.
+
+**Current task**:
+- T048: P4 integration test with Tab-add effects, adjustment rows, timeline reorder, and render verification.
+
+**Next/future tasks**:
+- T049: Duplicate effect-bearing layers and adjustment rows — deep-copy owned effect nodes, preserve parameters/order, reconnect copied chains.
+- T050: Split effect-bearing layers — duplicate full child effect stack, preserve parameters, trim safely without sharing nodes.
+- T051: Adjustment row time-range semantics — design and implement trim/split/time-limited adjustment effects.
 
 **Exit Criteria**:
 - Effects stack panel shows effects per layer

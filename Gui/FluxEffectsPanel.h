@@ -53,6 +53,9 @@ public:
     /** @brief Remove an effect from the stack by index. */
     void removeEffect(int index);
 
+    /** @brief Programmatically show the effect combo popup (e.g. from timeline context menu). */
+    void showAddEffectPopup();
+
 Q_SIGNALS:
 
     /** @brief Emitted when the user wants to add an effect. */

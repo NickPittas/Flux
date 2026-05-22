@@ -189,12 +189,13 @@ FluxEffectsPanel::setActiveLayer(int layerIndex,
                                  const QString& layerName)
 {
     _activeLayerIndex = layerIndex;
+    _effectList->clear();
 
     if (layerIndex >= 0) {
         _layerLabel->setText(QStringLiteral("Layer: %1").arg(layerName));
         // T019-D: Enable controls when a layer is selected
         _effectCombo->setEnabled(true);
-        _addButton->setEnabled(true);
+        _addButton->setEnabled(false);
         _removeButton->setEnabled(true);
     } else {
         _layerLabel->setText(QStringLiteral("No layer selected"));
@@ -226,6 +227,10 @@ FluxEffectsPanel::removeEffect(int index)
 void
 FluxEffectsPanel::onAddButtonClicked()
 {
+    // P4: effects are created through Natron's existing Tab node-search dialog
+    // from the timeline. The old combo path is disabled to avoid orphan nodes.
+    return;
+
     // T019-D: Safety check — no layer selected
     if (_activeLayerIndex < 0) {
         return;
@@ -252,7 +257,6 @@ FluxEffectsPanel::onRemoveButtonClicked()
 {
     int row = _effectList->currentRow();
     if (row >= 0) {
-        removeEffect(row);
         Q_EMIT effectRemoved(row);
     }
 }
@@ -266,10 +270,25 @@ FluxEffectsPanel::onEffectClicked(QListWidgetItem* item)
 }
 
 void
-FluxEffectsPanel::onEffectDoubleClicked(QListWidgetItem* /*item*/)
+FluxEffectsPanel::onEffectDoubleClicked(QListWidgetItem* item)
 {
-    // Double-click could open the effect's full settings in a dialog
-    // For now, just select it
+    if (item) {
+        Q_EMIT effectSelected(_effectList->row(item));
+    }
+}
+
+void
+FluxEffectsPanel::showAddEffectPopup()
+{
+    if (!_effectCombo) {
+        return;
+    }
+    // Ensure the combo is enabled (a layer must be active)
+    if (!_effectCombo->isEnabled()) {
+        return;
+    }
+    _effectCombo->setFocus();
+    _effectCombo->showPopup();
 }
 
 NATRON_NAMESPACE_EXIT

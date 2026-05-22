@@ -16,12 +16,17 @@
 #include <QUrl>
 #include <QMenu>
 #include <QDrag>
+#include <QKeyEvent>
 
 #include "Gui/Gui.h"
 #include "Gui/GuiAppInstance.h"
+#include "Gui/FluxEffectsPanel.h"
 #include "Gui/NodeGraph.h"
+#include "Gui/NodeCreationDialog.h"
 #include "Gui/NodeClipBoard.h"
 #include "Gui/NodeGui.h"
+#include "Gui/NodeSettingsPanel.h"
+#include "Gui/DockablePanel.h"
 #include "Engine/Project.h"
 #include "Engine/AppInstance.h"
 #include "Engine/Node.h"
@@ -44,9 +49,10 @@ FluxTimeline::FluxTimeline(Gui* gui,
       , _currentFrame(0)
       , _selectedLayer(-1)
       , _zoom(10.0)
-      , _scrollOffsetX(0)
-      , _scrollOffsetY(0)
-      , _interactionMode(eModeNone)
+    , _scrollOffsetX(0)
+    , _scrollOffsetY(0)
+    , _layerLabelWidth(180)
+    , _interactionMode(eModeNone)
       , _interactionLayerIndex(-1)
       , _interactionStartX(0)
       , _interactionStartY(0)
@@ -56,7 +62,11 @@ FluxTimeline::FluxTimeline(Gui* gui,
       , _interactionOrigTrimStart(0)
       , _interactionOrigTrimEnd(0)
       , _reorderTargetRow(-1)
-      , _isDragOver(false)
+    , _panStartScrollX(0)
+    , _panStartScrollY(0)
+    , _resizeStartX(0)
+    , _resizeStartWidth(0)
+    , _isDragOver(false)
       , _dragPreviewPos()
       , _timeline()
 {
@@ -131,12 +141,18 @@ FluxTimeline::addSolidLayer(const QColor& color)
 void
 FluxTimeline::removeLayer(int index)
 {
-    if (index >= 0 && index < _layers.size()) {
+    if (index >= 0 && index < _layers.size() && !_layers[index].locked) {
         FluxLayer& layer = _layers[index];
         // Deactivate nodes from the node graph
         if (layer.mergeNode) {
             layer.mergeNode->deactivate(std::list<NodePtr>(), false, true);
             layer.mergeNode.reset();
+        }
+        for (int e = 0; e < layer.effects.size(); ++e) {
+            if (layer.effects[e].node) {
+                layer.effects[e].node->deactivate(std::list<NodePtr>(), false, true);
+                layer.effects[e].node.reset();
+            }
         }
         if (layer.gizmoNode) {
             layer.gizmoNode->deactivate(std::list<NodePtr>(), false, true);
@@ -149,6 +165,7 @@ FluxTimeline::removeLayer(int index)
         _layers.removeAt(index);
         if (_selectedLayer == index) {
             _selectedLayer = -1;
+            Q_EMIT layerSelected(-1);
         } else if (_selectedLayer > index) {
             --_selectedLayer;
         }
@@ -157,25 +174,22 @@ FluxTimeline::removeLayer(int index)
     }
 }
 
-void
+bool
 FluxTimeline::duplicateLayer(int index)
 {
-    if (index < 0 || index >= _layers.size()) {
-        return;
+    if (!canDuplicateRow(index)) {
+        return false;
     }
 
     const FluxLayer& layer = _layers[index];
-    if (!layer.gizmoNode || !layer.mergeNode) {
-        return;
-    }
 
     Gui* gui = getGui();
     if (!gui) {
-        return;
+        return false;
     }
     NodeGraph* nodeGraph = gui->getNodeGraph();
     if (!nodeGraph) {
-        return;
+        return false;
     }
 
     // 1. Collect nodes to copy: Read (if footage) + Gizmo + Merge
@@ -207,7 +221,7 @@ FluxTimeline::duplicateLayer(int index)
 
     if (nodesToCopy.size() < 2) {
         fprintf(stderr, "FLUX ERROR: duplicateLayer — could not find NodeGui for gizmo/merge\n");
-        return;
+        return false;
     }
 
     size_t expectedCount = nodesToCopy.size();
@@ -219,7 +233,7 @@ FluxTimeline::duplicateLayer(int index)
     if (clipboard.nodes.size() != expectedCount) {
         fprintf(stderr, "FLUX ERROR: duplicateLayer — clipboard has %zu nodes, expected %zu\n",
                 clipboard.nodes.size(), expectedCount);
-        return;
+        return false;
     }
 
     // 3. Paste — creates new nodes
@@ -229,7 +243,7 @@ FluxTimeline::duplicateLayer(int index)
     if (newNodes.size() != expectedCount) {
         fprintf(stderr, "FLUX ERROR: duplicateLayer — paste returned %zu nodes, expected %zu\n",
                 newNodes.size(), expectedCount);
-        return;
+        return false;
     }
 
     // 4. Identify pasted nodes by plugin ID
@@ -254,7 +268,7 @@ FluxTimeline::duplicateLayer(int index)
     if (!newGizmo || !newMerge) {
         fprintf(stderr, "FLUX ERROR: duplicateLayer — could not identify pasted gizmo (%p) or merge (%p)\n",
                 newGizmo.get(), newMerge.get());
-        return;
+        return false;
     }
 
     // 5. Create new FluxLayer as a copy of the original
@@ -262,6 +276,7 @@ FluxTimeline::duplicateLayer(int index)
     duplicate.gizmoNode = newGizmo;
     duplicate.mergeNode = newMerge;
     duplicate.readerNode = newRead;
+    duplicate.effects.clear(); // T046 will deep-copy child effects; never share NodePtr ownership.
     duplicate.nodeInitialized = true; // knobs already set by paste
 
     // 5b. For footage layers, re-set filename on the new external Read node.
@@ -305,12 +320,13 @@ FluxTimeline::duplicateLayer(int index)
     // 8. Trigger rebuild to reconnect and reposition the node graph
     Q_EMIT compositingChanged();
     update();
+    return true;
 }
 
 void
 FluxTimeline::splitLayer(int index, int frame)
 {
-    if (index < 0 || index >= _layers.size()) {
+    if (!canSplitRow(index)) {
         return;
     }
 
@@ -325,7 +341,10 @@ FluxTimeline::splitLayer(int index, int frame)
     }
 
     // 1. Duplicate the layer — duplicate is inserted at `index` (above original)
-    duplicateLayer(index);
+    const int previousCount = _layers.size();
+    if (!duplicateLayer(index) || _layers.size() != previousCount + 1 || index + 1 >= _layers.size()) {
+        return;
+    }
 
     // After duplicate, the new layer is at `index`, original shifted to `index + 1`
     FluxLayer& dup = _layers[index];       // the duplicate (top)
@@ -369,7 +388,8 @@ FluxTimeline::moveLayer(int from,
                         int to)
 {
     if (from >= 0 && from < _layers.size() &&
-        to >= 0 && to < _layers.size()) {
+        to >= 0 && to < _layers.size() &&
+        !_layers[from].locked) {
         _layers.move(from, to);
         if (_selectedLayer == from) {
             _selectedLayer = to;
@@ -411,6 +431,75 @@ FluxTimeline::getCurrentFrame() const
     return _currentFrame;
 }
 
+int
+FluxTimeline::getSelectedLayerIndex() const
+{
+    return _selectedLayer;
+}
+
+bool
+FluxTimeline::isAdjustmentRow(int index) const
+{
+    return index >= 0 && index < _layers.size() &&
+           _layers[index].type == QString::fromUtf8("adjustment");
+}
+
+bool
+FluxTimeline::isNullRow(int index) const
+{
+    return index >= 0 && index < _layers.size() &&
+           _layers[index].type == QString::fromUtf8("null");
+}
+
+bool
+FluxTimeline::canTrimRow(int index) const
+{
+    if (index < 0 || index >= _layers.size()) return false;
+    const FluxLayer& l = _layers[index];
+    if (l.locked) return false;
+    if (l.type == QString::fromUtf8("adjustment") || l.type == QString::fromUtf8("null")) return false;
+    return true;
+}
+
+bool
+FluxTimeline::canHorizontallyMoveRow(int index) const
+{
+    return canTrimRow(index);
+}
+
+bool
+FluxTimeline::canDuplicateRow(int index) const
+{
+    if (index < 0 || index >= _layers.size()) return false;
+    const FluxLayer& l = _layers[index];
+    if (l.locked) return false;
+    if (l.type == QString::fromUtf8("adjustment") || l.type == QString::fromUtf8("null")) return false;
+    if (!l.effects.isEmpty()) return false;
+    if (!l.gizmoNode || !l.mergeNode) return false;
+    return true;
+}
+
+bool
+FluxTimeline::canSplitRow(int index) const
+{
+    if (index < 0 || index >= _layers.size()) return false;
+    const FluxLayer& l = _layers[index];
+    if (l.locked) return false;
+    if (l.type == QString::fromUtf8("adjustment") || l.type == QString::fromUtf8("null")) return false;
+    if (!l.effects.isEmpty()) return false;
+    return true;
+}
+
+bool
+FluxTimeline::canAddEffectToRow(int index) const
+{
+    if (index < 0 || index >= _layers.size()) return false;
+    const FluxLayer& l = _layers[index];
+    if (l.locked) return false;
+    if (l.type == QString::fromUtf8("null")) return false;
+    return true;
+}
+
 // Playback is driven by the viewer's render engine via the shared TimeLine.
 // The viewer calls TimeLine::seekFrame() during playback, which emits
 // frameChanged → our onExternalFrameChanged() updates the playhead.
@@ -440,14 +529,17 @@ FluxTimeline::paintEvent(QPaintEvent* /*event*/)
     painter.fillRect(totalRect, QColor(30, 30, 34));
 
     // Time ruler area
-    QRect rulerRect(kLayerLabelWidth, 0, totalRect.width() - kLayerLabelWidth, kTimeRulerHeight);
+    QRect rulerRect(_layerLabelWidth, 0, totalRect.width() - _layerLabelWidth, kTimeRulerHeight);
     drawTimeRuler(painter, rulerRect);
 
-    // Layer label column background
-    painter.fillRect(0, kTimeRulerHeight, kLayerLabelWidth, totalRect.height() - kTimeRulerHeight, QColor(38, 38, 42));
+    // Control column background (L/V/S buttons) — darker tint
+    painter.fillRect(0, kTimeRulerHeight, kControlColumnWidth, totalRect.height() - kTimeRulerHeight, QColor(35, 35, 39));
+
+    // Name column background
+    painter.fillRect(kControlColumnWidth, kTimeRulerHeight, _layerLabelWidth - kControlColumnWidth, totalRect.height() - kTimeRulerHeight, QColor(38, 38, 42));
 
     // Layer bars area
-    QRect barsRect(kLayerLabelWidth, kTimeRulerHeight, totalRect.width() - kLayerLabelWidth, totalRect.height() - kTimeRulerHeight);
+    QRect barsRect(_layerLabelWidth, kTimeRulerHeight, totalRect.width() - _layerLabelWidth, totalRect.height() - kTimeRulerHeight);
     drawLayerBars(painter, barsRect);
 
     // Playhead
@@ -461,7 +553,33 @@ FluxTimeline::paintEvent(QPaintEvent* /*event*/)
     // Separator lines
     painter.setPen(QColor(60, 60, 65));
     painter.drawLine(0, kTimeRulerHeight, totalRect.width(), kTimeRulerHeight);
-    painter.drawLine(kLayerLabelWidth, 0, kLayerLabelWidth, totalRect.height());
+    painter.drawLine(_layerLabelWidth, 0, _layerLabelWidth, totalRect.height());
+    painter.drawLine(kControlColumnWidth, kTimeRulerHeight, kControlColumnWidth, totalRect.height());
+
+    // Resize handle (subtle grip dots at the right edge of the label panel)
+    {
+        int handleX = _layerLabelWidth;
+        int cy = totalRect.height() / 2;
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(90, 90, 95));
+        for (int dy = -12; dy <= 12; dy += 6) {
+            painter.drawRect(handleX - 2, cy + dy - 1, 4, 2);
+        }
+        painter.setBrush(Qt::NoBrush);
+    }
+
+    // Fit button in top-left corner (control column header, in ruler row)
+    {
+        QRect fitBtnRect(2, 2, kControlColumnWidth - 4, kTimeRulerHeight - 4);
+        painter.fillRect(fitBtnRect, QColor(55, 55, 60));
+        painter.setPen(QColor(160, 160, 170));
+        QFont fitFont;
+        fitFont.setPointSize(8);
+        painter.setFont(fitFont);
+        painter.drawText(fitBtnRect, Qt::AlignCenter, QString::fromUtf8("Fit"));
+        painter.setPen(QColor(70, 70, 75));
+        painter.drawRect(fitBtnRect);
+    }
 }
 
 void
@@ -535,68 +653,83 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             continue;
         }
 
-        // Layer label (left column)
-        QRect labelRect(0, y, kLayerLabelWidth - 4, kLayerRowHeight);
         bool isSelected = (i == _selectedLayer);
 
+        // ── Control column background (L/V/S) ──
+        QRect ctrlRect(0, y, kControlColumnWidth, kLayerRowHeight);
         if (isSelected) {
-            painter.fillRect(labelRect, QColor(66, 133, 244));
+            painter.fillRect(ctrlRect, QColor(56, 113, 204));
+        } else {
+            painter.fillRect(ctrlRect, QColor(45, 45, 50));
+        }
+
+        // ── Name column background ──
+        int nameColX = kControlColumnWidth;
+        int nameColW = _layerLabelWidth - kControlColumnWidth;
+        QRect nameRect(nameColX, y, nameColW, kLayerRowHeight);
+        if (isSelected) {
+            painter.fillRect(nameRect, QColor(56, 113, 204));
             painter.setPen(Qt::white);
         } else {
-            painter.fillRect(labelRect, QColor(45, 45, 50));
+            painter.fillRect(nameRect, QColor(45, 45, 50));
             painter.setPen(QColor(200, 200, 210));
         }
 
+        // Layer name with proper elision
         QFont font;
         font.setPointSize(9);
         painter.setFont(font);
-        QString displayName = layer.name;
-        if (displayName.length() > 18) {
-            displayName = displayName.left(15) + QString::fromUtf8("...");
-        }
-        painter.drawText(labelRect.adjusted(6, 0, -4, 0), Qt::AlignVCenter | Qt::AlignLeft, displayName);
+        QFontMetrics fm(font);
+        int availableWidth = nameRect.width() - 8; // 4px padding each side
+        QString displayName = fm.elidedText(layer.name, Qt::ElideRight, qMax(0, availableWidth));
+        painter.drawText(nameRect.adjusted(4, 0, -4, 0), Qt::AlignVCenter | Qt::AlignLeft, displayName);
 
-        // Solo indicator (rightmost)
+        // ── L/V/S buttons in control column at fixed positions ──
         QFont smallFont;
         smallFont.setPointSize(8);
         painter.setFont(smallFont);
-        int soloX = labelRect.right() - 14;
-        int visX = labelRect.right() - 30;
-        int lockX = labelRect.right() - 46;
-        int btnY = labelRect.top();
+        int btnY = y;
         int btnH = kLayerRowHeight;
+        int btnInsetY = 6;
+        int btnHeight = btnH - 12;
 
-        // S button
-        if (layer.solo) {
-            painter.setPen(Qt::NoPen);
-            painter.fillRect(soloX - 2, btnY + 6, 16, btnH - 12, QColor(255, 200, 50));
-            painter.setPen(QColor(40, 40, 40));
-        } else {
-            painter.setPen(QColor(100, 100, 110));
-        }
-        painter.drawText(QRect(soloX - 2, btnY, 16, btnH), Qt::AlignCenter, QString::fromUtf8("S"));
-
-        // V button (green = muted)
-        if (layer.muted) {
-            painter.setPen(Qt::NoPen);
-            painter.fillRect(visX - 2, btnY + 6, 16, btnH - 12, QColor(80, 180, 120));
-            painter.setPen(QColor(40, 40, 40));
-        } else {
-            painter.setPen(QColor(100, 100, 110));
-        }
-        painter.drawText(QRect(visX - 2, btnY, 16, btnH), Qt::AlignCenter, QString::fromUtf8("V"));
-
-        // L button (amber = locked)
+        // L button (Lock) at x=4
+        int lockBtnX = 4;
         if (layer.locked) {
             painter.setPen(Qt::NoPen);
-            painter.fillRect(lockX - 2, btnY + 6, 16, btnH - 12, QColor(220, 160, 50));
+            painter.fillRect(lockBtnX, btnY + btnInsetY, 16, btnHeight, QColor(220, 160, 50));
             painter.setPen(QColor(40, 40, 40));
         } else {
-            painter.setPen(QColor(100, 100, 110));
+            painter.setPen(isSelected ? QColor(180, 180, 200) : QColor(100, 100, 110));
         }
-        painter.drawText(QRect(lockX - 2, btnY, 16, btnH), Qt::AlignCenter, QString::fromUtf8("L"));
+        painter.drawText(QRect(lockBtnX, btnY, 16, btnH), Qt::AlignCenter, QString::fromUtf8("L"));
 
-        // Layer bar (right area)
+        // V button (Visibility) at x=20
+        int visBtnX = 20;
+        if (layer.muted) {
+            painter.setPen(Qt::NoPen);
+            painter.fillRect(visBtnX, btnY + btnInsetY, 16, btnHeight, QColor(80, 180, 120));
+            painter.setPen(QColor(40, 40, 40));
+        } else {
+            painter.setPen(isSelected ? QColor(180, 180, 200) : QColor(100, 100, 110));
+        }
+        painter.drawText(QRect(visBtnX, btnY, 16, btnH), Qt::AlignCenter, QString::fromUtf8("V"));
+
+        // S button (Solo) at x=36
+        int soloBtnX = 36;
+        if (isAdjustmentRow(i)) {
+            // Solo is disabled for adjustment rows — always draw dim
+            painter.setPen(QColor(60, 60, 65));
+        } else if (layer.solo) {
+            painter.setPen(Qt::NoPen);
+            painter.fillRect(soloBtnX, btnY + btnInsetY, 16, btnHeight, QColor(255, 200, 50));
+            painter.setPen(QColor(40, 40, 40));
+        } else {
+            painter.setPen(isSelected ? QColor(180, 180, 200) : QColor(100, 100, 110));
+        }
+        painter.drawText(QRect(soloBtnX, btnY, 16, btnH), Qt::AlignCenter, QString::fromUtf8("S"));
+
+        // ── Layer bar (right area) ──
         // Step 1: compute positions from inPoint/outPoint (source frames)
         // Step 2: add timeOffset to shift the drawn position on the timeline
         int drawStart = layer.inPoint + layer.timeOffset;
@@ -604,24 +737,24 @@ FluxTimeline::drawLayerBars(QPainter& painter,
         int barX1 = frameToX(drawStart);
         int barX2 = frameToX(drawEnd);
 
-        // Clip bar to the right of the left panel (name/mute/solo buttons)
-        int clipLeft = kLayerLabelWidth;
+        // Clip bar to the right of the left panel
+        int clipLeft = _layerLabelWidth;
         if (barX1 < clipLeft) {
             barX1 = clipLeft;
         }
         QRect barRect(barX1, y + 4, barX2 - barX1, kLayerRowHeight - 8);
 
         // Determine effective visibility:
-        // If any layer is soloed, only soloed layers are visible
+        // If any layer is soloed, only soloed layers are visible (adjustment rows ignore solo)
         bool anySoloed = false;
         for (int j = 0; j < _layers.size(); ++j) {
-            if (_layers[j].solo) {
+            if (_layers[j].solo && !isAdjustmentRow(j)) {
                 anySoloed = true;
                 break;
             }
         }
-        // Dim bar if muted or solo-muted
-        bool effectivelyMuted = layer.muted || (anySoloed && !layer.solo);
+        // Dim bar if muted or solo-muted (adjustment rows: mute only, no solo effect)
+        bool effectivelyMuted = layer.muted || (!isAdjustmentRow(i) && anySoloed && !layer.solo);
 
         if (barRect.width() > 0) {
             // Compute active zone (where actual source frames play) vs desaturated zones
@@ -642,6 +775,9 @@ FluxTimeline::drawLayerBars(QPainter& painter,
                 desatColor = desatColor.darker(150);
             }
             painter.fillRect(barRect, desatColor);
+
+            activeX1 = qMax(activeX1, clipLeft);
+            activeX2 = qMax(activeX2, clipLeft);
 
             // Fill active zone with normal color (overwrites desaturated)
             if (activeX2 > activeX1) {
@@ -665,8 +801,8 @@ FluxTimeline::drawLayerBars(QPainter& painter,
                 }
             }
 
-            // Trim handle highlights (skip if locked — no trimming allowed)
-            if (!layer.locked && barRect.width() > kTrimHandleWidth * 2) {
+            // Trim handle highlights (only for rows that support trimming)
+            if (canTrimRow(i) && barRect.width() > kTrimHandleWidth * 2) {
                 // Left trim handle zone
                 QRect leftHandle(barRect.left(), barRect.top(), kTrimHandleWidth, barRect.height());
                 painter.fillRect(leftHandle, QColor(255, 255, 255, 30));
@@ -702,7 +838,7 @@ FluxTimeline::drawPlayhead(QPainter& painter,
                            const QRect& rect)
 {
     int x = frameToX(_currentFrame);
-    if (x < kLayerLabelWidth) {
+    if (x < _layerLabelWidth) {
         return;
     }
 
@@ -739,7 +875,7 @@ FluxTimeline::drawDragPreview(QPainter& painter,
     int y = _dragPreviewPos.y();
 
     // Only draw if in the layer bars area
-    if (x <= kLayerLabelWidth || y <= kTimeRulerHeight) {
+    if (x <= _layerLabelWidth || y <= kTimeRulerHeight) {
         return;
     }
 
@@ -781,13 +917,13 @@ FluxTimeline::drawDragPreview(QPainter& painter,
 int
 FluxTimeline::frameToX(int frame) const
 {
-    return kLayerLabelWidth + (int)( (frame - _firstFrame) * _zoom ) - _scrollOffsetX;
+    return _layerLabelWidth + (int)( (frame - _firstFrame) * _zoom ) - _scrollOffsetX;
 }
 
 int
 FluxTimeline::xToFrame(int x) const
 {
-    int localX = x - kLayerLabelWidth + _scrollOffsetX;
+    int localX = x - _layerLabelWidth + _scrollOffsetX;
     return _firstFrame + (int)( localX / _zoom );
 }
 
@@ -809,10 +945,163 @@ FluxTimeline::updateZoom()
     if (frameRange <= 0) {
         return;
     }
-    int availableWidth = width() - kLayerLabelWidth;
+    int availableWidth = width() - _layerLabelWidth;
     if (availableWidth > 0) {
         _zoom = (double)availableWidth / frameRange;
     }
+}
+
+void
+FluxTimeline::clampScrollOffsets()
+{
+    // Clamp vertical scroll
+    int visibleHeight = height() - kTimeRulerHeight;
+    int totalLayerHeight = _layers.size() * kLayerRowHeight;
+    int maxScrollY = qMax(0, totalLayerHeight - visibleHeight);
+    _scrollOffsetY = qBound(0, _scrollOffsetY, maxScrollY);
+
+    // Clamp horizontal scroll
+    int visibleWidth = width() - _layerLabelWidth;
+    int totalFrameWidth = (int)((_lastFrame - _firstFrame) * _zoom);
+    int maxScrollX = qMax(0, totalFrameWidth - visibleWidth);
+    _scrollOffsetX = qBound(0, _scrollOffsetX, maxScrollX);
+}
+
+void
+FluxTimeline::fitToView()
+{
+    // Reset scroll offsets and zoom to fit the full project frame range
+    _scrollOffsetX = 0;
+    _scrollOffsetY = 0;
+    updateZoom();
+    update();
+}
+
+void
+FluxTimeline::showNodeCreationDialog()
+{
+    NodeCreationDialog* dialog = new NodeCreationDialog(QString(), this);
+    QObject::connect(dialog, &NodeCreationDialog::dialogFinished, this,
+                     [this, dialog](bool accepted) {
+                         int major = -1;
+                         QString pluginId = dialog->getNodeName(&major);
+                         dialog->close();
+                         dialog->deleteLater();
+
+                         if (!accepted || pluginId.isEmpty()) {
+                             return;
+                         }
+                         if (pluginId.contains(QString::fromUtf8("Read"), Qt::CaseInsensitive) ||
+                             pluginId.contains(QString::fromUtf8("Write"), Qt::CaseInsensitive) ||
+                             pluginId.contains(QString::fromUtf8("Merge"), Qt::CaseInsensitive) ||
+                             pluginId.contains(QString::fromUtf8("Viewer"), Qt::CaseInsensitive)) {
+                             fprintf(stderr, "FLUX WARNING: plugin '%s' is not a safe timeline-stack effect\n",
+                                     pluginId.toStdString().c_str());
+                             return;
+                         }
+
+                          int targetLayer = _selectedLayer;
+                          if (targetLayer >= 0 && targetLayer < _layers.size()) {
+                              if (!canAddEffectToRow(targetLayer)) {
+                                  return;
+                              }
+                          }
+
+                         Gui* gui = getGui();
+                         if (!gui || !gui->getApp()) {
+                             return;
+                         }
+                         NodeCollectionPtr collection = std::dynamic_pointer_cast<NodeCollection>(gui->getApp()->getProject());
+                         if (!collection) {
+                             return;
+                         }
+
+                         CreateNodeArgs args(pluginId.toStdString(), collection);
+                         args.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+                         args.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+                         args.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+                         args.setProperty<bool>(kCreateNodeArgsPropSilent, true);
+                         if (major >= 0) {
+                             args.setProperty<int>(kCreateNodeArgsPropPluginVersion, major, 0);
+                         }
+
+                         NodePtr node = gui->getApp()->createNode(args);
+                         if (!node) {
+                             fprintf(stderr, "FLUX ERROR: Failed to create effect node '%s' from timeline Tab\n",
+                                     pluginId.toStdString().c_str());
+                             return;
+                         }
+                         if (node->getNInputs() < 1) {
+                             fprintf(stderr, "FLUX WARNING: plugin '%s' has no stack input; rejecting timeline effect\n",
+                                     pluginId.toStdString().c_str());
+                             node->deactivate(std::list<NodePtr>(), false, true);
+                             return;
+                         }
+
+                         NodeGuiPtr nodeGui = std::dynamic_pointer_cast<NodeGui>(node->getNodeGui());
+                         if (nodeGui) {
+                             nodeGui->setVisibleSettingsPanel(true);
+                             NodeSettingsPanel* settingsPanel = nodeGui->getSettingPanel();
+                             if (settingsPanel) {
+                                 DockablePanel* dockPanel = static_cast<DockablePanel*>(settingsPanel);
+                                 gui->putSettingsPanelFirst(dockPanel);
+                             }
+                         }
+
+                         FluxEffect effect;
+                         effect.pluginId = pluginId;
+                         effect.label = QString::fromStdString(node->getLabel());
+                         effect.node = node;
+                         effect.enabled = true;
+
+                         if (targetLayer >= 0 && targetLayer < _layers.size()) {
+                             _layers[targetLayer].effects.append(effect);
+                             Q_EMIT layerSelected(targetLayer);
+                             fprintf(stderr, "FLUX: Added effect '%s' to layer %d '%s'\n",
+                                     effect.label.toStdString().c_str(), targetLayer,
+                                     _layers[targetLayer].name.toStdString().c_str());
+                         } else {
+                             FluxLayer adjustment;
+                             adjustment.name = effect.label;
+                             adjustment.type = QString::fromUtf8("adjustment");
+                             adjustment.inPoint = _firstFrame;
+                             adjustment.outPoint = _lastFrame;
+                             adjustment.originalInPoint = _firstFrame;
+                             adjustment.originalOutPoint = _lastFrame;
+                             adjustment.originalFirstFrame = _firstFrame;
+                             adjustment.originalLastFrame = _lastFrame;
+                             adjustment.color = QColor(200, 130, 80);
+                             adjustment.effects.append(effect);
+                             adjustment.nodeInitialized = true;
+                             _layers.insert(0, adjustment);
+                             _selectedLayer = 0;
+                             Q_EMIT layerSelected(0);
+                             fprintf(stderr, "FLUX: Created adjustment effect row '%s' after final merge\n",
+                                     effect.label.toStdString().c_str());
+                         }
+
+                         Q_EMIT compositingChanged();
+                         update();
+                     });
+    dialog->show();
+    dialog->raise();
+    dialog->activateWindow();
+}
+
+bool
+FluxTimeline::event(QEvent* event)
+{
+    if (event->type() == QEvent::KeyPress) {
+        QKeyEvent* keyEvent = static_cast<QKeyEvent*>(event);
+        if (keyEvent && keyEvent->key() == Qt::Key_Tab && keyEvent->modifiers() == Qt::NoModifier) {
+            // Tab is normally consumed by Qt focus traversal before keyPressEvent().
+            // Catch it here so Timeline gets the same Natron node-search UX as NodeGraph.
+            showNodeCreationDialog();
+            keyEvent->accept();
+            return true;
+        }
+    }
+    return QWidget::event(event);
 }
 
 // ─── Hit Testing ────────────────────────────────────────────────────────────
@@ -827,7 +1116,7 @@ FluxTimeline::hitTest(int x,
     }
 
     // Must be in the bar area (right of labels, below ruler)
-    if (x <= kLayerLabelWidth || y <= kTimeRulerHeight) {
+    if (x <= _layerLabelWidth || y <= kTimeRulerHeight) {
         return eHitNone;
     }
 
@@ -849,6 +1138,11 @@ FluxTimeline::hitTest(int x,
         *outLayerIndex = layerIdx;
     }
 
+    // Adjustment and null rows: body only, never trim handles
+    if (isAdjustmentRow(layerIdx) || isNullRow(layerIdx)) {
+        return eHitBarBody;
+    }
+
     // Check trim handles (only if bar is wide enough for both handles)
     if (barX2 - barX1 > kTrimHandleWidth * 2) {
         if (x - barX1 < kTrimHandleWidth) {
@@ -867,6 +1161,18 @@ FluxTimeline::hitTest(int x,
 void
 FluxTimeline::mousePressEvent(QMouseEvent* event)
 {
+    // ── Middle button or Alt+Left: start pan ──
+    if (event->button() == Qt::MiddleButton ||
+        (event->button() == Qt::LeftButton && (event->modifiers() & Qt::AltModifier))) {
+        _interactionMode = eModePan;
+        _interactionStartX = event->pos().x();
+        _interactionStartY = event->pos().y();
+        _panStartScrollX = _scrollOffsetX;
+        _panStartScrollY = _scrollOffsetY;
+        setCursor(Qt::ClosedHandCursor);
+        return;
+    }
+
     if (event->button() != Qt::LeftButton) {
         return;
     }
@@ -874,8 +1180,23 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
     int x = event->pos().x();
     int y = event->pos().y();
 
+    // Fit button (top-left corner, control column header in ruler row)
+    if (x >= 2 && x < kControlColumnWidth - 2 && y >= 2 && y < kTimeRulerHeight - 2) {
+        fitToView();
+        return;
+    }
+
+    // Resize handle (right edge of label panel)
+    if (x >= _layerLabelWidth - 4 && x < _layerLabelWidth && y > kTimeRulerHeight) {
+        _interactionMode = eModeResizePanel;
+        _resizeStartX = x;
+        _resizeStartWidth = _layerLabelWidth;
+        setCursor(Qt::SplitHCursor);
+        return;
+    }
+
     // Click on time ruler area → drag playhead
-    if (y < kTimeRulerHeight && x > kLayerLabelWidth) {
+    if (y < kTimeRulerHeight && x > _layerLabelWidth) {
         _interactionMode = eModeDragPlayhead;
         _currentFrame = xToFrame(x);
         // T019-C: Sync with shared timeline
@@ -887,36 +1208,35 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
         return;
     }
 
-    // Click on layer label → check S/V/L buttons, then select layer
-    if (x < kLayerLabelWidth && y > kTimeRulerHeight) {
+    // Click on layer label area → check L/V/S buttons, then select layer
+    if (x < _layerLabelWidth && y > kTimeRulerHeight) {
         int layerIdx = yToLayer(y);
         if (layerIdx >= 0 && layerIdx < _layers.size()) {
-            int labelRight = kLayerLabelWidth - 4;
-            int btnH = kLayerRowHeight;
             int btnY = kTimeRulerHeight + layerIdx * kLayerRowHeight - _scrollOffsetY;
 
-            // S button region (rightmost)
-            int soloX = labelRight - 14;
-            QRect soloRect(soloX - 2, btnY + 6, 16, btnH - 12);
-
-            // V button region
-            int visX = labelRight - 30;
-            QRect visRect(visX - 2, btnY + 6, 16, btnH - 12);
-
-            // L button region
-            int lockX = labelRight - 46;
-            QRect lockRect(lockX - 2, btnY + 6, 16, btnH - 12);
+            // L button at x=4
+            QRect lockRect(4, btnY + 6, 16, kLayerRowHeight - 12);
+            // V button at x=20
+            QRect visRect(20, btnY + 6, 16, kLayerRowHeight - 12);
+            // S button at x=36
+            QRect soloRect(36, btnY + 6, 16, kLayerRowHeight - 12);
 
             if (soloRect.contains(x, y)) {
+                // Solo is disabled for adjustment rows
+                if (isAdjustmentRow(layerIdx)) {
+                    _layers[layerIdx].solo = false;
+                    update();
+                    return;
+                }
                 // Toggle solo
                 _layers[layerIdx].solo = !_layers[layerIdx].solo;
-                applyLayerVisibility();
+                Q_EMIT compositingChanged();
                 update();
                 return;
             } else if (visRect.contains(x, y)) {
                 // Toggle mute
                 _layers[layerIdx].muted = !_layers[layerIdx].muted;
-                applyLayerVisibility();
+                Q_EMIT compositingChanged();
                 update();
                 return;
             } else if (lockRect.contains(x, y)) {
@@ -935,12 +1255,14 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
     }
 
     // Click on layer bar area → hit-test to determine what was clicked
-    if (x > kLayerLabelWidth && y > kTimeRulerHeight) {
+    if (x > _layerLabelWidth && y > kTimeRulerHeight) {
         int layerIdx = -1;
         HitZone zone = hitTest(x, y, &layerIdx);
 
         if (zone == eHitNone) {
             // Clicked empty space in bar area — move playhead only
+            _selectedLayer = -1;
+            Q_EMIT layerSelected(-1);
             _interactionMode = eModeDragPlayhead;
             _currentFrame = xToFrame(x);
             if (_timeline) {
@@ -970,9 +1292,21 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             // Locked layers: selection works, but no drag interactions
             _interactionMode = eModeNone;
         } else if (zone == eHitTrimLeft) {
-            _interactionMode = eModeTrimLeft;
+            if (canTrimRow(layerIdx)) {
+                _interactionMode = eModeTrimLeft;
+            } else {
+                _interactionMode = eModeNone;
+            }
         } else if (zone == eHitTrimRight) {
-            _interactionMode = eModeTrimRight;
+            if (canTrimRow(layerIdx)) {
+                _interactionMode = eModeTrimRight;
+            } else {
+                _interactionMode = eModeNone;
+            }
+        } else if (isAdjustmentRow(layerIdx) || isNullRow(layerIdx)) {
+            // Adjustment/null: vertical reorder only, no horizontal move
+            _interactionMode = eModeReorderLayer;
+            _reorderTargetRow = layerIdx;
         } else {
             // Bar body: start as move, may transition to reorder on vertical drag
             _interactionMode = eModeMoveBar;
@@ -1014,9 +1348,9 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
         }
 
         // Move: only timeOffset changes. inPoint/outPoint stay the same.
-        int frameDelta = (int)( deltaX / _zoom );
-
-        if (_interactionLayerIndex >= 0 && _interactionLayerIndex < _layers.size()) {
+        // Only allowed for rows that support horizontal move.
+        if (canHorizontallyMoveRow(_interactionLayerIndex)) {
+            int frameDelta = (int)( deltaX / _zoom );
             _layers[_interactionLayerIndex].timeOffset = _interactionOrigTimeOffset + frameDelta;
         }
         update();
@@ -1025,6 +1359,9 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
 
     case eModeTrimLeft: {
         if (_interactionLayerIndex < 0 || _interactionLayerIndex >= _layers.size()) {
+            break;
+        }
+        if (!canTrimRow(_interactionLayerIndex)) {
             break;
         }
         int deltaX = x - _interactionStartX;
@@ -1039,6 +1376,9 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
 
     case eModeTrimRight: {
         if (_interactionLayerIndex < 0 || _interactionLayerIndex >= _layers.size()) {
+            break;
+        }
+        if (!canTrimRow(_interactionLayerIndex)) {
             break;
         }
         int deltaX = x - _interactionStartX;
@@ -1087,27 +1427,49 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
         break;
     }
 
+    case eModePan: {
+        int deltaX = x - _interactionStartX;
+        int deltaY = y - _interactionStartY;
+        _scrollOffsetX = _panStartScrollX - deltaX;
+        _scrollOffsetY = _panStartScrollY - deltaY;
+        clampScrollOffsets();
+        update();
+        break;
+    }
+
+    case eModeResizePanel: {
+        int deltaX = x - _resizeStartX;
+        _layerLabelWidth = qBound(120, _resizeStartWidth + deltaX, 500);
+        update();
+        break;
+    }
+
     case eModeNone:
     default: {
         // No active interaction — update cursor based on hover position
-        int layerIdx = -1;
-        HitZone zone = hitTest(x, y, &layerIdx);
-        if (zone == eHitTrimLeft || zone == eHitTrimRight) {
-            if (layerIdx >= 0 && layerIdx < _layers.size() && _layers[layerIdx].locked) {
-                setCursor(Qt::ForbiddenCursor);
-            } else {
-                setCursor(Qt::SplitHCursor);
-            }
-        } else if (zone == eHitBarBody) {
-            if (layerIdx >= 0 && layerIdx < _layers.size() && _layers[layerIdx].locked) {
-                setCursor(Qt::ForbiddenCursor);
-            } else {
-                setCursor(Qt::OpenHandCursor);
-            }
-        } else if (y < kTimeRulerHeight && x > kLayerLabelWidth) {
-            setCursor(Qt::PointingHandCursor);
+        // Resize handle cursor (right edge of label panel)
+        if (x >= _layerLabelWidth - 4 && x < _layerLabelWidth && y > kTimeRulerHeight) {
+            setCursor(Qt::SplitHCursor);
         } else {
-            unsetCursor();
+            int layerIdx = -1;
+            HitZone zone = hitTest(x, y, &layerIdx);
+            if (zone == eHitTrimLeft || zone == eHitTrimRight) {
+                if (layerIdx >= 0 && layerIdx < _layers.size() && _layers[layerIdx].locked) {
+                    setCursor(Qt::ForbiddenCursor);
+                } else {
+                    setCursor(Qt::SplitHCursor);
+                }
+            } else if (zone == eHitBarBody) {
+                if (layerIdx >= 0 && layerIdx < _layers.size() && _layers[layerIdx].locked) {
+                    setCursor(Qt::ForbiddenCursor);
+                } else {
+                    setCursor(Qt::OpenHandCursor);
+                }
+            } else if (y < kTimeRulerHeight && x > _layerLabelWidth) {
+                setCursor(Qt::PointingHandCursor);
+            } else {
+                unsetCursor();
+            }
         }
         break;
     }
@@ -1129,6 +1491,10 @@ FluxTimeline::mouseReleaseEvent(QMouseEvent* /*event*/)
     if (_interactionMode == eModeReorderLayer) {
         // Reorder requires Merge node reconnection — full rebuild
         Q_EMIT compositingChanged();
+    }
+
+    if (_interactionMode == eModePan || _interactionMode == eModeResizePanel) {
+        unsetCursor();
     }
 
     _interactionMode = eModeNone;
@@ -1158,6 +1524,14 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
     int x = event->pos().x();
     int y = event->pos().y();
 
+    int layerIdx = -1;
+    if (y > kTimeRulerHeight) {
+        hitTest(x, y, &layerIdx);
+        if (layerIdx < 0 && x < _layerLabelWidth) {
+            layerIdx = yToLayer(y);
+        }
+    }
+
     // -- "Add Layer" submenu (shown when right-clicking empty space or in bar area) --
     if (y > kTimeRulerHeight) {
         QMenu* addMenu = menu.addMenu(QString::fromUtf8("Add Layer"));
@@ -1180,31 +1554,72 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
             update();
         });
 
-        // -- Per-layer actions (shown when right-clicking on a layer bar or label) --
-        int layerIdx = -1;
-        HitZone zone = hitTest(x, y, &layerIdx);
-        if (layerIdx < 0 && x < kLayerLabelWidth) {
-            // Clicked on label area
-            layerIdx = yToLayer(y);
+        if (layerIdx < 0) {
+            QAction* addAdjustmentEffectAction = menu.addAction(QString::fromUtf8("Add Effect as Adjustment..."));
+            connect(addAdjustmentEffectAction, &QAction::triggered, this, [this]() {
+                _selectedLayer = -1;
+                Q_EMIT layerSelected(-1);
+                showNodeCreationDialog();
+                update();
+            });
         }
 
+        // -- Per-layer actions (shown when right-clicking on a layer bar or label) --
         if (layerIdx >= 0 && layerIdx < _layers.size()) {
             menu.addSeparator();
-            bool isLocked = _layers[layerIdx].locked;
             QAction* duplicateAction = menu.addAction(QString::fromUtf8("Duplicate Layer"));
-            duplicateAction->setEnabled(!isLocked);
+            duplicateAction->setEnabled(canDuplicateRow(layerIdx));
             connect(duplicateAction, &QAction::triggered, this, [this, layerIdx]() {
                 duplicateLayer(layerIdx);
             });
             QAction* splitAction = menu.addAction(QString::fromUtf8("Split Layer"));
-            splitAction->setEnabled(!isLocked);
+            splitAction->setEnabled(canSplitRow(layerIdx));
             connect(splitAction, &QAction::triggered, this, [this, layerIdx]() {
                 splitLayer(layerIdx, _currentFrame);
             });
             QAction* deleteAction = menu.addAction(QString::fromUtf8("Delete Layer"));
-            deleteAction->setEnabled(!isLocked);
+            deleteAction->setEnabled(!_layers[layerIdx].locked);
             connect(deleteAction, &QAction::triggered, this, [this, layerIdx]() {
                 removeLayer(layerIdx);
+            });
+
+            menu.addSeparator();
+
+            QAction* resetInOutAction = menu.addAction(QString::fromUtf8("Reset In/Out Points"));
+            resetInOutAction->setEnabled(canTrimRow(layerIdx));
+            connect(resetInOutAction, &QAction::triggered, this, [this, layerIdx]() {
+                if (layerIdx < 0 || layerIdx >= _layers.size()) {
+                    return;
+                }
+                FluxLayer& layer = _layers[layerIdx];
+                if (layer.locked) {
+                    return;
+                }
+                layer.inPoint = layer.originalInPoint;
+                layer.outPoint = layer.originalOutPoint;
+                layer.trimStart = 0;
+                layer.trimEnd = 0;
+                if (layer.gizmoNode) {
+                    KnobIPtr frameRangeKnob = layer.gizmoNode->getKnobByName(std::string("frameRange"));
+                    if (frameRangeKnob) {
+                        KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(frameRangeKnob);
+                        if (int2D) {
+                            int2D->setValue(layer.inPoint, ViewSpec::all(), 0);
+                            int2D->setValue(layer.outPoint, ViewSpec::all(), 1);
+                        }
+                    }
+                }
+                update();
+            });
+
+            QAction* addEffectAction = menu.addAction(QString::fromUtf8("Add Effect..."));
+            addEffectAction->setEnabled(canAddEffectToRow(layerIdx));
+            connect(addEffectAction, &QAction::triggered, this, [this, layerIdx]() {
+                // Select this layer and focus the effects panel
+                _selectedLayer = layerIdx;
+                Q_EMIT layerSelected(layerIdx);
+                update();
+                showNodeCreationDialog();
             });
         }
     }
@@ -1217,13 +1632,43 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
 void
 FluxTimeline::wheelEvent(QWheelEvent* event)
 {
-    QPoint delta = event->angleDelta();
+    const QPoint angleDelta = event->angleDelta();
+    const QPoint pixelDelta = event->pixelDelta();
+    const QPoint delta = pixelDelta.isNull() ? angleDelta : pixelDelta;
+    Qt::KeyboardModifiers mods = event->modifiers();
 
-    if (delta.y() != 0) {
-        // Zoom horizontally
+    const bool ctrlHeld = (mods & Qt::ControlModifier);
+
+    // Horizontal component from trackpad or tilt wheel
+    int hDelta = delta.x();
+
+    if (!ctrlHeld && delta.y() != 0 && hDelta == 0) {
+        // ── Plain Wheel: horizontal zoom anchored at mouse frame ──
+        double oldZoom = _zoom;
         double factor = delta.y() > 0 ? 1.15 : 1.0 / 1.15;
         _zoom *= factor;
         _zoom = qBound(1.0, _zoom, 100.0);
+
+        // Adjust scroll so the frame under the mouse stays in place
+        int mouseX = event->position().x();
+        int d = mouseX - _layerLabelWidth;
+        if (d > 0 && oldZoom > 0) {
+            _scrollOffsetX = (int)( (d + _scrollOffsetX) * (_zoom / oldZoom) - d );
+        }
+
+        clampScrollOffsets();
+        update();
+        event->accept();
+    } else if (ctrlHeld && delta.y() != 0) {
+        // ── Ctrl+Wheel: horizontal scroll ──
+        _scrollOffsetX -= delta.y();
+        clampScrollOffsets();
+        update();
+        event->accept();
+    } else if (hDelta != 0) {
+        // ── Horizontal wheel/trackpad: scroll horizontally ──
+        _scrollOffsetX -= hDelta;
+        clampScrollOffsets();
         update();
         event->accept();
     }
@@ -1241,19 +1686,28 @@ FluxTimeline::keyPressEvent(QKeyEvent* event)
         event->accept();
     } else if (event->key() == Qt::Key_D && (event->modifiers() & Qt::ControlModifier) && (event->modifiers() & Qt::ShiftModifier)) {
         // Ctrl+Shift+D = Split at playhead
-        if (_selectedLayer >= 0 && _selectedLayer < _layers.size()) {
-            if (!_layers[_selectedLayer].locked) {
-                splitLayer(_selectedLayer, _currentFrame);
-            }
+        if (canSplitRow(_selectedLayer)) {
+            splitLayer(_selectedLayer, _currentFrame);
         }
         event->accept();
     } else if (event->key() == Qt::Key_D && (event->modifiers() & Qt::ControlModifier) && !(event->modifiers() & Qt::ShiftModifier)) {
         // Ctrl+D = Duplicate selected layer
-        if (_selectedLayer >= 0 && _selectedLayer < _layers.size()) {
-            if (!_layers[_selectedLayer].locked) {
-                duplicateLayer(_selectedLayer);
-            }
+        if (canDuplicateRow(_selectedLayer)) {
+            duplicateLayer(_selectedLayer);
         }
+        event->accept();
+    } else if (event->key() == Qt::Key_F && event->modifiers() == Qt::NoModifier) {
+        // F = Fit to view
+        fitToView();
+        event->accept();
+    } else if (event->key() == Qt::Key_Tab && event->modifiers() == Qt::NoModifier) {
+        // Tab = Natron node search, routed into the Flux timeline stack.
+        showNodeCreationDialog();
+        event->accept();
+    } else if (event->key() == Qt::Key_Escape && event->modifiers() == Qt::NoModifier) {
+        _selectedLayer = -1;
+        Q_EMIT layerSelected(-1);
+        update();
         event->accept();
     } else {
         QWidget::keyPressEvent(event);
@@ -1322,7 +1776,7 @@ FluxTimeline::dropEvent(QDropEvent* event)
     int y = dropPos.y();
     // Determine inPoint from X position
     int inFrame = _firstFrame;
-    if (x > kLayerLabelWidth) {
+    if (x > _layerLabelWidth) {
         inFrame = xToFrame(x);
     }
 
@@ -1471,33 +1925,49 @@ FluxTimeline::updateLayerTrimKnobs(int layerIndex)
 void
 FluxTimeline::applyLayerVisibility()
 {
-    // Determine if any layer is soloed
+    // Determine if any non-adjustment layer is soloed
+    bool anySoloed = false;
     int soloIdx = -1;
     for (int i = 0; i < _layers.size(); ++i) {
-        if (_layers[i].solo) {
+        if (_layers[i].solo && !isAdjustmentRow(i)) {
+            anySoloed = true;
             soloIdx = i;
             break;
         }
     }
 
-    bool anySoloed = (soloIdx >= 0);
-
-    // Mute: disable the Merge node for muted layers
+    // Apply mute/solo visibility to each row
     for (int i = 0; i < _layers.size(); ++i) {
         FluxLayer& layer = _layers[i];
-        if (layer.type == QString::fromUtf8("null") || !layer.mergeNode) {
-            continue;
-        }
 
-        bool shouldMute = layer.muted;
-        if (anySoloed && !layer.solo) {
-            shouldMute = true;
+        if (layer.type == QString::fromUtf8("adjustment")) {
+            // Adjustment rows: mute/visibility only, solo ignored
+            bool visible = !layer.muted;
+            for (int e = 0; e < layer.effects.size(); ++e) {
+                if (layer.effects[e].node && layer.effects[e].node->isActivated()) {
+                    layer.effects[e].node->setNodeDisabled(!visible || !layer.effects[e].enabled);
+                }
+            }
+        } else if (layer.type != QString::fromUtf8("null") && layer.mergeNode) {
+            bool visible = !layer.muted && (!anySoloed || layer.solo);
+            layer.mergeNode->setNodeDisabled(!visible);
         }
-        layer.mergeNode->setNodeDisabled(shouldMute);
     }
 
     // Solo: reconnect viewer to show only the soloed layer's output
-    if (anySoloed && _layers[soloIdx].gizmoNode) {
+    NodePtr soloOutput;
+    if (anySoloed && soloIdx >= 0 && soloIdx < _layers.size()) {
+        FluxLayer& soloLayer = _layers[soloIdx];
+        // Solo only applies to non-adjustment layers (adjustment rows excluded above)
+        soloOutput = soloLayer.gizmoNode;
+        for (int e = 0; e < soloLayer.effects.size(); ++e) {
+            if (soloLayer.effects[e].node && soloLayer.effects[e].node->isActivated()) {
+                soloOutput = soloLayer.effects[e].node;
+            }
+        }
+    }
+
+    if (anySoloed && soloOutput) {
         Gui* gui = getGui();
         if (gui) {
             const std::list<ViewerTab*>& viewerTabs = gui->getViewersList();
@@ -1506,11 +1976,11 @@ FluxTimeline::applyLayerVisibility()
                 NodePtr viewerNode = viewerTab->getInternalNode()->getNode();
                 if (viewerNode) {
                     viewerNode->disconnectInput(0);
-                    viewerNode->connectInput(_layers[soloIdx].gizmoNode, 0);
+                    viewerNode->connectInput(soloOutput, 0);
                 }
             }
         }
-    } else {
+    } else if (!anySoloed) {
         // No solo active — reconnect viewer to the final merge node in the chain.
         // The chain is built bottom-to-top, so the topmost layer's merge is the final output.
         NodePtr lastMerge;
