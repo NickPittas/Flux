@@ -8,7 +8,7 @@
 | P1 | Fork & Build | DONE | 2026-05-20 | 2026-05-20 | 100% |
 | P2 | UI Shell | DONE | 2026-05-20 | 2026-05-21 | 100% |
 | P3 | Timeline | DONE | 2026-05-21 | 2026-05-22 | 100% |
-| P4 | Effects + Properties | IN_PROGRESS | 2026-05-22 | — | 95% |
+| P4 | Effects + Properties | IN_PROGRESS | 2026-05-22 | — | 98% |
 | P5 | Import/Export | PENDING | — | — | 0% |
 | P6 | Shapes + Text | PENDING | — | — | 0% |
 | P7 | Polish + Cache | PENDING | — | — | 0% |
@@ -170,9 +170,7 @@
 **Live-tested**: footage+child effects, solid layers, adjustment rows with multiple effects, reordered adjustment rows, trims — all restore correctly with no duplicate nodes.
 
 **Next/future tasks**:
-- T049: Duplicate effect-bearing layers and adjustment rows — deep-copy owned effect nodes, preserve parameters/order, reconnect copied chains.
-- T050: Split effect-bearing layers — duplicate full child effect stack, preserve parameters, trim safely without sharing nodes.
-- T051: Adjustment row time-range semantics — design and implement trim/split/time-limited adjustment effects.
+- T051: Adjustment row trim/split — uses keyframe-based enable/disable on each effect's disable knob. When trimming an adjustment row's start: add keyframe disabled at startFrame-1, enabled at startFrame. When trimming end: add keyframe disabled at endFrame+1. All effects in the adjustment row must be keyframed simultaneously on every trim change. Split duplicates the adjustment row then trims both halves using the same keyframe mechanism. This is fundamentally different from footage/solid trim (which uses FrameRange knobs) because effects have no built-in time range — the disable knob animation IS the time range.
 
 **Exit Criteria**:
 - Effects stack panel shows effects per layer

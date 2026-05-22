@@ -193,7 +193,96 @@ FluxTimeline::duplicateLayer(int index)
         return false;
     }
 
-    // 1. Collect nodes to copy: Read (if footage) + Gizmo + Merge
+    const bool isAdjustment = (layer.type == QString::fromUtf8("adjustment"));
+
+    // ---- Adjustment row duplicate ----
+    if (isAdjustment) {
+        // Adjustment rows have only effect nodes (no gizmo/merge/read).
+        // Copy each effect via clipboard, create new adjustment row with pasted effects.
+        if (layer.effects.isEmpty()) {
+            // Nothing to duplicate
+            return false;
+        }
+
+        NodesGuiList nodesToCopy;
+        for (int e = 0; e < layer.effects.size(); ++e) {
+            if (layer.effects[e].node) {
+                NodeGuiIPtr eguiI = layer.effects[e].node->getNodeGui();
+                NodeGuiPtr egui = std::dynamic_pointer_cast<NodeGui>(eguiI);
+                if (egui) {
+                    nodesToCopy.push_back(egui);
+                }
+            }
+        }
+
+        if (nodesToCopy.empty()) {
+            return false;
+        }
+
+        NodeClipBoard clipboard;
+        nodeGraph->copyNodes(nodesToCopy, clipboard);
+
+        if (clipboard.nodes.size() != nodesToCopy.size()) {
+            fprintf(stderr, "FLUX ERROR: duplicateLayer(adj) — clipboard has %zu nodes, expected %zu\n",
+                    clipboard.nodes.size(), nodesToCopy.size());
+            return false;
+        }
+
+        std::list<std::pair<std::string, NodeGuiPtr>> newNodes;
+        nodeGraph->pasteCliboard(clipboard, &newNodes);
+
+        if (newNodes.size() != nodesToCopy.size()) {
+            fprintf(stderr, "FLUX ERROR: duplicateLayer(adj) — paste returned %zu nodes, expected %zu\n",
+                    newNodes.size(), nodesToCopy.size());
+            return false;
+        }
+
+        // Match pasted nodes to original effects by plugin ID (order preserved by clipboard)
+        QList<FluxEffect> newEffects;
+        auto pasteIt = newNodes.begin();
+        for (int e = 0; e < layer.effects.size() && pasteIt != newNodes.end(); ++e) {
+            if (!layer.effects[e].node) {
+                continue; // skip effects with null nodes
+            }
+            NodePtr pastedNode = pasteIt->second->getNode();
+            if (pastedNode) {
+                FluxEffect fe;
+                fe.pluginId = layer.effects[e].pluginId;
+                fe.label = QString::fromStdString(pastedNode->getLabel());
+                fe.node = pastedNode;
+                fe.enabled = layer.effects[e].enabled;
+                newEffects.append(fe);
+            }
+            ++pasteIt;
+        }
+
+        // Create new adjustment row
+        FluxLayer duplicate;
+        duplicate.name = layer.name + QString::fromUtf8(" copy");
+        duplicate.type = QString::fromUtf8("adjustment");
+        duplicate.muted = layer.muted;
+        duplicate.locked = false;
+        duplicate.solo = false;
+        duplicate.color = layer.color;
+        duplicate.effects = newEffects;
+
+        _layers.insert(index, duplicate);
+
+        if (_selectedLayer >= index) {
+            ++_selectedLayer;
+        }
+
+        fprintf(stderr, "FLUX DUPLICATE: adjustment row '%s' duplicated with %d effects at index %d\n",
+                layer.name.toStdString().c_str(), newEffects.size(), index);
+
+        Q_EMIT compositingChanged();
+        update();
+        return true;
+    }
+
+    // ---- Footage/solid row duplicate ----
+
+    // 1. Collect nodes to copy: Read (if footage) + Gizmo + Effects + Merge
     NodesGuiList nodesToCopy;
 
     if (layer.readerNode) {
@@ -209,6 +298,17 @@ FluxTimeline::duplicateLayer(int index)
         NodeGuiPtr gizmoGui = std::dynamic_pointer_cast<NodeGui>(gizmoGuiI);
         if (gizmoGui) {
             nodesToCopy.push_back(gizmoGui);
+        }
+    }
+
+    // Add child effect nodes (between gizmo output and merge input)
+    for (int e = 0; e < layer.effects.size(); ++e) {
+        if (layer.effects[e].node) {
+            NodeGuiIPtr eguiI = layer.effects[e].node->getNodeGui();
+            NodeGuiPtr egui = std::dynamic_pointer_cast<NodeGui>(eguiI);
+            if (egui) {
+                nodesToCopy.push_back(egui);
+            }
         }
     }
 
@@ -248,9 +348,12 @@ FluxTimeline::duplicateLayer(int index)
     }
 
     // 4. Identify pasted nodes by plugin ID
+    // Collect all pasted nodes and classify them
     NodePtr newRead;
     NodePtr newGizmo;
     NodePtr newMerge;
+    QList<NodePtr> pastedEffectNodes; // effects in paste order
+
     for (auto& pair : newNodes) {
         NodePtr n = pair.second->getNode();
         if (!n) continue;
@@ -263,6 +366,9 @@ FluxTimeline::duplicateLayer(int index)
             newMerge = n;
         } else if (pluginId.find("Read") != std::string::npos) {
             newRead = n;
+        } else {
+            // Everything else that's not Read/Gizmo/Merge is a child effect
+            pastedEffectNodes.append(n);
         }
     }
 
@@ -272,15 +378,39 @@ FluxTimeline::duplicateLayer(int index)
         return false;
     }
 
-    // 5. Create new FluxLayer as a copy of the original
+    // 5. Match pasted effect nodes to original effects by plugin ID (order preserved by clipboard)
+    QList<FluxEffect> newEffects;
+    if (!layer.effects.isEmpty() && !pastedEffectNodes.isEmpty()) {
+        // The clipboard preserves the order we added nodes.
+        // We added effects in order between gizmo and merge.
+        // Match pasted effects to original effects by sequential plugin ID comparison.
+        int peIdx = 0;
+        for (int e = 0; e < layer.effects.size() && peIdx < pastedEffectNodes.size(); ++e) {
+            // Find the next pasted node matching this effect's plugin
+            for (int p = peIdx; p < pastedEffectNodes.size(); ++p) {
+                if (pastedEffectNodes[p]->getPluginID() == layer.effects[e].pluginId.toStdString()) {
+                    FluxEffect fe;
+                    fe.pluginId = layer.effects[e].pluginId;
+                    fe.label = QString::fromStdString(pastedEffectNodes[p]->getLabel());
+                    fe.node = pastedEffectNodes[p];
+                    fe.enabled = layer.effects[e].enabled;
+                    newEffects.append(fe);
+                    peIdx = p + 1;
+                    break;
+                }
+            }
+        }
+    }
+
+    // 6. Create new FluxLayer as a copy of the original
     FluxLayer duplicate = layer;
     duplicate.gizmoNode = newGizmo;
     duplicate.mergeNode = newMerge;
     duplicate.readerNode = newRead;
-    duplicate.effects.clear(); // T046 will deep-copy child effects; never share NodePtr ownership.
+    duplicate.effects = newEffects;
     duplicate.nodeInitialized = true; // knobs already set by paste
 
-    // 5b. For footage layers, re-set filename on the new external Read node.
+    // 6b. For footage layers, re-set filename on the new external Read node.
     // Paste may not carry the filename correctly for Read nodes.
     if (layer.type == QString::fromUtf8("footage") && !layer.filePath.isEmpty() && newRead) {
         KnobIPtr filenameKnob = newRead->getKnobByName("filename");
@@ -307,18 +437,18 @@ FluxTimeline::duplicateLayer(int index)
         }
     }
 
-    // 6. Insert duplicate above the original (at same index, pushing original down)
+    // 7. Insert duplicate above the original (at same index, pushing original down)
     _layers.insert(index, duplicate);
 
-    // 7. Adjust selected layer
+    // 8. Adjust selected layer
     if (_selectedLayer >= index) {
         ++_selectedLayer;
     }
 
-    fprintf(stderr, "FLUX DUPLICATE: layer '%s' duplicated above index %d\n",
-            layer.name.toStdString().c_str(), index);
+    fprintf(stderr, "FLUX DUPLICATE: layer '%s' duplicated with %d effects above index %d\n",
+            layer.name.toStdString().c_str(), newEffects.size(), index);
 
-    // 8. Trigger rebuild to reconnect and reposition the node graph
+    // 9. Trigger rebuild to reconnect and reposition the node graph
     Q_EMIT compositingChanged();
     update();
     return true;
@@ -474,9 +604,12 @@ FluxTimeline::canDuplicateRow(int index) const
     if (index < 0 || index >= _layers.size()) return false;
     const FluxLayer& l = _layers[index];
     if (l.locked) return false;
-    if (l.type == QString::fromUtf8("adjustment") || l.type == QString::fromUtf8("null")) return false;
-    if (!l.effects.isEmpty()) return false;
-    if (!l.gizmoNode || !l.mergeNode) return false;
+    if (l.type == QString::fromUtf8("null")) return false;
+    // Adjustment rows can duplicate (effects only, no gizmo/merge)
+    // Footage/solid rows need gizmo + merge
+    if (l.type != QString::fromUtf8("adjustment")) {
+        if (!l.gizmoNode || !l.mergeNode) return false;
+    }
     return true;
 }
 
@@ -486,8 +619,11 @@ FluxTimeline::canSplitRow(int index) const
     if (index < 0 || index >= _layers.size()) return false;
     const FluxLayer& l = _layers[index];
     if (l.locked) return false;
+    // Split requires trim (inPoint/outPoint), so only footage/solid layers.
+    // Adjustment row split requires keyframe-based enable/disable on each effect's
+    // disable knob — deferred to T051.
     if (l.type == QString::fromUtf8("adjustment") || l.type == QString::fromUtf8("null")) return false;
-    if (!l.effects.isEmpty()) return false;
+    // Effects are copied via clipboard — no longer a blocker
     return true;
 }
 
