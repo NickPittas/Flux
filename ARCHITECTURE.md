@@ -122,7 +122,7 @@
 
 | Type | Description | Engine Mapping |
 |---|---|---|
-| **Footage** | Video or image sequence layer | ReadFFmpeg / ReadOIIO node |
+| **Footage** | Video or image sequence layer | External Read node → FluxLayer gizmo (Input node) |
 | **Shape** | Vector shape with fill/stroke | Roto node + Constant node |
 | **Text** | Text layer with font/size/alignment | Text rendering node (new) |
 | **Solid** | Solid color fill | Constant node |
@@ -149,14 +149,16 @@ After Effects is internally node-based. Flux does the same thing:
 ```
 User sees (Timeline):              Engine creates (Node Graph):
 
-Layer 3: "Title" (Text)       ->   FluxLayer gizmo #3 ──┐
-                                                         Merge3 ──→ Viewer
-Layer 2: "Glow" (Adjustment)  ->   FluxLayer gizmo #2 ──┘ ──┐
-                                                              Merge2
-Layer 1: "BG" (Footage.mov)   ->   FluxLayer gizmo #1 ───────┘
+                                    Reformat (Flux Background) ──┐
+Layer 3: "Title" (Text)       ->   FluxLayer gizmo #3 ──────────┤
+                                                                  Merge3 ──→ Viewer
+Layer 2: "Glow" (Solid)       ->   FluxSolid gizmo #2 ──────────┤
+                                                                  Merge2
+Layer 1: "BG" (Footage.mov)   ->   Read1 → FluxLayer gizmo #1 ──┘
 ```
 
-Each **FluxLayer gizmo** contains: Read → FrameRange → TimeOffset → Transform → Output
+Each **FluxLayer gizmo** contains: Input → FrameRange → TimeOffset → Transform → Multiply → Output.
+Footage layers have an external **Read** node connected to the gizmo input. Solid layers use **FluxSolid** with an internal Constant source.
 
 - Each **layer** = one FluxLayer PyPlug gizmo node
 - **Effects** on a layer = additional nodes inserted in the chain (future)
@@ -166,6 +168,15 @@ Each **FluxLayer gizmo** contains: Read → FrameRange → TimeOffset → Transf
 - **Move** = TimeOffset knob on gizmo (never touches FrameRange)
 - **Transform** = translate, scale, rotate, center knobs on gizmo (aliased to internal Transform node)
 - **Precomps** = Natron Group nodes
+- **External Read** = footage layers own a Read node outside the gizmo; metadata/range probing uses this node.
+- **Background canvas** = persistent Reformat node labelled "Flux Background"; all its inputs are forcibly disconnected each rebuild so it remains a pure source.
+- **Merge wiring** = input 0 is B/background (previous chain output), input 1 is A/foreground (this layer output). Inputs are disconnected before reconnecting.
+- **Non-destructive rebuild** = existing Read/Gizmo/Merge nodes are reused. Rebuild only creates missing nodes, then reconnects and repositions.
+- **Flux-managed creation** = `CreateNodeArgs` disables `AutoConnect`, `AddUndoRedoCommand`, and `SettingsOpened` to prevent Natron side effects.
+- **Duplicate Layer** = native Natron clipboard copy/paste; footage copies Read+Gizmo+Merge, solids copy Gizmo+Merge.
+- **Split Layer** = duplicate + trim. Original `outPoint` and duplicate `inPoint` are set to the playhead source frame.
+- **Project Bin** = item double-click adds footage as a layer; empty-space double-click opens import.
+- **Timeline duration** = synchronized to project frame range at startup and through `Project::frameRangeChanged`.
 
 The compositing bridge lives in `Gui/Gui05.cpp` (`rebuildCompositingGraph`, `deferredInitGizmoParams`).
 The FluxLayer PyPlug is in `plugins/FluxLayer.py` (installed to `~/.Natron/PyPlugs/`).
@@ -198,16 +209,16 @@ The FluxLayer PyPlug is in `plugins/FluxLayer.py` (installed to `~/.Natron/PyPlu
 |---|---|---|---|
 | **FluxMainWindow** | New layout: Project Bin + Viewport + Effects + Timeline | P2 | Done |
 | **FluxTimeline** | Layer-based timeline widget with drag/trim/reorder | P2 | Done |
-| **FluxLayer PyPlug** | Read→FrameRange→TimeOffset→Transform→Output gizmo per layer | P2 | Done |
+| **FluxLayer PyPlug** | Input→FrameRange→TimeOffset→Transform→Multiply→Output gizmo per footage layer | P2 | Done |
 | **FluxProjectBin** | Thumbnail grid, drag-and-drop import | P2 | Done |
 | **FluxEffectsPanel** | Per-layer effect stack UI | P2 | Done |
-| **Flux Compositing Bridge** | Auto Merge chain + viewer connection | P2 | Done |
+| **Flux Compositing Bridge** | Non-destructive Merge chain + viewer connection; external Read per footage layer; Background/Reformat anchor | P2 | Done |
 | **Dark Theme** | Qt stylesheet, After Effects-inspired | P2 | Done |
 | **Flux Menu System** | Composition-focused menus | P2 | Pending |
 | **Playback Controls** | Play/pause/stop, fps display, keyboard shortcuts | P3 | Pending |
 | **Layer Types** | Solid, adjustment, null layers | P3 | Pending |
 | **Solo/Mute/Lock** | Per-layer visibility controls | P3 | Pending |
-| **Split/Duplicate** | Layer operations | P3 | Pending |
+| **Split/Duplicate** | Duplicate via Natron clipboard; Split = duplicate + trim | P3 | Done |
 | **Shape Layers** | Rect, ellipse, star, bezier | P6 | Planned |
 | **Text Layers** | Text rendering with animation | P6 | Planned |
 | **Export Templates** | Saveable export configurations | P5 | Planned |
@@ -250,7 +261,7 @@ flux/                              <- Forked from NatronGitHub/Natron (gui-sbk6 
 │   ├── FluxEffectsPanel.h/cpp     <- NEW: Effects stack per layer
 │   └── ...
 ├── plugins/                       <- NEW: Flux PyPlug gizmos
-│   └── FluxLayer.py               <- NEW: Read→FrameRange→TimeOffset→Transform→Output gizmo
+│   └── FluxLayer.py               <- NEW: Input→FrameRange→TimeOffset→Transform→Multiply→Output gizmo
 ├── App/                           <- EXTEND: Flux mode flag in main window
 ├── Shiboken/                      <- KEEP: Python bindings generator
 ├── Resources/
@@ -404,6 +415,19 @@ Mouse moves delta frames (positive = right, negative = left).
 - NEVER mix trim and move calculations.
 - NEVER re-evaluate or recalculate frameRange from inPoint/outPoint after a move.
 - NEVER change `originalInPoint` or `originalOutPoint` after initial creation.
+
+---
+
+## Rebuild Semantics (CRITICAL)
+
+The compositing graph is reconciled on every structural timeline change (add, remove, reorder, duplicate, split). `rebuildCompositingGraph` follows these rules:
+
+1. **Never destroy existing nodes during rebuild.** Read, Gizmo, and Merge nodes are created once per layer and reused.
+2. **Reconnect and reposition only.** On every rebuild, managed inputs are disconnected then reconnected according to current layer order. Node positions are recalculated.
+3. **Background Reformat is a pure source.** Its inputs are forcibly disconnected every rebuild. It anchors the project-format canvas at the top of the chain.
+4. **Merge input mapping is fixed:** input 0 = B/background/previous chain output, input 1 = A/foreground/current layer output.
+5. **Footage Read is external.** Read nodes feed FluxLayer input 0; metadata and frame-range probing reads from the external Read node.
+6. **Disable Natron auto-connect for Flux-managed nodes.** Every `CreateNodeArgs` for Flux-managed nodes sets `AutoConnect=false`, `AddUndoRedoCommand=false`, and `SettingsOpened=false`.
 
 ---
 

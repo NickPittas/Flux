@@ -97,6 +97,7 @@ FluxProjectBin::setupUI()
     applyViewMode();
 
     QObject::connect(_fileList, SIGNAL(itemDoubleClicked(QListWidgetItem*)), this, SLOT(onItemDoubleClicked(QListWidgetItem*)));
+    QObject::connect(_fileList, SIGNAL(emptySpaceDoubleClicked()), this, SLOT(onImportButtonClicked()));
     mainLayout->addWidget(_fileList);
 
     // Buttons
@@ -328,6 +329,21 @@ FluxProjectBinListWidget::mouseMoveEvent(QMouseEvent* event)
         }
     }
     QListWidget::mouseMoveEvent(event);
+}
+
+void
+FluxProjectBinListWidget::mouseDoubleClickEvent(QMouseEvent* event)
+{
+    if (!itemAt(event->pos())) {
+        // Double-click on empty space: emit our signal and consume the event
+        // so itemDoubleClicked is NOT fired and no import dialog opens
+        Q_EMIT emptySpaceDoubleClicked();
+        event->accept();
+        return;
+    }
+    // Double-click on an item: let the base class handle it so
+    // itemDoubleClicked(QListWidgetItem*) fires and fileRequested is emitted
+    QListWidget::mouseDoubleClickEvent(event);
 }
 
 void

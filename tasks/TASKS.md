@@ -75,13 +75,13 @@ Last updated: 2026-05-22
 | T033 | Keyboard shortcuts — already working: JKL for play fwd/back/stop, arrows for frame stepping. No changes needed. | DONE | — | 2026-05-21 | 2026-05-21 | — |
 | T034 | Layer types: solid (FluxSolid PyPlug with Constant), null (no gizmo, parenting-ready). Context menu for Add Solid/Null. Transform overlay handles registered on gizmo via addTransformInteract. Properties panel opens/closes on layer select/deselect. | DONE | forge | 2026-05-21 | 2026-05-21 | plugins/Flux{Layer,Solid}.py, Gui/Gui05.cpp, Gui/FluxTimeline.{h,cpp} |
 | T035 | Solo/Mute/Lock: Mute = use the disable knob on the layer's gizmo. May need a group-level "enabled" knob on the PyPlug for easy C++ access. Solo/Lock are timeline-only state. | PENDING | — | — | — | Gui/FluxTimeline.{h,cpp}, plugins/FluxLayer.py |
-| T036 | Split layer (Ctrl+Shift+D) | PENDING | — | — | — | Gui/FluxTimeline.cpp |
-| T037 | Duplicate layer (Ctrl+D) | PENDING | — | — | — | Gui/FluxTimeline.cpp, Gui05.cpp |
-| T038 | Delete layer (Delete key) — basic version in context menu already. Needs keyboard shortcut wiring. | PENDING | — | — | — | Gui/FluxTimeline.cpp |
-| T039 | Layer bar context menu: Add Solid/Null + Delete implemented. Still needs: add effects, copy/paste, reset in/out points. | IN_PROGRESS | — | — | — | Gui/FluxTimeline.cpp |
+| T036 | Split layer (Ctrl+Shift+D) — duplicate + trim original outPoint / duplicate inPoint at playhead | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.cpp |
+| T037 | Duplicate layer (Ctrl+D) — native Natron copy/paste; Read+Gizmo+Merge for footage, Gizmo+Merge for solids | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.cpp, Gui/Gui05.cpp |
+| T038 | Delete layer (Delete key) — deactivates Read/Gizmo/Merge and rebuild reconnects remaining chain | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.cpp, Gui/Gui05.cpp |
+| T039 | Layer bar context menu: Add Solid/Null, Delete, Duplicate, Split implemented. Still needs: add effects, reset in/out points. | IN_PROGRESS | forge | 2026-05-22 | — | Gui/FluxTimeline.cpp |
 | T040 | Timeline scroll + fit-to-view + frame selected layers | PENDING | — | — | — | Gui/FluxTimeline.cpp |
-| T041 | Frame range from project settings (always) | PENDING | — | — | — | Gui/FluxTimeline.cpp |
-| T042 | Background constant layer: auto-create a Constant node (project size) as layer 0, connect to Merge B of first dropped layer. Always first in compositing. Ensures comp size is correct. | PENDING | — | — | — | Gui/Gui05.cpp |
+| T041 | Frame range from project settings — synced via Project::frameRangeChanged signal → FluxTimeline::setFrameRange | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/Gui05.cpp, Gui/FluxTimeline.cpp |
+| T042 | Background/Reformat anchor: auto-create Reformat node (project format) at top of chain, inputs disconnected each rebuild. Pure source canvas. | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/Gui05.cpp |
 
 ---
 

@@ -473,6 +473,17 @@ Gui::setupFluxUi()
     timeline->setLabel( tr("Timeline").toStdString() );
     TabWidget::moveTab(timeline, timeline, workshopPane);
 
+    // Sync timeline frame range from project
+    {
+        double pf = 0, pl = 100;
+        getApp()->getProject()->getFrameRange(&pf, &pl);
+        timeline->setFrameRange((int)pf, (int)pl);
+
+        // Keep in sync when project frame range changes
+        QObject::connect(getApp()->getProject().get(), &Project::frameRangeChanged,
+                         timeline, &FluxTimeline::setFrameRange);
+    }
+
     // Node Graph, Curve Editor, Dope Sheet as additional tabs (power users)
     if (_imp->_nodeGraphArea) {
         TabWidget::moveTab(_imp->_nodeGraphArea, _imp->_nodeGraphArea, workshopPane);
@@ -656,15 +667,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
         return;
     }
 
-    // Clean up old Merge nodes from previous build (gizmos are preserved per-layer)
-    for (NodePtr node : _imp->_fluxMergeNodes) {
-        if (node) {
-            // Only deactivate merge nodes, not gizmo nodes
-            if (!node->isEffectGroup()) {
-                node->deactivate(std::list<NodePtr>(), false, true);
-            }
-        }
-    }
+    // Clear tracking list only — do NOT deactivate/destroy existing nodes
     _imp->_fluxMergeNodes.clear();
 
     // ====================================================================
@@ -693,6 +696,8 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
     //   - Effects placed below gizmo, above merge (same X as gizmo) — future
     //   - No overlaps, uniform vertical spacing
     //   - Chain built bottom-to-top so top timeline layer = foreground
+    //   - NEVER destroy existing nodes. Only create missing ones.
+    //     Reconnect + reposition on every rebuild.
     // ====================================================================
 
     // Layout constants
@@ -704,6 +709,9 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
     // -- Ensure background Reformat node exists --
     if (!_imp->_fluxBgReformatNode) {
         CreateNodeArgs bgArgs("net.sf.openfx.Reformat", collection);
+        bgArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+        bgArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+        bgArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
         _imp->_fluxBgReformatNode = getApp()->createNode(bgArgs);
         if (_imp->_fluxBgReformatNode) {
             _imp->_fluxBgReformatNode->setLabel("Flux Background");
@@ -719,9 +727,13 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             fprintf(stderr, "FLUX WARNING: Failed to create background Reformat node\n");
         }
     }
-    // Reposition Reformat anchor on every rebuild
+    // Reposition Reformat anchor on every rebuild and strip any auto-connected inputs
     if (_imp->_fluxBgReformatNode) {
         _imp->_fluxBgReformatNode->setPosition(kCenterX, kYStart);
+        // Forcibly disconnect all inputs — Reformat is a pure source/background canvas
+        for (int input = 0; input < _imp->_fluxBgReformatNode->getNInputs(); ++input) {
+            _imp->_fluxBgReformatNode->disconnectInput(input);
+        }
     }
 
     NodePtr lastOutput = _imp->_fluxBgReformatNode; // Start with the background canvas
@@ -741,8 +753,15 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
         int i = pixelLayers[pi];
         FluxLayer& layer = layers[i];
 
+        fprintf(stderr, "FLUX REBUILD: layer[%d] '%s' inPoint=%d outPoint=%d timeOffset=%d hasGizmo=%d nodeInit=%d\n",
+                i, layer.name.toStdString().c_str(), layer.inPoint, layer.outPoint, layer.timeOffset,
+                layer.gizmoNode ? 1 : 0, layer.nodeInitialized ? 1 : 0);
+
         // -- Create new gizmo ONLY if this layer doesn't have one yet --
         if (!layer.gizmoNode) {
+            NodePtr gizmoNode;
+
+            // Normal creation — brand new layer
             QString pluginId;
             if (layer.type == QString::fromUtf8("solid")) {
                 pluginId = QString::fromUtf8("net.sf.openfx.FluxSolid");
@@ -751,7 +770,10 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             }
 
             CreateNodeArgs gizmoArgs(pluginId.toStdString(), collection);
-            NodePtr gizmoNode = getApp()->createNode(gizmoArgs);
+            gizmoArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+            gizmoArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+            gizmoArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+            gizmoNode = getApp()->createNode(gizmoArgs);
 
             if (!gizmoNode) {
                 fprintf(stderr, "FLUX ERROR: Failed to create gizmo for layer %d '%s' (type=%s)\n",
@@ -759,35 +781,47 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                 continue;
             }
 
-            // -- Footage-specific: set filename on internal Read node --
+            // -- Footage-specific: create external Read node and connect to gizmo --
             if (layer.type == QString::fromUtf8("footage")) {
-                NodeGroup* gizmoGroup = gizmoNode->isEffectGroup();
-                NodePtr internalRead;
-                if (gizmoGroup) {
-                    internalRead = gizmoGroup->getNodeByName("Read1");
-                }
-                if (internalRead) {
-                    KnobIPtr filenameKnob = internalRead->getKnobByName("filename");
-                    if (filenameKnob) {
-                        KnobStringBasePtr strKnob = std::dynamic_pointer_cast<KnobStringBase>(filenameKnob);
-                        if (strKnob) {
-                            strKnob->setValue(layer.filePath.toStdString(), ViewSpec::all(), 0);
+                std::string filePath = layer.filePath.toStdString();
+                getApp()->getProject()->canonicalizePath(filePath);
+                CreateNodeArgs readArgs(PLUGINID_NATRON_READ, collection);
+                readArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+                readArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+                readArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+                NodePtr readNode = getApp()->createReader(filePath, readArgs);
+                if (readNode) {
+                    // Force output components to RGBA
+                    KnobIPtr outCompKnob = readNode->getKnobByName("outputComponents");
+                    if (outCompKnob) {
+                        KnobIntBasePtr choiceKnob = std::dynamic_pointer_cast<KnobIntBase>(outCompKnob);
+                        if (choiceKnob) {
+                            choiceKnob->setValue(0, ViewSpec::all(), 0); // 0 = RGBA
                         }
                     }
+                    // Connect Read → Gizmo input (deterministic: disconnect first)
+                    gizmoNode->disconnectInput(0);
+                    if (!gizmoNode->connectInput(readNode, 0)) {
+                        fprintf(stderr, "FLUX ERROR: connectInput(Read→Gizmo) failed for layer %d '%s'\n",
+                                i, layer.name.toStdString().c_str());
+                    }
+                    layer.readerNode = readNode;
+                    fprintf(stderr, "FLUX: Created external Read node for layer %d '%s'\n",
+                            i, layer.name.toStdString().c_str());
+                } else {
+                    fprintf(stderr, "FLUX ERROR: Failed to create Read node for layer %d '%s'\n",
+                            i, layer.name.toStdString().c_str());
                 }
                 // Lock the original anchor points immediately — these NEVER change.
-                // outPoint will be corrected by deferredInit once we know the media duration,
-                // but originalInPoint must be set NOW so moves/trims before the timer don't break.
                 layer.originalInPoint = layer.inPoint;
-                // Set a reasonable default outPoint; deferred init will correct it.
-                // Use project range as a guess; it gets overwritten once the file is probed.
                 if (!layer.nodeInitialized) {
                     layer.originalOutPoint = layer.outPoint;
                 }
             }
 
             // -- Solid-specific: initialize immediately (no file probe needed) --
-            if (layer.type == QString::fromUtf8("solid")) {
+            // Only run for brand new solids. Split/duplicated solids are already initialized.
+            if (layer.type == QString::fromUtf8("solid") && !layer.nodeInitialized) {
                 // Use project frame range for the solid's source range
                 int projectFirst = 0, projectLast = 100;
                 {
@@ -869,54 +903,66 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                         layer.name.toStdString().c_str(), layer.inPoint, layer.outPoint, layer.timeOffset);
             }
 
-            // -- Register transform overlay handles on the gizmo node --
-            // This makes translate/rotate/scale/center/skew handles appear in the viewer
-            // when the gizmo's properties panel is open.
-            {
-                KnobIPtr translateKnob = gizmoNode->getKnobByName("translate");
-                KnobIPtr scaleKnob = gizmoNode->getKnobByName("scale");
-                KnobIPtr rotateKnob = gizmoNode->getKnobByName("rotate");
-                KnobIPtr centerKnob = gizmoNode->getKnobByName("center");
-                KnobIPtr uniformKnob = gizmoNode->getKnobByName("uniform");
-                KnobIPtr skewXKnob = gizmoNode->getKnobByName("skewX");
-                KnobIPtr skewYKnob = gizmoNode->getKnobByName("skewY");
-                KnobIPtr skewOrderKnob = gizmoNode->getKnobByName("skewOrder");
-
-                KnobDoublePtr translateDbl = std::dynamic_pointer_cast<KnobDouble>(translateKnob);
-                KnobDoublePtr scaleDbl = std::dynamic_pointer_cast<KnobDouble>(scaleKnob);
-                KnobDoublePtr rotateDbl = std::dynamic_pointer_cast<KnobDouble>(rotateKnob);
-                KnobDoublePtr centerDbl = std::dynamic_pointer_cast<KnobDouble>(centerKnob);
-                KnobBoolPtr uniformBool = std::dynamic_pointer_cast<KnobBool>(uniformKnob);
-                KnobDoublePtr skewXDbl = std::dynamic_pointer_cast<KnobDouble>(skewXKnob);
-                KnobDoublePtr skewYDbl = std::dynamic_pointer_cast<KnobDouble>(skewYKnob);
-                KnobChoicePtr skewOrderChoice = std::dynamic_pointer_cast<KnobChoice>(skewOrderKnob);
-
-                if (translateDbl && scaleDbl && rotateDbl && centerDbl) {
-                    gizmoNode->addTransformInteract(
-                        translateDbl,
-                        scaleDbl,
-                        uniformBool,
-                        rotateDbl,
-                        skewXDbl,
-                        skewYDbl,
-                        skewOrderChoice,
-                        centerDbl,
-                        KnobBoolPtr(),  // invert (null)
-                        KnobBoolPtr()   // interactive (null — let overlay use default)
-                    );
-                    fprintf(stderr, "FLUX: Registered transform overlay on gizmo for layer %d\n", i);
-                } else {
-                    fprintf(stderr, "FLUX WARNING: Could not find all transform knobs on gizmo for overlay registration (layer %d)\n", i);
-                }
-            }
-
             layer.gizmoNode = gizmoNode;
         }
 
-        // -- Reposition gizmo (runs every rebuild, not just on creation) --
+        // -- Register transform overlay handles (runs every rebuild for every gizmo) --
+        // This makes translate/rotate/scale/center/skew handles appear in the viewer.
+        // Must run for duplicated/pasted gizmos too, not just newly created ones.
+        {
+            KnobIPtr translateKnob = layer.gizmoNode->getKnobByName("translate");
+            KnobIPtr scaleKnob = layer.gizmoNode->getKnobByName("scale");
+            KnobIPtr rotateKnob = layer.gizmoNode->getKnobByName("rotate");
+            KnobIPtr centerKnob = layer.gizmoNode->getKnobByName("center");
+            KnobIPtr uniformKnob = layer.gizmoNode->getKnobByName("uniform");
+            KnobIPtr skewXKnob = layer.gizmoNode->getKnobByName("skewX");
+            KnobIPtr skewYKnob = layer.gizmoNode->getKnobByName("skewY");
+            KnobIPtr skewOrderKnob = layer.gizmoNode->getKnobByName("skewOrder");
+
+            KnobDoublePtr translateDbl = std::dynamic_pointer_cast<KnobDouble>(translateKnob);
+            KnobDoublePtr scaleDbl = std::dynamic_pointer_cast<KnobDouble>(scaleKnob);
+            KnobDoublePtr rotateDbl = std::dynamic_pointer_cast<KnobDouble>(rotateKnob);
+            KnobDoublePtr centerDbl = std::dynamic_pointer_cast<KnobDouble>(centerKnob);
+            KnobBoolPtr uniformBool = std::dynamic_pointer_cast<KnobBool>(uniformKnob);
+            KnobDoublePtr skewXDbl = std::dynamic_pointer_cast<KnobDouble>(skewXKnob);
+            KnobDoublePtr skewYDbl = std::dynamic_pointer_cast<KnobDouble>(skewYKnob);
+            KnobChoicePtr skewOrderChoice = std::dynamic_pointer_cast<KnobChoice>(skewOrderKnob);
+
+            if (translateDbl && scaleDbl && rotateDbl && centerDbl) {
+                layer.gizmoNode->addTransformInteract(
+                    translateDbl,
+                    scaleDbl,
+                    uniformBool,
+                    rotateDbl,
+                    skewXDbl,
+                    skewYDbl,
+                    skewOrderChoice,
+                    centerDbl,
+                    KnobBoolPtr(),  // invert (null)
+                    KnobBoolPtr()   // interactive (null — let overlay use default)
+                );
+                fprintf(stderr, "FLUX: Registered transform overlay on gizmo for layer %d\n", i);
+            } else {
+                fprintf(stderr, "FLUX WARNING: Could not find all transform knobs on gizmo for overlay registration (layer %d)\n", i);
+            }
+        }
+
+        // -- Reposition gizmo + Read node (runs every rebuild) --
         {
             double gizmoY = kYStart + (pi + 1) * kYSpacing;
             layer.gizmoNode->setPosition(kCenterX + kGizmoOffsetX, gizmoY);
+            if (layer.readerNode) {
+                layer.readerNode->setPosition(kCenterX + kGizmoOffsetX, gizmoY - kYSpacing);
+            }
+        }
+
+        // -- Re-ensure Read → FluxLayer input 0 is intact (deterministic wiring) --
+        if (layer.readerNode && layer.gizmoNode) {
+            layer.gizmoNode->disconnectInput(0);
+            if (!layer.gizmoNode->connectInput(layer.readerNode, 0)) {
+                fprintf(stderr, "FLUX ERROR: reconnectInput(Read→Gizmo) failed for layer %d '%s' on rebuild\n",
+                        i, layer.name.toStdString().c_str());
+            }
         }
 
         // Track this gizmo in our node list
@@ -924,62 +970,79 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
 
         NodePtr layerOutput = layer.gizmoNode;
 
-        // -- Create Merge node for every layer (including first) --
-        // Merge(A=this gizmo, B=previous output / background)
-        CreateNodeArgs mgArgs(PLUGINID_OFX_MERGE, collection);
-        NodePtr mergeNode = getApp()->createNode(mgArgs);
-        if (!mergeNode) {
-            CreateNodeArgs mgArgs2("net.sf.openfx.MergePlugin", collection);
-            mergeNode = getApp()->createNode(mgArgs2);
-        }
-        if (!mergeNode) {
-            fprintf(stderr, "FLUX ERROR: Failed to create Merge node for layer %d (chain pos %d)\n", i, pi);
-            lastOutput = layerOutput;
-            continue;
-        }
+        // -- Create Merge node ONLY if this layer doesn't have one yet --
+        if (!layer.mergeNode) {
+            CreateNodeArgs mgArgs(PLUGINID_OFX_MERGE, collection);
+            mgArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+            mgArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+            mgArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+            NodePtr mergeNode = getApp()->createNode(mgArgs);
+            if (!mergeNode) {
+                CreateNodeArgs mgArgs2("net.sf.openfx.MergePlugin", collection);
+                mgArgs2.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+                mgArgs2.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+                mgArgs2.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+                mergeNode = getApp()->createNode(mgArgs2);
+            }
+            if (!mergeNode) {
+                fprintf(stderr, "FLUX ERROR: Failed to create Merge node for layer %d (chain pos %d)\n", i, pi);
+                lastOutput = layerOutput;
+                continue;
+            }
 
-        // Position merge on the main pipe, at same Y as its gizmo
-        double mergeY = kYStart + (pi + 1) * kYSpacing;
-        mergeNode->setPosition(kCenterX, mergeY);
+            // -- Sync blending mode from gizmo to NEW Merge --
+            {
+                KnobIPtr blendKnob = layer.gizmoNode->getKnobByName("blendingMode");
+                KnobIPtr opKnob = mergeNode->getKnobByName("operation");
+                if (blendKnob && opKnob) {
+                    KnobIntBasePtr blendChoice = std::dynamic_pointer_cast<KnobIntBase>(blendKnob);
+                    KnobIntBasePtr opChoice = std::dynamic_pointer_cast<KnobIntBase>(opKnob);
+                    if (blendChoice && opChoice) {
+                        int mode = blendChoice->getValue(0, ViewSpec::current());
+                        opChoice->setValue(mode, ViewSpec::all(), 0);
 
-        // Connect: input 0 (B) = previous output / background (pass-through when disabled)
-        //          input 1 (A) = this layer's gizmo (foreground)
-        if (lastOutput) {
-            mergeNode->connectInput(lastOutput, 0);
-        }
-        mergeNode->connectInput(layerOutput, 1);
-
-        // -- Sync blending mode from gizmo to Merge --
-        // The gizmo's "blendingMode" Choice param persists across rebuilds.
-        // 1) Set initial value on Merge's "operation" knob
-        // 2) Connect knob signal for live updates when user changes the dropdown
-        {
-            KnobIPtr blendKnob = layer.gizmoNode->getKnobByName("blendingMode");
-            KnobIPtr opKnob = mergeNode->getKnobByName("operation");
-            if (blendKnob && opKnob) {
-                KnobIntBasePtr blendChoice = std::dynamic_pointer_cast<KnobIntBase>(blendKnob);
-                KnobIntBasePtr opChoice = std::dynamic_pointer_cast<KnobIntBase>(opKnob);
-                if (blendChoice && opChoice) {
-                    int mode = blendChoice->getValue(0, ViewSpec::current());
-                    opChoice->setValue(mode, ViewSpec::all(), 0);
-
-                    // Live sync: when user changes blendingMode, update Merge operation
-                    QObject::connect(
-                        blendKnob->getSignalSlotHandler().get(),
-                        &KnobSignalSlotHandler::valueChanged,
-                        this,
-                        [opChoice, blendChoice](ViewSpec, int, int) {
-                            int newMode = blendChoice->getValue(0, ViewSpec::current());
-                            opChoice->setValue(newMode, ViewSpec::all(), 0);
-                        }
-                    );
+                        // Live sync: when user changes blendingMode, update Merge operation
+                        QObject::connect(
+                            blendKnob->getSignalSlotHandler().get(),
+                            &KnobSignalSlotHandler::valueChanged,
+                            this,
+                            [opChoice, blendChoice](ViewSpec, int, int) {
+                                int newMode = blendChoice->getValue(0, ViewSpec::current());
+                                opChoice->setValue(newMode, ViewSpec::all(), 0);
+                            }
+                        );
+                    }
                 }
+            }
+
+            layer.mergeNode = mergeNode;
+        }
+
+        // -- Always reconnect + reposition (layer order may have changed) --
+        {
+            double mergeY = kYStart + (pi + 1) * kYSpacing;
+            layer.mergeNode->setPosition(kCenterX, mergeY);
+
+            // Disconnect stale inputs before reconnecting (handles layer deletion/reorder)
+            layer.mergeNode->disconnectInput(0);
+            layer.mergeNode->disconnectInput(1);
+
+            // Connect: input 0 (B) = previous output / background
+            //          input 1 (A) = this layer's gizmo (foreground)
+            if (lastOutput) {
+                if (!layer.mergeNode->connectInput(lastOutput, 0)) {
+                    fprintf(stderr, "FLUX ERROR: Merge connectInput(%d,B=%s) failed for layer %d\n",
+                            0, lastOutput->getLabel().c_str(), i);
+                }
+            }
+            if (!layer.mergeNode->connectInput(layerOutput, 1)) {
+                fprintf(stderr, "FLUX ERROR: Merge connectInput(%d,A=%s) failed for layer %d\n",
+                        1, layerOutput->getLabel().c_str(), i);
             }
         }
 
-        layer.mergeNode = mergeNode;
-        _imp->_fluxMergeNodes.push_back(mergeNode);
-        lastOutput = mergeNode;
+        _imp->_fluxMergeNodes.push_back(layer.mergeNode);
+        lastOutput = layer.mergeNode;
     }
 
     // Connect the final output to the viewer
@@ -1032,19 +1095,32 @@ Gui::deferredInitGizmoParams(FluxTimeline* timeline)
             continue;
         }
 
-        // Find the internal Read node inside the gizmo group
-        NodeGroup* gizmoGroup = layer.gizmoNode->isEffectGroup();
-        NodePtr internalRead;
-        if (gizmoGroup) {
-            internalRead = gizmoGroup->getNodeByName("Read1");
-        }
-        if (!internalRead) {
+        // Use the external Read node (not internal — Read is outside the gizmo now)
+        NodePtr readNode = layer.readerNode;
+        if (!readNode) {
             continue;
+        }
+
+        // -- Authoritative Read → FluxLayer wiring (after PyPlug setup) --
+        // The immediate connection in rebuildCompositingGraph may fire before the
+        // PyPlug group's external input / internal Input node is fully wired.
+        // This deferred pass is the authoritative connection point.
+        {
+            layer.gizmoNode->disconnectInput(0);
+            bool ok = layer.gizmoNode->connectInput(readNode, 0);
+            if (!ok) {
+                fprintf(stderr, "FLUX ERROR: deferred Read->FluxLayer connect failed for layer %d '%s' — will retry\n",
+                        i, layer.name.toStdString().c_str());
+                // Do NOT mark initialized — retry loop will pick this up again
+                continue;
+            }
+            fprintf(stderr, "FLUX: deferred Read->FluxLayer connect OK for layer %d '%s'\n",
+                    i, layer.name.toStdString().c_str());
         }
 
         // Step 1: Trigger "reload" on the file knob — this probes the file,
         // creates the embedded decoder, and populates firstFrame/lastFrame/etc.
-        KnobIPtr filenameKnob = internalRead->getKnobByName("filename");
+        KnobIPtr filenameKnob = readNode->getKnobByName("filename");
         if (filenameKnob) {
             KnobFilePtr fileKnob = std::dynamic_pointer_cast<KnobFile>(filenameKnob);
             if (fileKnob) {
@@ -1053,9 +1129,8 @@ Gui::deferredInitGizmoParams(FluxTimeline* timeline)
         }
 
         // Force output components to RGBA so the Multiply node (opacity) works on all channels.
-        // Without this, MP4/JPG/etc without alpha output RGB only and Multiply ignores them.
         {
-            KnobIPtr outCompKnob = internalRead->getKnobByName("outputComponents");
+            KnobIPtr outCompKnob = readNode->getKnobByName("outputComponents");
             if (outCompKnob) {
                 KnobIntBasePtr choiceKnob = std::dynamic_pointer_cast<KnobIntBase>(outCompKnob);
                 if (choiceKnob) {
@@ -1068,7 +1143,7 @@ Gui::deferredInitGizmoParams(FluxTimeline* timeline)
         int mediaFirst = 0;
         int mediaLast = 100;
         {
-            EffectInstancePtr readEffect = internalRead->getEffectInstance();
+            EffectInstancePtr readEffect = readNode->getEffectInstance();
             if (readEffect) {
                 double first = 0, last = 100;
                 readEffect->getFrameRange_public(0, &first, &last);
@@ -1151,7 +1226,7 @@ Gui::deferredInitGizmoParams(FluxTimeline* timeline)
         double centerX = 960.0;
         double centerY = 540.0;
         {
-            EffectInstancePtr readEffect = internalRead->getEffectInstance();
+            EffectInstancePtr readEffect = readNode->getEffectInstance();
             if (readEffect) {
                 RectI format = readEffect->getOutputFormat();
                 if (format.width() > 0 && format.height() > 0) {

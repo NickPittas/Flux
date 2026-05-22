@@ -64,11 +64,17 @@ public:
     {
     }
 
+Q_SIGNALS:
+
+    /** @brief Emitted when the user double-clicks on empty space (no item under cursor). */
+    void emptySpaceDoubleClicked();
+
 protected:
 
     // Manual drag implementation — bypasses QListWidget's broken startDrag
     virtual void mousePressEvent(QMouseEvent* event) OVERRIDE;
     virtual void mouseMoveEvent(QMouseEvent* event) OVERRIDE;
+    virtual void mouseDoubleClickEvent(QMouseEvent* event) OVERRIDE;
 
 private:
 

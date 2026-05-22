@@ -19,9 +19,13 @@
 
 #include "Gui/Gui.h"
 #include "Gui/GuiAppInstance.h"
+#include "Gui/NodeGraph.h"
+#include "Gui/NodeClipBoard.h"
+#include "Gui/NodeGui.h"
 #include "Engine/Project.h"
 #include "Engine/AppInstance.h"
 #include "Engine/Node.h"
+#include "Engine/NodeGroup.h"
 #include "Engine/EffectInstance.h"
 #include "Engine/Knob.h"
 #include "Engine/ViewIdx.h"
@@ -128,6 +132,20 @@ void
 FluxTimeline::removeLayer(int index)
 {
     if (index >= 0 && index < _layers.size()) {
+        FluxLayer& layer = _layers[index];
+        // Deactivate nodes from the node graph
+        if (layer.mergeNode) {
+            layer.mergeNode->deactivate(std::list<NodePtr>(), false, true);
+            layer.mergeNode.reset();
+        }
+        if (layer.gizmoNode) {
+            layer.gizmoNode->deactivate(std::list<NodePtr>(), false, true);
+            layer.gizmoNode.reset();
+        }
+        if (layer.readerNode) {
+            layer.readerNode->deactivate(std::list<NodePtr>(), false, true);
+            layer.readerNode.reset();
+        }
         _layers.removeAt(index);
         if (_selectedLayer == index) {
             _selectedLayer = -1;
@@ -138,6 +156,213 @@ FluxTimeline::removeLayer(int index)
         update();
     }
 }
+
+void
+FluxTimeline::duplicateLayer(int index)
+{
+    if (index < 0 || index >= _layers.size()) {
+        return;
+    }
+
+    const FluxLayer& layer = _layers[index];
+    if (!layer.gizmoNode || !layer.mergeNode) {
+        return;
+    }
+
+    Gui* gui = getGui();
+    if (!gui) {
+        return;
+    }
+    NodeGraph* nodeGraph = gui->getNodeGraph();
+    if (!nodeGraph) {
+        return;
+    }
+
+    // 1. Collect nodes to copy: Read (if footage) + Gizmo + Merge
+    NodesGuiList nodesToCopy;
+
+    if (layer.readerNode) {
+        NodeGuiIPtr readGuiI = layer.readerNode->getNodeGui();
+        NodeGuiPtr readGui = std::dynamic_pointer_cast<NodeGui>(readGuiI);
+        if (readGui) {
+            nodesToCopy.push_back(readGui);
+        }
+    }
+
+    {
+        NodeGuiIPtr gizmoGuiI = layer.gizmoNode->getNodeGui();
+        NodeGuiPtr gizmoGui = std::dynamic_pointer_cast<NodeGui>(gizmoGuiI);
+        if (gizmoGui) {
+            nodesToCopy.push_back(gizmoGui);
+        }
+    }
+
+    {
+        NodeGuiIPtr mergeGuiI = layer.mergeNode->getNodeGui();
+        NodeGuiPtr mergeGui = std::dynamic_pointer_cast<NodeGui>(mergeGuiI);
+        if (mergeGui) {
+            nodesToCopy.push_back(mergeGui);
+        }
+    }
+
+    if (nodesToCopy.size() < 2) {
+        fprintf(stderr, "FLUX ERROR: duplicateLayer — could not find NodeGui for gizmo/merge\n");
+        return;
+    }
+
+    size_t expectedCount = nodesToCopy.size();
+
+    // 2. Copy nodes into clipboard
+    NodeClipBoard clipboard;
+    nodeGraph->copyNodes(nodesToCopy, clipboard);
+
+    if (clipboard.nodes.size() != expectedCount) {
+        fprintf(stderr, "FLUX ERROR: duplicateLayer — clipboard has %zu nodes, expected %zu\n",
+                clipboard.nodes.size(), expectedCount);
+        return;
+    }
+
+    // 3. Paste — creates new nodes
+    std::list<std::pair<std::string, NodeGuiPtr>> newNodes;
+    nodeGraph->pasteCliboard(clipboard, &newNodes);
+
+    if (newNodes.size() != expectedCount) {
+        fprintf(stderr, "FLUX ERROR: duplicateLayer — paste returned %zu nodes, expected %zu\n",
+                newNodes.size(), expectedCount);
+        return;
+    }
+
+    // 4. Identify pasted nodes by plugin ID
+    NodePtr newRead;
+    NodePtr newGizmo;
+    NodePtr newMerge;
+    for (auto& pair : newNodes) {
+        NodePtr n = pair.second->getNode();
+        if (!n) continue;
+        const std::string& pluginId = n->getPluginID();
+        if (pluginId == "net.sf.openfx.FluxSolid" ||
+            pluginId == "net.sf.openfx.FluxLayer") {
+            newGizmo = n;
+        } else if (pluginId == "net.sf.openfx.MergePlugin" ||
+                   pluginId.find("Merge") != std::string::npos) {
+            newMerge = n;
+        } else if (pluginId.find("Read") != std::string::npos) {
+            newRead = n;
+        }
+    }
+
+    if (!newGizmo || !newMerge) {
+        fprintf(stderr, "FLUX ERROR: duplicateLayer — could not identify pasted gizmo (%p) or merge (%p)\n",
+                newGizmo.get(), newMerge.get());
+        return;
+    }
+
+    // 5. Create new FluxLayer as a copy of the original
+    FluxLayer duplicate = layer;
+    duplicate.gizmoNode = newGizmo;
+    duplicate.mergeNode = newMerge;
+    duplicate.readerNode = newRead;
+    duplicate.nodeInitialized = true; // knobs already set by paste
+
+    // 5b. For footage layers, re-set filename on the new external Read node.
+    // Paste may not carry the filename correctly for Read nodes.
+    if (layer.type == QString::fromUtf8("footage") && !layer.filePath.isEmpty() && newRead) {
+        KnobIPtr filenameKnob = newRead->getKnobByName("filename");
+        if (filenameKnob) {
+            KnobStringBasePtr strKnob = std::dynamic_pointer_cast<KnobStringBase>(filenameKnob);
+            if (strKnob) {
+                strKnob->setValue(layer.filePath.toStdString(), ViewSpec::all(), 0);
+            }
+        }
+        // Connect Read → Gizmo input (deterministic: disconnect first)
+        newGizmo->disconnectInput(0);
+        if (!newGizmo->connectInput(newRead, 0)) {
+            fprintf(stderr, "FLUX ERROR: connectInput(Read→Gizmo) failed for duplicated layer '%s'\n",
+                    layer.name.toStdString().c_str());
+        }
+
+        // Force output components to RGBA
+        KnobIPtr outCompKnob = newRead->getKnobByName("outputComponents");
+        if (outCompKnob) {
+            KnobIntBasePtr choiceKnob = std::dynamic_pointer_cast<KnobIntBase>(outCompKnob);
+            if (choiceKnob) {
+                choiceKnob->setValue(0, ViewSpec::all(), 0); // 0 = RGBA
+            }
+        }
+    }
+
+    // 6. Insert duplicate above the original (at same index, pushing original down)
+    _layers.insert(index, duplicate);
+
+    // 7. Adjust selected layer
+    if (_selectedLayer >= index) {
+        ++_selectedLayer;
+    }
+
+    fprintf(stderr, "FLUX DUPLICATE: layer '%s' duplicated above index %d\n",
+            layer.name.toStdString().c_str(), index);
+
+    // 8. Trigger rebuild to reconnect and reposition the node graph
+    Q_EMIT compositingChanged();
+    update();
+}
+
+void
+FluxTimeline::splitLayer(int index, int frame)
+{
+    if (index < 0 || index >= _layers.size()) {
+        return;
+    }
+
+    const FluxLayer& original = _layers[index];
+
+    // Convert timeline frame to source frame for the original layer
+    int sourceFrame = frame - original.timeOffset;
+
+    // Can't split outside the layer's range
+    if (sourceFrame <= original.inPoint || sourceFrame >= original.outPoint) {
+        return;
+    }
+
+    // 1. Duplicate the layer — duplicate is inserted at `index` (above original)
+    duplicateLayer(index);
+
+    // After duplicate, the new layer is at `index`, original shifted to `index + 1`
+    FluxLayer& dup = _layers[index];       // the duplicate (top)
+    FluxLayer& orig = _layers[index + 1];  // the original (bottom)
+
+    // 2. Trim original's outPoint to the split frame
+    orig.outPoint = sourceFrame;
+    if (orig.gizmoNode) {
+        KnobIPtr frameRangeKnob = orig.gizmoNode->getKnobByName(std::string("frameRange"));
+        if (frameRangeKnob) {
+            KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(frameRangeKnob);
+            if (int2D) {
+                int2D->setValue(orig.outPoint, ViewSpec::all(), 1); // only change last frame
+            }
+        }
+    }
+
+    // 3. Trim duplicate's inPoint to the split frame
+    dup.inPoint = sourceFrame;
+    if (dup.gizmoNode) {
+        KnobIPtr frameRangeKnob = dup.gizmoNode->getKnobByName(std::string("frameRange"));
+        if (frameRangeKnob) {
+            KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(frameRangeKnob);
+            if (int2D) {
+                int2D->setValue(dup.inPoint, ViewSpec::all(), 0); // only change first frame
+            }
+        }
+    }
+
+    fprintf(stderr, "FLUX SPLIT: at frame %d (source=%d)\n  original[%d]: inPoint=%d outPoint=%d\n  duplicate[%d]: inPoint=%d outPoint=%d timeOffset=%d\n",
+            frame, sourceFrame, index + 1, orig.inPoint, orig.outPoint,
+            index, dup.inPoint, dup.outPoint, dup.timeOffset);
+
+    Q_EMIT compositingChanged();
+    update();
+}
+
 
 void
 FluxTimeline::moveLayer(int from,
@@ -919,6 +1144,14 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
 
         if (layerIdx >= 0 && layerIdx < _layers.size()) {
             menu.addSeparator();
+            QAction* duplicateAction = menu.addAction(QString::fromUtf8("Duplicate Layer"));
+            connect(duplicateAction, &QAction::triggered, this, [this, layerIdx]() {
+                duplicateLayer(layerIdx);
+            });
+            QAction* splitAction = menu.addAction(QString::fromUtf8("Split Layer"));
+            connect(splitAction, &QAction::triggered, this, [this, layerIdx]() {
+                splitLayer(layerIdx, _currentFrame);
+            });
             QAction* deleteAction = menu.addAction(QString::fromUtf8("Delete Layer"));
             connect(deleteAction, &QAction::triggered, this, [this, layerIdx]() {
                 removeLayer(layerIdx);
@@ -945,6 +1178,30 @@ FluxTimeline::wheelEvent(QWheelEvent* event)
         event->accept();
     }
 }
+
+void
+FluxTimeline::keyPressEvent(QKeyEvent* event)
+{
+    if (event->key() == Qt::Key_Delete) {
+        if (_selectedLayer >= 0 && _selectedLayer < _layers.size()) {
+            if (!_layers[_selectedLayer].locked) {
+                removeLayer(_selectedLayer);
+            }
+        }
+        event->accept();
+    } else if (event->key() == Qt::Key_D && event->modifiers() & Qt::ControlModifier && event->modifiers() & Qt::ShiftModifier) {
+        // Ctrl+Shift+D = Split at playhead
+        if (_selectedLayer >= 0 && _selectedLayer < _layers.size()) {
+            if (!_layers[_selectedLayer].locked) {
+                splitLayer(_selectedLayer, _currentFrame);
+            }
+        }
+        event->accept();
+    } else {
+        QWidget::keyPressEvent(event);
+    }
+}
+
 void
 FluxTimeline::resizeEvent(QResizeEvent* event)
 {

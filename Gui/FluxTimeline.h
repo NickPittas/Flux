@@ -114,6 +114,12 @@ public:
     /** @brief Remove a layer by index. */
     void removeLayer(int index);
 
+    /** @brief Duplicate a layer using Natron's native copy/paste. */
+    void duplicateLayer(int index);
+
+    /** @brief Split a layer at the playhead: duplicate + trim. */
+    void splitLayer(int index, int frame);
+
     /** @brief Move a layer from one index to another. */
     void moveLayer(int from, int to);
 
@@ -164,6 +170,7 @@ protected:
     virtual void mouseMoveEvent(QMouseEvent* event) OVERRIDE;
     virtual void mouseReleaseEvent(QMouseEvent* event) OVERRIDE;
     virtual void mouseDoubleClickEvent(QMouseEvent* event) OVERRIDE;
+    virtual void keyPressEvent(QKeyEvent* event) OVERRIDE;
     virtual void wheelEvent(QWheelEvent* event) OVERRIDE;
     virtual void resizeEvent(QResizeEvent* event) OVERRIDE;
     virtual void contextMenuEvent(QContextMenuEvent* event) OVERRIDE;

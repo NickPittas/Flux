@@ -7,7 +7,7 @@
 | P0 | Project Setup | DONE | 2026-05-20 | 2026-05-20 | 100% |
 | P1 | Fork & Build | DONE | 2026-05-20 | 2026-05-20 | 100% |
 | P2 | UI Shell | DONE | 2026-05-20 | 2026-05-21 | 100% |
-| P3 | Timeline | IN_PROGRESS | 2026-05-21 | — | 30% |
+| P3 | Timeline | IN_PROGRESS | 2026-05-21 | — | 55% |
 | P4 | Effects + Properties | PENDING | — | — | 0% |
 | P5 | Import/Export | PENDING | — | — | 0% |
 | P6 | Shapes + Text | PENDING | — | — | 0% |
@@ -66,8 +66,8 @@
 - FluxProjectBin: thumbnail grid view, drag-and-drop import, file import to reader nodes
 - FluxTimeline: custom-painted layer bars, playhead synced to Natron's shared TimeLine, drag/trim/reorder
 - FluxEffectsPanel: effect stack per layer, add effect button, active only when layer selected
-- FluxLayer PyPlug gizmo (`net.sf.openfx.FluxLayer`): Read→FrameRange→TimeOffset→Transform→Output wrapped in one group node per layer, with stable parameter aliases (frameRange, timeOffset, translate, scale, rotate, center, motionBlur, shutter)
-- Compositing graph: auto-creates Merge chain outside gizmos, connects final output to viewer
+- FluxLayer PyPlug gizmo (`net.sf.openfx.FluxLayer`): Input→FrameRange→TimeOffset→Transform→Multiply→Output wrapped in one group node per footage layer, with stable parameter aliases (frameRange, timeOffset, translate, scale, rotate, center, motionBlur, shutter)
+- Compositing graph: non-destructive Merge chain outside gizmos, external Read per footage layer, Flux Background/Reformat anchor, final output to viewer
 - Drag-and-drop from Project Bin to Timeline: creates layer, gizmo, deferred file probe + parameter init
 - Trim left/right: updates FrameRange knob via explicit trimStart/trimEnd state
 - Move: updates TimeOffset knob only (never touches FrameRange)
@@ -96,21 +96,27 @@
 - Playback controls — viewer drives shared TimeLine, FluxTimeline follows via onExternalFrameChanged
 - Keyboard shortcuts — JKL play fwd/back/stop, arrows for frame stepping
 - Layer types: solid (FluxSolid PyPlug with Constant), null (no gizmo), footage via drag-drop
-- Context menu: Add Solid, Add Null, Delete Layer
+- Context menu: Add Solid, Add Null, Delete Layer, Duplicate Layer, Split Layer
 - Transform overlay handles on gizmo via addTransformInteract
 - Properties panel opens/closes on layer select/deselect
 - Trim/move model rewritten: complete separation of frameRange (trim only) and timeOffset (move only)
 - Desaturated bar zones for extended trim regions
 - Bar clipped at left panel boundary
+- Duplicate Layer: native Natron clipboard copy/paste, Read+Gizmo+Merge for footage, Gizmo+Merge for solids
+- Split Layer: duplicate + trim original outPoint / duplicate inPoint at playhead
+- Delete Layer: deactivates Read/Gizmo/Merge and rebuild reconnects the remaining chain
+- Background/Reformat anchor: persistent Reformat node at top of chain, inputs forcibly disconnected each rebuild
+- Non-destructive rebuild: existing Read/Gizmo/Merge nodes reused; only missing nodes created, reconnect + reposition only
+- External Read node: footage layers have Read outside gizmo; gizmo uses internal Input node
+- Flux-managed creation: AutoConnect=false, AddUndoRedoCommand=false, SettingsOpened=false
+- Merge input mapping: 0=B/background, 1=A/foreground (documented and enforced)
+- Project Bin: empty-space double-click opens import; item double-click adds footage as layer
+- Timeline duration synced to project frame range via Project::frameRangeChanged signal
 
 **Remaining**:
 - Solo/Mute/Lock per layer (T035 — partially done, needs keyboard shortcut wiring)
-- Split layer (Ctrl+Shift+D)
-- Duplicate layer (Ctrl+D)
-- Delete layer (Delete key)
 - Zoom timeline horizontally (scroll wheel)
 - Scroll timeline vertically
-- Frame range from project settings
 - Fit to view / frame selected layers
 
 **Exit Criteria**:
@@ -118,14 +124,14 @@
 - Layer types: footage, solid, adjustment, null
 - Solo/Mute/Lock per layer
 - Keyboard shortcuts (Space=play, PageDown/Up=frame step, etc.)
-- Split layer (Ctrl+Shift+D)
-- Duplicate layer (Ctrl+D)
-- Delete layer (Delete key)
+- Split layer (Ctrl+Shift+D) — DONE
+- Duplicate layer (Ctrl+D) — DONE
+- Delete layer (Delete key) — DONE
 - Zoom timeline horizontally (scroll wheel)
 - Scroll timeline vertically
 - Layer bar context menu (delete, duplicate, split, properties)
 - Playhead follow during playback
-- Frame range from project settings
+- Frame range from project settings — DONE
 
 ---
 
