@@ -9,7 +9,7 @@
 | P2 | UI Shell | DONE | 2026-05-20 | 2026-05-21 | 100% |
 | P3 | Timeline | DONE | 2026-05-21 | 2026-05-22 | 100% |
 | P4 | Effects + Properties | DONE | 2026-05-22 | 2026-05-22 | 100% |
-| P5 | Import/Export | IN_PROGRESS | 2026-05-22 | — | 0% |
+| P5 | Import/Export | DONE | 2026-05-22 | 2026-05-23 | 100% |
 | P6 | Shapes + Text | PENDING | — | — | 0% |
 | P7 | Polish + Cache | PENDING | — | — | 0% |
 
@@ -175,23 +175,18 @@
 
 ---
 
-## P5: Import/Export (IN PROGRESS)
+## P5: Import/Export (COMPLETE)
 
 **Goal**: Expose Read node settings per footage layer, add export/render panel.
 
 **Dependencies**: P4 complete
 
 **Started**: 2026-05-22
+**Completed**: 2026-05-23
 
 **Tasks**:
-- T052: Right-click "Open Read Node" on footage layers — opens Read node's settings panel in properties bin for color science, output components, etc.
-- T053: Flux Export/Render panel — new panel that creates a disabled Reformat node (user can enable to override format) + a Write node, exposes both nodes' settings in user-friendly layout, in/out frame range, and a Render button that calls Natron's render function on the Write node.
-
-**Approach**:
-- Reuse Natron's existing readers/writers/render engine — no custom rendering code.
-- Read node already exists per footage layer — just need to expose it.
-- Write node + optional Reformat created on-demand when export panel opens.
-- Render button uses Natron's existing writer rendering pipeline.
+- T052: ✅ Right-click "Open Read Node" on footage layers
+- T053: ✅ Flux Export/Render panel — reparents Write/Reformat NodeSettingsPanel with all knobs exposed (encoder options, codec, FPS, bitrate, OCIO, frame range, etc.), browse output path, Render button using Natron's standard render pipeline
 
 ---
 
