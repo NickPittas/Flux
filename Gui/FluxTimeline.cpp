@@ -33,6 +33,7 @@
 #include "Engine/NodeGroup.h"
 #include "Engine/EffectInstance.h"
 #include "Engine/Knob.h"
+#include "Engine/KnobTypes.h"
 #include "Engine/ViewIdx.h"
 #include "Engine/CreateNodeArgs.h"
 #include "Gui/ViewerTab.h"
@@ -481,26 +482,37 @@ FluxTimeline::splitLayer(int index, int frame)
     FluxLayer& dup = _layers[index];       // the duplicate (top)
     FluxLayer& orig = _layers[index + 1];  // the original (bottom)
 
+    const bool isAdj = (orig.type == QString::fromUtf8("adjustment"));
+
     // 2. Trim original's outPoint to the split frame
     orig.outPoint = sourceFrame;
-    if (orig.gizmoNode) {
-        KnobIPtr frameRangeKnob = orig.gizmoNode->getKnobByName(std::string("frameRange"));
-        if (frameRangeKnob) {
-            KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(frameRangeKnob);
-            if (int2D) {
-                int2D->setValue(orig.outPoint, ViewSpec::all(), 1); // only change last frame
-            }
-        }
-    }
 
     // 3. Trim duplicate's inPoint to the split frame
     dup.inPoint = sourceFrame;
-    if (dup.gizmoNode) {
-        KnobIPtr frameRangeKnob = dup.gizmoNode->getKnobByName(std::string("frameRange"));
-        if (frameRangeKnob) {
-            KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(frameRangeKnob);
-            if (int2D) {
-                int2D->setValue(dup.inPoint, ViewSpec::all(), 0); // only change first frame
+
+    if (isAdj) {
+        // Adjustment rows: update disable-knob keyframes on both halves
+        updateAdjustmentTrimKeyframes(index);      // duplicate (top half)
+        updateAdjustmentTrimKeyframes(index + 1);  // original (bottom half)
+    } else {
+        // Footage/solid rows: update FrameRange knobs
+        if (orig.gizmoNode) {
+            KnobIPtr frameRangeKnob = orig.gizmoNode->getKnobByName(std::string("frameRange"));
+            if (frameRangeKnob) {
+                KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(frameRangeKnob);
+                if (int2D) {
+                    int2D->setValue(orig.outPoint, ViewSpec::all(), 1); // only change last frame
+                }
+            }
+        }
+
+        if (dup.gizmoNode) {
+            KnobIPtr frameRangeKnob = dup.gizmoNode->getKnobByName(std::string("frameRange"));
+            if (frameRangeKnob) {
+                KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(frameRangeKnob);
+                if (int2D) {
+                    int2D->setValue(dup.inPoint, ViewSpec::all(), 0); // only change first frame
+                }
             }
         }
     }
@@ -588,7 +600,9 @@ FluxTimeline::canTrimRow(int index) const
     if (index < 0 || index >= _layers.size()) return false;
     const FluxLayer& l = _layers[index];
     if (l.locked) return false;
-    if (l.type == QString::fromUtf8("adjustment") || l.type == QString::fromUtf8("null")) return false;
+    if (l.type == QString::fromUtf8("null")) return false;
+    // Adjustment rows: trim via disable-knob keyframes on each effect
+    // Footage/solid rows: trim via FrameRange knob
     return true;
 }
 
@@ -619,11 +633,10 @@ FluxTimeline::canSplitRow(int index) const
     if (index < 0 || index >= _layers.size()) return false;
     const FluxLayer& l = _layers[index];
     if (l.locked) return false;
-    // Split requires trim (inPoint/outPoint), so only footage/solid layers.
-    // Adjustment row split requires keyframe-based enable/disable on each effect's
-    // disable knob — deferred to T051.
-    if (l.type == QString::fromUtf8("adjustment") || l.type == QString::fromUtf8("null")) return false;
-    // Effects are copied via clipboard — no longer a blocker
+    if (l.type == QString::fromUtf8("null")) return false;
+    // All non-null, non-locked rows can be split.
+    // Adjustment row split: duplicates row + trims both halves via disable-knob keyframes.
+    // Footage/solid split: duplicates row + trims both halves via FrameRange knob.
     return true;
 }
 
@@ -1619,10 +1632,21 @@ FluxTimeline::mouseReleaseEvent(QMouseEvent* /*event*/)
 {
     if (_interactionMode == eModeMoveBar) {
         // MOVE: only timeOffset changes
-        updateLayerMoveKnob(_interactionLayerIndex);
+        if (isAdjustmentRow(_interactionLayerIndex)) {
+            // Move shifts the bar — update disable-knob keyframes for new position
+            updateAdjustmentTrimKeyframes(_interactionLayerIndex);
+        } else {
+            updateLayerMoveKnob(_interactionLayerIndex);
+        }
     } else if (_interactionMode == eModeTrimLeft || _interactionMode == eModeTrimRight) {
-        // TRIM: only frameRange changes
-        updateLayerTrimKnobs(_interactionLayerIndex);
+        // TRIM: only inPoint/outPoint changes
+        if (isAdjustmentRow(_interactionLayerIndex)) {
+            // Adjustment trim: update disable-knob keyframes
+            updateAdjustmentTrimKeyframes(_interactionLayerIndex);
+        } else {
+            // Footage/solid trim: update FrameRange knob
+            updateLayerTrimKnobs(_interactionLayerIndex);
+        }
     }
 
     if (_interactionMode == eModeReorderLayer) {
@@ -1736,7 +1760,22 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                 layer.outPoint = layer.originalOutPoint;
                 layer.trimStart = 0;
                 layer.trimEnd = 0;
-                if (layer.gizmoNode) {
+                if (isAdjustmentRow(layerIdx)) {
+                    // Adjustment rows: clear disable-knob keyframes (effect always on)
+                    for (int e = 0; e < layer.effects.size(); ++e) {
+                        NodePtr effectNode = layer.effects[e].node;
+                        if (!effectNode || !effectNode->isActivated()) continue;
+                        KnobIPtr dk = effectNode->getKnobByName(kDisableNodeKnobName);
+                        if (dk) {
+                            dk->removeAnimation(ViewSpec::all(), 0);
+                            // Set disabled based on layer mute state
+                            KnobBoolBasePtr dkBool = std::dynamic_pointer_cast<KnobBoolBase>(dk);
+                            if (dkBool) {
+                                dkBool->setValue(false, ViewSpec::all(), 0);
+                            }
+                        }
+                    }
+                } else if (layer.gizmoNode) {
                     KnobIPtr frameRangeKnob = layer.gizmoNode->getKnobByName(std::string("frameRange"));
                     if (frameRangeKnob) {
                         KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(frameRangeKnob);
@@ -2056,6 +2095,73 @@ FluxTimeline::updateLayerTrimKnobs(int layerIndex)
         if (choice) {
             choice->setValue(2, ViewSpec::all(), 0); // black
         }
+    }
+}
+
+void
+FluxTimeline::updateAdjustmentTrimKeyframes(int layerIndex)
+{
+    if (layerIndex < 0 || layerIndex >= _layers.size()) {
+        return;
+    }
+    const FluxLayer& layer = _layers[layerIndex];
+    if (layer.type != QString::fromUtf8("adjustment")) {
+        return;
+    }
+
+    // The adjustment row's visible range is [inPoint + timeOffset, outPoint + timeOffset].
+    // For each effect in this row, set disable-knob keyframes:
+    //   disabled at (inPoint + timeOffset - 1)
+    //   enabled  at (inPoint + timeOffset)
+    //   disabled at (outPoint + timeOffset + 1)
+    // This makes the effect active only within the trimmed/moved bar range.
+
+    int startFrame = layer.inPoint + layer.timeOffset;
+    int endFrame = layer.outPoint + layer.timeOffset;
+
+    for (int e = 0; e < layer.effects.size(); ++e) {
+        NodePtr effectNode = layer.effects[e].node;
+        if (!effectNode || !effectNode->isActivated()) {
+            continue;
+        }
+
+        // Get the disable knob for this effect node
+        KnobIPtr disableKnobI = effectNode->getKnobByName(kDisableNodeKnobName);
+        if (!disableKnobI) {
+            continue;
+        }
+        KnobBoolBasePtr disableKnob = std::dynamic_pointer_cast<KnobBoolBase>(disableKnobI);
+        if (!disableKnob) {
+            continue;
+        }
+
+        // Enable animation on the disable knob (disabled by default in Natron)
+        disableKnob->setAnimationEnabled(true);
+
+        // Clear existing animation on dimension 0
+        disableKnob->removeAnimation(ViewSpec::all(), 0);
+
+        // Set keyframes:
+        // Disabled before the start frame
+        if (startFrame > 0) {
+            disableKnob->setValueAtTime((double)(startFrame - 1), true,
+                                         ViewSpec::all(), 0,
+                                         eValueChangedReasonNatronInternalEdited,
+                                         nullptr);
+        }
+        // Enabled at the start frame
+        disableKnob->setValueAtTime((double)startFrame, false,
+                                     ViewSpec::all(), 0,
+                                     eValueChangedReasonNatronInternalEdited,
+                                     nullptr);
+        // Disabled after the end frame
+        disableKnob->setValueAtTime((double)(endFrame + 1), true,
+                                     ViewSpec::all(), 0,
+                                     eValueChangedReasonNatronInternalEdited,
+                                     nullptr);
+
+        fprintf(stderr, "FLUX ADJ TRIM: effect '%s' keyframed: disabled@%d, enabled@%d, disabled@%d\n",
+                effectNode->getLabel().c_str(), startFrame - 1, startFrame, endFrame + 1);
     }
 }
 

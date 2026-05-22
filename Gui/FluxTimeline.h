@@ -216,6 +216,9 @@ protected:
     /** @brief Update the TimeOffset node knob for a layer (move). */
     void updateLayerMoveKnob(int layerIndex);
 
+    /** @brief Update disable-knob keyframes for adjustment row trim. */
+    void updateAdjustmentTrimKeyframes(int layerIndex);
+
     /** @brief Reconnect Merge.B inputs after layer reorder (no node create/destroy). */
     void reconnectMergeChain();
 

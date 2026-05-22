@@ -8,7 +8,7 @@
 | P1 | Fork & Build | DONE | 2026-05-20 | 2026-05-20 | 100% |
 | P2 | UI Shell | DONE | 2026-05-20 | 2026-05-21 | 100% |
 | P3 | Timeline | DONE | 2026-05-21 | 2026-05-22 | 100% |
-| P4 | Effects + Properties | IN_PROGRESS | 2026-05-22 | — | 98% |
+| P4 | Effects + Properties | DONE | 2026-05-22 | 2026-05-22 | 100% |
 | P5 | Import/Export | PENDING | — | — | 0% |
 | P6 | Shapes + Text | PENDING | — | — | 0% |
 | P7 | Polish + Cache | PENDING | — | — | 0% |
@@ -138,39 +138,32 @@
 
 ---
 
-## P4: Effects + Properties (IN PROGRESS)
+## P4: Effects + Properties (COMPLETE)
 
 **Goal**: Effects stack panel per layer, properties panel for selected effect/layer.
 
-**Estimated Duration**: 1-2 weeks
+**Started**: 2026-05-22 | **Completed**: 2026-05-22
 
 **Dependencies**: P3 complete
 
-**Started**: 2026-05-22
+**Results**:
+- T043–T047: Effect insertion, wiring, adjustment rows, effects panel (all live-approved)
+- T048: Save/reopen persistence via Boost XML serialization embedded in ProjectGuiSerialization
+- T049: Duplicate effect-bearing layers and adjustment rows via Natron clipboard copy/paste
+- T050: Split effect-bearing layers (clipboard copies effects, then trims both halves)
+- T051: Adjustment row trim/split/move via disable-knob keyframes on all effects simultaneously
 
-**Completed so far**:
-- T043: Mapped Natron plugin discovery (`AppManager::getPluginsList()` / plugin tree), effect node creation, and safe chain insertion API.
-- T044 live-approved: Timeline Tab uses Natron's existing node search dialog; selected layers receive effects at bottom of stack; empty-space context creates adjustment effect rows; effect settings panel opens on creation.
-- T045 live-approved: Per-layer child effects wire before that layer's Merge; adjustment effects wire by timeline position; stale/manual-deleted effect references are pruned on rebuild and graph reconnects to valid nodes.
-- T046 live-approved: Adjustment rows support select/reorder/delete/lock/mute/Add Effect, solo disabled, main-pipe nodegraph verticality preserved on move; null rows support select/reorder/delete/lock; unsupported duplicate/split/trim/reset safely blocked; effect-bearing layer duplicate/split deferred to T049/T050.
-- T047 live-approved: Effects panel lists actual model effects; click/double-click reopens Natron settings panel; remove button deactivates node, removes from model, rebuilds graph, and refreshes panel.
-
-**Current task**:
-- T048 DONE: Save/reopen persistence implemented and live-tested. All timeline rows (footage/solid/null/adjustment), effects ownership/order, node references, Flux Background, and graph wiring persist correctly across save/reopen.
-
-**T048 implementation details**:
-- New `Gui/FluxTimelineSerialization.h`: Boost XML serialization structs (`FluxEffectSerialization`, `FluxLayerSerialization`, `FluxTimelineSerialization`) — no Qt types, versioned.
-- Embedded in `ProjectGuiSerialization` at version 13 (`PROJECT_GUI_SERIALIZATION_INTRODUCES_FLUX`), version-gated on load.
-- `FluxTimeline::serializeForProject()` exports runtime model with `getFullyQualifiedName()` node refs.
-- `FluxTimeline::restoreFromProjectSerialization()` resolves via `getNodeByFullySpecifiedName()`, skips missing nodes.
-- Load hook in `ProjectGui::load()`: restore bg Reformat → restore timeline → rebuild compositing graph → refresh effects panel.
-- `Gui` public accessors: `getFluxTimeline()`, `getFluxBgReformatNode()`, `setFluxBgReformatNode()`.
-- `rebuildCompositingGraph()` moved to public for restore access.
-
-**Live-tested**: footage+child effects, solid layers, adjustment rows with multiple effects, reordered adjustment rows, trims — all restore correctly with no duplicate nodes.
-
-**Next/future tasks**:
-- T051: Adjustment row trim/split — uses keyframe-based enable/disable on each effect's disable knob. When trimming an adjustment row's start: add keyframe disabled at startFrame-1, enabled at startFrame. When trimming end: add keyframe disabled at endFrame+1. All effects in the adjustment row must be keyframed simultaneously on every trim change. Split duplicates the adjustment row then trims both halves using the same keyframe mechanism. This is fundamentally different from footage/solid trim (which uses FrameRange knobs) because effects have no built-in time range — the disable knob animation IS the time range.
+**T051 adjustment row trim semantics** (critical for future reference):
+- Adjustment rows have no FrameRange knob — effects have no built-in time range.
+- The disable knob's boolean animation IS the time range.
+- On trim: `setAnimationEnabled(true)` on each effect's disable knob, clear old keyframes, then set:
+  - Disabled at `startFrame - 1`
+  - Enabled at `startFrame`
+  - Disabled at `endFrame + 1`
+- On move: same keyframes but shifted by new `timeOffset`
+- On split: duplicate row, trim both halves, update keyframes on each
+- On reset: clear all keyframes, set disable=false
+- ALL effects in the row must be keyframed simultaneously on every change
 
 **Exit Criteria**:
 - Effects stack panel shows effects per layer
