@@ -105,5 +105,5 @@ Last updated: 2026-05-22
 
 | ID | Task | Status | Assigned | Started | Completed | File |
 |---|---|---|---|---|---|---|
-| T052 | Right-click context menu "Open Read Node" on footage layers — opens the Read node's Natron settings panel in the properties bin so user can set color science, output components, etc. | PENDING | — | — | — | Gui/FluxTimeline.cpp |
-| T053 | Flux Export/Render panel — new panel with Reformat node (disabled by default, user can enable to override format), Write node (codec/format/location), exposed settings from both nodes, in/out frame range, and Render button that calls Natron's render on the Write node | PENDING | — | — | — | Gui/FluxExportPanel.{h,cpp}, Gui/Gui05.cpp |
+| T052 | Right-click context menu "Open Read Node" on footage layers — opens the Read node's Natron settings panel in the properties bin so user can set color science, output components, etc. | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.cpp |
+| T053 | Flux Export/Render panel — Reformat node (disabled by default), Write node, file browse, frame range, advanced settings buttons, Render button via startWritersRendering. Oracle-audited. | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxExportPanel.{h,cpp}, Gui/Gui05.cpp, Gui/GuiPrivate.h |
