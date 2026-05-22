@@ -28,6 +28,7 @@
 #include <cassert>
 
 #include <stdexcept>
+#include <limits>
 
 #include <QCoreApplication>
 #include <QThread>
@@ -732,42 +733,8 @@ Gui::setupFluxUi()
                 return;
             }
             
-            // Ensure timeline exists
             if (!_imp->_fluxTimeline) {
                 return;
-            }
-
-            // Read frame range from the Write node knobs
-            bool hasFirst = false, hasLast = false;
-            int firstFrame = 0, lastFrame = 0;
-
-            KnobIPtr firstKnob = _imp->_fluxExportWriteNode->getKnobByName(std::string("firstFrame"));
-            KnobIPtr lastKnob = _imp->_fluxExportWriteNode->getKnobByName(std::string("lastFrame"));
-            if (firstKnob) {
-                KnobIntBasePtr k = std::dynamic_pointer_cast<KnobIntBase>(firstKnob);
-                if (k) {
-                    firstFrame = k->getValue();
-                    hasFirst = true;
-                }
-            }
-            if (lastKnob) {
-                KnobIntBasePtr k = std::dynamic_pointer_cast<KnobIntBase>(lastKnob);
-                if (k) {
-                    lastFrame = k->getValue();
-                    hasLast = true;
-                }
-            }
-
-            // Fall back to project range if knobs not found
-            if (!hasFirst || !hasLast) {
-                double projFirst, projLast;
-                getApp()->getProject()->getFrameRange(&projFirst, &projLast);
-                if (!hasFirst) {
-                    firstFrame = (int)projFirst;
-                }
-                if (!hasLast) {
-                    lastFrame = (int)projLast;
-                }
             }
 
             // Connect export chain to the true final output (includes adjustment effects)
@@ -782,15 +749,17 @@ Gui::setupFluxUi()
                 _imp->_fluxExportReformatNode->connectInput(finalOutput, 0);
             }
 
-            // Fire render
+            // Fire render using Natron's standard sentinel values.
+            // validateRenderOptions() will resolve frame range from the Write node's own knobs.
+            // This is identical to how the Write node's own Render button works.
             EffectInstancePtr effect = _imp->_fluxExportWriteNode->getEffectInstance();
             if (effect) {
                 AppInstance::RenderWork w;
                 w.writer = dynamic_cast<OutputEffectInstance*>( effect.get() );
                 if (w.writer) {
-                    w.firstFrame = firstFrame;
-                    w.lastFrame = lastFrame;
-                    w.frameStep = 1;
+                    w.firstFrame = std::numeric_limits<int>::min();
+                    w.lastFrame = std::numeric_limits<int>::max();
+                    w.frameStep = std::numeric_limits<int>::min();
                     w.useRenderStats = false;
                     std::list<AppInstance::RenderWork> workList;
                     workList.push_back(w);
