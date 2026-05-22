@@ -2,7 +2,7 @@
 
 Last updated: 2026-05-22
 
-## Active Phase: P4 (Effects + Properties)
+## Active Phase: P5 (Import/Export)
 
 ### P0 Tasks
 
@@ -98,3 +98,12 @@ Last updated: 2026-05-22
 | T049 | Duplicate effect-bearing layers and adjustment rows — clipboard copy/paste includes effect nodes, pasted effects identified by plugin ID and added to new layer/adjustment row model. Adjustment rows duplicatable. | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.cpp |
 | T050 | Split effect-bearing layers — duplicateLayer now copies effects via clipboard, splitLayer trims both halves as before. No split for adjustment rows (deferred to T051). | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.cpp |
 | T051 | Adjustment row trim/split/move — keyframe-based enable/disable on each effect's disable knob. Trim: keyframe disabled at startFrame-1, enabled at startFrame, disabled at endFrame+1. Move: shifts keyframes with timeOffset. Split: duplicates row, trims both halves. Reset clears all keyframes. All effects keyframed simultaneously on every change. | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.cpp |
+
+---
+
+## P5 Tasks (Import/Export)
+
+| ID | Task | Status | Assigned | Started | Completed | File |
+|---|---|---|---|---|---|---|
+| T052 | Right-click context menu "Open Read Node" on footage layers — opens the Read node's Natron settings panel in the properties bin so user can set color science, output components, etc. | PENDING | — | — | — | Gui/FluxTimeline.cpp |
+| T053 | Flux Export/Render panel — new panel with Reformat node (disabled by default, user can enable to override format), Write node (codec/format/location), exposed settings from both nodes, in/out frame range, and Render button that calls Natron's render on the Write node | PENDING | — | — | — | Gui/FluxExportPanel.{h,cpp}, Gui/Gui05.cpp |
