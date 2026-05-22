@@ -39,6 +39,8 @@ CLANG_DIAG_ON(uninitialized)
 
 #include "Engine/TimeLine.h"
 
+#include "Gui/FluxTimelineSerialization.h"
+
 NATRON_NAMESPACE_ENTER
 
 struct FluxEffect {
@@ -152,6 +154,12 @@ public:
 
     /** @brief Set the reader NodePtr for a layer (called after node creation). */
     void setLayerReaderNode(int index, const NodePtr& node);
+
+    /** @brief Export timeline state for project serialization. */
+    FluxTimelineSerialization serializeForProject() const;
+
+    /** @brief Restore timeline state from project serialization. */
+    void restoreFromProjectSerialization(const FluxTimelineSerialization& ser, Gui* gui);
 
 Q_SIGNALS:
 

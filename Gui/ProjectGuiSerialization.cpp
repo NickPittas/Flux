@@ -57,6 +57,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/TabWidget.h"
 #include "Gui/ViewerGL.h"
 #include "Gui/ViewerTab.h"
+#include "Gui/FluxTimeline.h"
 
 NATRON_NAMESPACE_ENTER
 
@@ -177,6 +178,22 @@ ProjectGuiSerialization::initialize(const ProjectGui* projectGui)
         PythonPanelSerializationPtr s = std::make_shared<PythonPanelSerialization>();
         s->initialize(it->first, it->second);
         _pythonPanels.push_back(s);
+    }
+
+    // Serialize Flux timeline state
+    {
+        FluxTimeline* timeline = projectGui->getGui()->getFluxTimeline();
+        if (timeline) {
+            _fluxTimeline = timeline->serializeForProject();
+        }
+    }
+
+    // Save Flux background Reformat node script name
+    {
+        NodePtr bgNode = projectGui->getGui()->getFluxBgReformatNode();
+        if (bgNode) {
+            _fluxTimeline.bgReformatNodeScriptName = bgNode->getFullyQualifiedName();
+        }
     }
 } // initialize
 

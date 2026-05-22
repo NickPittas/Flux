@@ -67,6 +67,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/NodeGraph.h"
 #include "Gui/NodeGui.h"
 #include "Gui/ProjectGuiSerialization.h"
+#include "Gui/FluxTimeline.h"
 #include "Gui/PythonPanels.h"
 #include "Gui/RegisteredTabs.h"
 #include "Gui/ScriptEditor.h"
@@ -562,6 +563,34 @@ ProjectGui::load<boost::archive::xml_iarchive>(bool isAutosave,  boost::archive:
                         delete param;
                     }
                 }
+            }
+        }
+    }
+
+    // Restore Flux timeline state (after all engine nodes are loaded)
+    if (obj.getVersion() >= PROJECT_GUI_SERIALIZATION_INTRODUCES_FLUX) {
+        const FluxTimelineSerialization& fluxSer = obj.getFluxTimeline();
+        FluxTimeline* timeline = _gui->getFluxTimeline();
+        if (timeline) {
+            // Restore background Reformat node
+            if (!fluxSer.bgReformatNodeScriptName.empty()) {
+                NodePtr bgNode = getInternalProject()->getNodeByFullySpecifiedName(fluxSer.bgReformatNodeScriptName);
+                if (bgNode) {
+                    _gui->setFluxBgReformatNode(bgNode);
+                } else {
+                    qDebug() << "ProjectGui::load: Flux background Reformat node not found:" << QString::fromStdString(fluxSer.bgReformatNodeScriptName);
+                }
+            }
+
+            // Restore timeline layers and node references
+            timeline->restoreFromProjectSerialization(fluxSer, _gui);
+
+            // Rebuild compositing graph with restored nodes
+            _gui->rebuildCompositingGraph(timeline);
+
+            // Refresh effects panel if a layer was selected
+            if (timeline->getSelectedLayerIndex() >= 0) {
+                Q_EMIT timeline->layerSelected(timeline->getSelectedLayerIndex());
             }
         }
     }

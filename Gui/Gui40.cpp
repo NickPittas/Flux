@@ -545,6 +545,32 @@ Gui::getFluxEffectsPanel() const
     return _imp->_fluxEffectsPanel;
 }
 
+FluxTimeline*
+Gui::getFluxTimeline() const
+{
+    if (!_imp) {
+        return nullptr;
+    }
+    return _imp->_fluxTimeline;
+}
+
+NodePtr
+Gui::getFluxBgReformatNode() const
+{
+    if (!_imp) {
+        return NodePtr();
+    }
+    return _imp->_fluxBgReformatNode;
+}
+
+void
+Gui::setFluxBgReformatNode(const NodePtr& node)
+{
+    if (_imp) {
+        _imp->_fluxBgReformatNode = node;
+    }
+}
+
 CurveEditor*
 Gui::getCurveEditor() const
 {

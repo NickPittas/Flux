@@ -53,6 +53,7 @@ GCC_DIAG_ON(unused-parameter)
 #include "Gui/NodeGuiSerialization.h"
 #include "Gui/NodeBackdropSerialization.h"
 #include "Gui/GuiFwd.h"
+#include "Gui/FluxTimelineSerialization.h"
 
 
 #define PYTHON_PANEL_SERIALIZATION_VERSION 1
@@ -83,7 +84,8 @@ GCC_DIAG_ON(unused-parameter)
 #define PROJECT_GUI_SERIALIZATION_MERGE_BACKDROP 10
 #define PROJECT_GUI_SERIALIZATION_INTRODUCES_PYTHON_PANELS 11
 #define PROJECT_GUI_SERIALIZATION_INTRODUCES_PANEL_STATES 12
-#define PROJECT_GUI_SERIALIZATION_VERSION PROJECT_GUI_SERIALIZATION_INTRODUCES_PANEL_STATES
+#define PROJECT_GUI_SERIALIZATION_INTRODUCES_FLUX 13
+#define PROJECT_GUI_SERIALIZATION_VERSION PROJECT_GUI_SERIALIZATION_INTRODUCES_FLUX
 
 #define PANE_SERIALIZATION_INTRODUCES_CURRENT_TAB 2
 #define PANE_SERIALIZATION_INTRODUCES_SIZE 3
@@ -666,6 +668,7 @@ class ProjectGuiSerialization
 
     ///The boost version passed to load(), this is not used on save
     unsigned int _version;
+    FluxTimelineSerialization _fluxTimeline;
 
     friend class ::boost::serialization::access;
 
@@ -687,6 +690,7 @@ class ProjectGuiSerialization
         }
         ar & ::boost::serialization::make_nvp("OpenedPanelsMinimized", _openedPanelsMinimizedOrdered);
         ar & ::boost::serialization::make_nvp("OpenedPanelsHideUnmodified", _openedPanelsHideUnmodifiedOrdered);
+        ar & ::boost::serialization::make_nvp("FluxTimeline", _fluxTimeline);
     }
 
     template<class Archive>
@@ -734,6 +738,10 @@ class ProjectGuiSerialization
         if (version >= PROJECT_GUI_SERIALIZATION_INTRODUCES_PANEL_STATES) {
             ar & ::boost::serialization::make_nvp("OpenedPanelsMinimized", _openedPanelsMinimizedOrdered);
             ar & ::boost::serialization::make_nvp("OpenedPanelsHideUnmodified", _openedPanelsHideUnmodifiedOrdered);
+        }
+
+        if (version >= PROJECT_GUI_SERIALIZATION_INTRODUCES_FLUX) {
+            ar & ::boost::serialization::make_nvp("FluxTimeline", _fluxTimeline);
         }
 
         _version = version;
@@ -814,6 +822,11 @@ public:
     const std::list<PythonPanelSerializationPtr>& getPythonPanels() const
     {
         return _pythonPanels;
+    }
+
+    const FluxTimelineSerialization& getFluxTimeline() const
+    {
+        return _fluxTimeline;
     }
 
     BOOST_SERIALIZATION_SPLIT_MEMBER()

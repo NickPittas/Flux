@@ -37,6 +37,7 @@
 #include "Engine/CreateNodeArgs.h"
 #include "Gui/ViewerTab.h"
 #include "Engine/ViewerInstance.h"
+#include "Gui/FluxTimelineSerialization.h"
 
 NATRON_NAMESPACE_ENTER
 
@@ -2012,5 +2013,173 @@ FluxTimeline::reconnectMergeChain()
 {
     // Merge chain reconnection is now handled by rebuildCompositingGraph in Gui05.cpp
     // which creates Merge nodes outside the gizmos
+}
+
+FluxTimelineSerialization
+FluxTimeline::serializeForProject() const
+{
+    FluxTimelineSerialization ser;
+    ser.selectedLayer = _selectedLayer;
+
+    for (int i = 0; i < _layers.size(); ++i) {
+        const FluxLayer& layer = _layers[i];
+        FluxLayerSerialization layerSer;
+
+        // Identity
+        layerSer.name = layer.name.toStdString();
+        layerSer.filePath = layer.filePath.toStdString();
+        layerSer.type = layer.type.toStdString();
+
+        // State
+        layerSer.muted = layer.muted;
+        layerSer.locked = layer.locked;
+        layerSer.solo = layer.solo;
+
+        // Timing
+        layerSer.inPoint = layer.inPoint;
+        layerSer.outPoint = layer.outPoint;
+        layerSer.originalInPoint = layer.originalInPoint;
+        layerSer.originalOutPoint = layer.originalOutPoint;
+        layerSer.originalFirstFrame = layer.originalFirstFrame;
+        layerSer.originalLastFrame = layer.originalLastFrame;
+        layerSer.timeOffset = layer.timeOffset;
+        layerSer.trimStart = layer.trimStart;
+        layerSer.trimEnd = layer.trimEnd;
+        layerSer.nodeInitialized = layer.nodeInitialized;
+
+        // Solid color
+        layerSer.solidColorR = layer.solidColor.red();
+        layerSer.solidColorG = layer.solidColor.green();
+        layerSer.solidColorB = layer.solidColor.blue();
+
+        // Parenting
+        layerSer.parentLayerIndex = layer.parentLayerIndex;
+
+        // Bar color
+        layerSer.colorR = layer.color.red();
+        layerSer.colorG = layer.color.green();
+        layerSer.colorB = layer.color.blue();
+
+        // Node script names
+        if (layer.readerNode) {
+            layerSer.readerNodeScriptName = layer.readerNode->getFullyQualifiedName();
+        }
+        if (layer.gizmoNode) {
+            layerSer.gizmoNodeScriptName = layer.gizmoNode->getFullyQualifiedName();
+        }
+        if (layer.mergeNode) {
+            layerSer.mergeNodeScriptName = layer.mergeNode->getFullyQualifiedName();
+        }
+
+        // Effects
+        for (int e = 0; e < layer.effects.size(); ++e) {
+            const FluxEffect& effect = layer.effects[e];
+            FluxEffectSerialization effectSer;
+            effectSer.pluginId = effect.pluginId.toStdString();
+            effectSer.label = effect.label.toStdString();
+            effectSer.enabled = effect.enabled;
+            if (effect.node) {
+                effectSer.nodeScriptName = effect.node->getFullyQualifiedName();
+            }
+            layerSer.effects.push_back(effectSer);
+        }
+
+        ser.layers.push_back(layerSer);
+    }
+
+    return ser;
+}
+
+void
+FluxTimeline::restoreFromProjectSerialization(const FluxTimelineSerialization& ser,
+                                                Gui* gui)
+{
+    _layers.clear();
+
+    ProjectPtr project = gui->getApp()->getProject();
+
+    for (size_t i = 0; i < ser.layers.size(); ++i) {
+        const FluxLayerSerialization& layerSer = ser.layers[i];
+        FluxLayer layer;
+
+        // Identity
+        layer.name = QString::fromStdString(layerSer.name);
+        layer.filePath = QString::fromStdString(layerSer.filePath);
+        layer.type = QString::fromStdString(layerSer.type);
+
+        // State
+        layer.muted = layerSer.muted;
+        layer.locked = layerSer.locked;
+        layer.solo = layerSer.solo;
+
+        // Timing
+        layer.inPoint = layerSer.inPoint;
+        layer.outPoint = layerSer.outPoint;
+        layer.originalInPoint = layerSer.originalInPoint;
+        layer.originalOutPoint = layerSer.originalOutPoint;
+        layer.originalFirstFrame = layerSer.originalFirstFrame;
+        layer.originalLastFrame = layerSer.originalLastFrame;
+        layer.timeOffset = layerSer.timeOffset;
+        layer.trimStart = layerSer.trimStart;
+        layer.trimEnd = layerSer.trimEnd;
+        layer.nodeInitialized = layerSer.nodeInitialized;
+
+        // Solid color
+        layer.solidColor = QColor(layerSer.solidColorR, layerSer.solidColorG, layerSer.solidColorB);
+
+        // Parenting
+        layer.parentLayerIndex = layerSer.parentLayerIndex;
+
+        // Bar color
+        layer.color = QColor(layerSer.colorR, layerSer.colorG, layerSer.colorB);
+
+        // Resolve node script names to NodePtr
+        if (!layerSer.readerNodeScriptName.empty()) {
+            layer.readerNode = project->getNodeByFullySpecifiedName(layerSer.readerNodeScriptName);
+            if (!layer.readerNode) {
+                qDebug() << "FluxTimeline::restore: reader node not found:" << QString::fromStdString(layerSer.readerNodeScriptName);
+            }
+        }
+
+        if (!layerSer.gizmoNodeScriptName.empty()) {
+            layer.gizmoNode = project->getNodeByFullySpecifiedName(layerSer.gizmoNodeScriptName);
+            if (!layer.gizmoNode) {
+                qDebug() << "FluxTimeline::restore: gizmo node not found:" << QString::fromStdString(layerSer.gizmoNodeScriptName);
+            }
+        }
+
+        if (!layerSer.mergeNodeScriptName.empty()) {
+            layer.mergeNode = project->getNodeByFullySpecifiedName(layerSer.mergeNodeScriptName);
+            if (!layer.mergeNode) {
+                qDebug() << "FluxTimeline::restore: merge node not found:" << QString::fromStdString(layerSer.mergeNodeScriptName);
+            }
+        }
+
+        // Restore effects
+        for (size_t e = 0; e < layerSer.effects.size(); ++e) {
+            const FluxEffectSerialization& effectSer = layerSer.effects[e];
+            FluxEffect effect;
+            effect.pluginId = QString::fromStdString(effectSer.pluginId);
+            effect.label = QString::fromStdString(effectSer.label);
+            effect.enabled = effectSer.enabled;
+
+            if (!effectSer.nodeScriptName.empty()) {
+                effect.node = project->getNodeByFullySpecifiedName(effectSer.nodeScriptName);
+                if (!effect.node) {
+                    qDebug() << "FluxTimeline::restore: effect node not found:" << QString::fromStdString(effectSer.nodeScriptName);
+                    // Skip this effect — node is gone
+                    continue;
+                }
+            }
+
+            layer.effects.append(effect);
+        }
+
+        _layers.append(layer);
+    }
+
+    _selectedLayer = ser.selectedLayer;
+
+    update();
 }
 NATRON_NAMESPACE_EXIT

@@ -363,6 +363,10 @@ public:
 
     /** @brief Returns the Flux effects stack panel (may be null if not in Flux mode). */
     class FluxEffectsPanel* getFluxEffectsPanel() const;
+    class FluxTimeline* getFluxTimeline() const;
+    NodePtr getFluxBgReformatNode() const;
+    void setFluxBgReformatNode(const NodePtr& node);
+    void rebuildCompositingGraph(class FluxTimeline* timeline);
     QVBoxLayout* getPropertiesLayout() const;
     PropertiesBinWrapper* getPropertiesBin() const;
     const RegisteredTabs & getRegisteredTabs() const;
@@ -702,8 +706,6 @@ private:
     void setupUi();
 
     void setupFluxUi();
-
-    void rebuildCompositingGraph(class FluxTimeline* timeline);
 
     /** @brief Deferred initialization of gizmo params (frame range, time offset, center).
      * Called via QTimer::singleShot after the Read node has had time to probe the file. */

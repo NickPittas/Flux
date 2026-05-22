@@ -1,0 +1,206 @@
+/* ***** BEGIN LICENSE BLOCK *****
+ * Flux — Timeline Serialization
+ * (C) 2025 Nick Pittas
+ * GPL2 — see LICENSE.txt
+ * ***** END LICENSE BLOCK ***** */
+
+#ifndef FLUXTIMELINESERIALIZATION_H
+#define FLUXTIMELINESERIALIZATION_H
+
+// ***** BEGIN PYTHON BLOCK *****
+#include <Python.h>
+// ***** END PYTHON BLOCK *****
+
+#include "Global/Macros.h"
+
+#include <string>
+#include <vector>
+
+#if !defined(Q_MOC_RUN) && !defined(SBK_RUN)
+GCC_DIAG_UNUSED_LOCAL_TYPEDEFS_OFF
+// clang-format off
+GCC_DIAG_OFF(unused-parameter)
+#include <boost/archive/xml_iarchive.hpp>
+#include <boost/archive/xml_oarchive.hpp>
+#include <boost/serialization/vector.hpp>
+#include <boost/serialization/string.hpp>
+#include <boost/serialization/version.hpp>
+GCC_DIAG_UNUSED_LOCAL_TYPEDEFS_ON
+GCC_DIAG_ON(unused-parameter)
+// clang-format on
+#endif
+
+NATRON_NAMESPACE_ENTER
+
+struct FluxEffectSerialization
+{
+    std::string pluginId;
+    std::string label;
+    std::string nodeScriptName;
+    bool enabled;
+
+    FluxEffectSerialization()
+        : pluginId()
+        , label()
+        , nodeScriptName()
+        , enabled(true)
+    {}
+
+    friend class ::boost::serialization::access;
+    template<class Archive>
+    void serialize(Archive & ar, const unsigned int /*version*/)
+    {
+        ar & ::boost::serialization::make_nvp("PluginId", pluginId);
+        ar & ::boost::serialization::make_nvp("Label", label);
+        ar & ::boost::serialization::make_nvp("NodeScriptName", nodeScriptName);
+        ar & ::boost::serialization::make_nvp("Enabled", enabled);
+    }
+};
+
+struct FluxLayerSerialization
+{
+    // Identity
+    std::string name;
+    std::string filePath;
+    std::string type; // "footage", "solid", "adjustment", "null"
+
+    // State
+    bool muted;
+    bool locked;
+    bool solo;
+
+    // Timing
+    int inPoint;
+    int outPoint;
+    int originalInPoint;
+    int originalOutPoint;
+    int originalFirstFrame;
+    int originalLastFrame;
+    int timeOffset;
+    int trimStart;
+    int trimEnd;
+    bool nodeInitialized;
+
+    // Solid color (int 0-255)
+    int solidColorR, solidColorG, solidColorB;
+
+    // Parenting
+    int parentLayerIndex;
+
+    // Bar color (int 0-255)
+    int colorR, colorG, colorB;
+
+    // Node references (script names)
+    std::string readerNodeScriptName;
+    std::string gizmoNodeScriptName;
+    std::string mergeNodeScriptName;
+
+    // Child effects
+    std::vector<FluxEffectSerialization> effects;
+
+    FluxLayerSerialization()
+        : name()
+        , filePath()
+        , type("footage")
+        , muted(false)
+        , locked(false)
+        , solo(false)
+        , inPoint(0)
+        , outPoint(100)
+        , originalInPoint(0)
+        , originalOutPoint(100)
+        , originalFirstFrame(0)
+        , originalLastFrame(100)
+        , timeOffset(0)
+        , trimStart(0)
+        , trimEnd(0)
+        , nodeInitialized(true)
+        , solidColorR(128)
+        , solidColorG(128)
+        , solidColorB(128)
+        , parentLayerIndex(-1)
+        , colorR(80)
+        , colorG(130)
+        , colorB(200)
+        , readerNodeScriptName()
+        , gizmoNodeScriptName()
+        , mergeNodeScriptName()
+        , effects()
+    {}
+
+    friend class ::boost::serialization::access;
+    template<class Archive>
+    void serialize(Archive & ar, const unsigned int /*version*/)
+    {
+        ar & ::boost::serialization::make_nvp("Name", name);
+        ar & ::boost::serialization::make_nvp("FilePath", filePath);
+        ar & ::boost::serialization::make_nvp("Type", type);
+        ar & ::boost::serialization::make_nvp("Muted", muted);
+        ar & ::boost::serialization::make_nvp("Locked", locked);
+        ar & ::boost::serialization::make_nvp("Solo", solo);
+        ar & ::boost::serialization::make_nvp("InPoint", inPoint);
+        ar & ::boost::serialization::make_nvp("OutPoint", outPoint);
+        ar & ::boost::serialization::make_nvp("OriginalInPoint", originalInPoint);
+        ar & ::boost::serialization::make_nvp("OriginalOutPoint", originalOutPoint);
+        ar & ::boost::serialization::make_nvp("OriginalFirstFrame", originalFirstFrame);
+        ar & ::boost::serialization::make_nvp("OriginalLastFrame", originalLastFrame);
+        ar & ::boost::serialization::make_nvp("TimeOffset", timeOffset);
+        ar & ::boost::serialization::make_nvp("TrimStart", trimStart);
+        ar & ::boost::serialization::make_nvp("TrimEnd", trimEnd);
+        ar & ::boost::serialization::make_nvp("NodeInitialized", nodeInitialized);
+        ar & ::boost::serialization::make_nvp("SolidColorR", solidColorR);
+        ar & ::boost::serialization::make_nvp("SolidColorG", solidColorG);
+        ar & ::boost::serialization::make_nvp("SolidColorB", solidColorB);
+        ar & ::boost::serialization::make_nvp("ParentLayerIndex", parentLayerIndex);
+        ar & ::boost::serialization::make_nvp("ColorR", colorR);
+        ar & ::boost::serialization::make_nvp("ColorG", colorG);
+        ar & ::boost::serialization::make_nvp("ColorB", colorB);
+        ar & ::boost::serialization::make_nvp("ReaderNodeScriptName", readerNodeScriptName);
+        ar & ::boost::serialization::make_nvp("GizmoNodeScriptName", gizmoNodeScriptName);
+        ar & ::boost::serialization::make_nvp("MergeNodeScriptName", mergeNodeScriptName);
+
+        int numEffects = (int)effects.size();
+        ar & ::boost::serialization::make_nvp("NumEffects", numEffects);
+        if (Archive::is_loading::value) {
+            effects.resize(numEffects);
+        }
+        for (int i = 0; i < numEffects; ++i) {
+            ar & ::boost::serialization::make_nvp("Effect", effects[i]);
+        }
+    }
+};
+
+struct FluxTimelineSerialization
+{
+    std::vector<FluxLayerSerialization> layers;
+    std::string bgReformatNodeScriptName;
+    int selectedLayer;
+
+    FluxTimelineSerialization()
+        : layers()
+        , bgReformatNodeScriptName()
+        , selectedLayer(-1)
+    {}
+
+    friend class ::boost::serialization::access;
+    template<class Archive>
+    void serialize(Archive & ar, const unsigned int /*version*/)
+    {
+        int numLayers = (int)layers.size();
+        ar & ::boost::serialization::make_nvp("NumLayers", numLayers);
+        if (Archive::is_loading::value) {
+            layers.resize(numLayers);
+        }
+        for (int i = 0; i < numLayers; ++i) {
+            ar & ::boost::serialization::make_nvp("Layer", layers[i]);
+        }
+        ar & ::boost::serialization::make_nvp("BgReformatNodeScriptName", bgReformatNodeScriptName);
+        ar & ::boost::serialization::make_nvp("SelectedLayer", selectedLayer);
+    }
+};
+
+NATRON_NAMESPACE_EXIT
+
+BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxTimelineSerialization, 1)
+
+#endif // FLUXTIMELINESERIALIZATION_H

@@ -8,7 +8,7 @@
 | P1 | Fork & Build | DONE | 2026-05-20 | 2026-05-20 | 100% |
 | P2 | UI Shell | DONE | 2026-05-20 | 2026-05-21 | 100% |
 | P3 | Timeline | DONE | 2026-05-21 | 2026-05-22 | 100% |
-| P4 | Effects + Properties | IN_PROGRESS | 2026-05-22 | — | 80% |
+| P4 | Effects + Properties | IN_PROGRESS | 2026-05-22 | — | 95% |
 | P5 | Import/Export | PENDING | — | — | 0% |
 | P6 | Shapes + Text | PENDING | — | — | 0% |
 | P7 | Polish + Cache | PENDING | — | — | 0% |
@@ -156,7 +156,18 @@
 - T047 live-approved: Effects panel lists actual model effects; click/double-click reopens Natron settings panel; remove button deactivates node, removes from model, rebuilds graph, and refreshes panel.
 
 **Current task**:
-- T048: P4 integration test with Tab-add effects, adjustment rows, timeline reorder, and render verification.
+- T048 DONE: Save/reopen persistence implemented and live-tested. All timeline rows (footage/solid/null/adjustment), effects ownership/order, node references, Flux Background, and graph wiring persist correctly across save/reopen.
+
+**T048 implementation details**:
+- New `Gui/FluxTimelineSerialization.h`: Boost XML serialization structs (`FluxEffectSerialization`, `FluxLayerSerialization`, `FluxTimelineSerialization`) — no Qt types, versioned.
+- Embedded in `ProjectGuiSerialization` at version 13 (`PROJECT_GUI_SERIALIZATION_INTRODUCES_FLUX`), version-gated on load.
+- `FluxTimeline::serializeForProject()` exports runtime model with `getFullyQualifiedName()` node refs.
+- `FluxTimeline::restoreFromProjectSerialization()` resolves via `getNodeByFullySpecifiedName()`, skips missing nodes.
+- Load hook in `ProjectGui::load()`: restore bg Reformat → restore timeline → rebuild compositing graph → refresh effects panel.
+- `Gui` public accessors: `getFluxTimeline()`, `getFluxBgReformatNode()`, `setFluxBgReformatNode()`.
+- `rebuildCompositingGraph()` moved to public for restore access.
+
+**Live-tested**: footage+child effects, solid layers, adjustment rows with multiple effects, reordered adjustment rows, trims — all restore correctly with no duplicate nodes.
 
 **Next/future tasks**:
 - T049: Duplicate effect-bearing layers and adjustment rows — deep-copy owned effect nodes, preserve parameters/order, reconnect copied chains.
