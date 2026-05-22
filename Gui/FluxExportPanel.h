@@ -17,22 +17,21 @@ CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QWidget>
 #include <QLineEdit>
-#include <QSpinBox>
 #include <QPushButton>
 #include <QLabel>
 #include <QCheckBox>
-#include <QComboBox>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QFileDialog>
 #include <QGroupBox>
-#include <QFormLayout>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
 #include "Gui/PanelWidget.h"
 
 NATRON_NAMESPACE_ENTER
+
+class DockablePanel;
 
 class FluxExportPanel
     : public QWidget
@@ -44,68 +43,49 @@ class FluxExportPanel
 
 public:
 
-    explicit FluxExportPanel(Gui* gui,
-                              QWidget* parent = nullptr);
-
+    explicit FluxExportPanel(Gui* gui, QWidget* parent = nullptr);
     virtual ~FluxExportPanel();
 
-    /** @brief Set the export nodes (called from Gui after creation). */
     void setExportNodes(const NodePtr& reformatNode, const NodePtr& writeNode);
+    void syncFrameRangeFromProject();
 
-    /** @brief Get the Write node. */
     NodePtr getWriteNode() const;
-
-    /** @brief Get the Reformat node. */
     NodePtr getReformatNode() const;
 
 Q_SIGNALS:
 
-    /** @brief Emitted when the user clicks Render. */
     void renderRequested();
-
-    /** @brief Emitted when the user changes the output file path. */
     void outputPathChanged(const QString& path);
 
-public Q_SLOTS:
+private Q_SLOTS:
 
-    /** @brief Browse for output file. */
     void onBrowseClicked();
-
-    /** @brief Update the Write node filename knob from the path field. */
     void onOutputPathChanged();
-
-    /** @brief Toggle the Reformat node enabled/disabled. */
     void onReformatToggleChanged(int state);
-
-    /** @brief Start rendering via Natron's render engine. */
     void onRenderClicked();
-
-    /** @brief Open the Write node settings panel for advanced codec options. */
-    void onAdvancedWriteSettingsClicked();
-
-    /** @brief Open the Reformat node settings panel. */
-    void onAdvancedReformatSettingsClicked();
 
 private:
 
     NodePtr _reformatNode;
     NodePtr _writeNode;
 
-    // Output section
+    // Output path (convenience shortcut at top)
     QLineEdit* _outputPathEdit;
     QPushButton* _browseButton;
 
-    // Reformat section
+    // Embedded Write node knobs
+    QGroupBox* _writeGroup;
+    QVBoxLayout* _writeGroupLayout;
+    DockablePanel* _writeKnobsPanel;
+
+    // Embedded Reformat node knobs
+    QGroupBox* _reformatGroup;
+    QVBoxLayout* _reformatGroupLayout;
+    DockablePanel* _reformatKnobsPanel;
     QCheckBox* _reformatToggle;
-    QPushButton* _reformatSettingsButton;
 
-    // Frame range section
-    QSpinBox* _firstFrameSpin;
-    QSpinBox* _lastFrameSpin;
-
-    // Render section
+    // Render button
     QPushButton* _renderButton;
-    QPushButton* _writeSettingsButton;
 
     friend class Gui;
 };

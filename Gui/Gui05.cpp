@@ -737,14 +737,36 @@ Gui::setupFluxUi()
                 return;
             }
 
-            // Get frame range from export panel
-            FluxExportPanel* panel = _imp->_fluxExportPanel;
-            int firstFrame = panel ? panel->_firstFrameSpin->value() : std::numeric_limits<int>::min();
-            int lastFrame = panel ? panel->_lastFrameSpin->value() : std::numeric_limits<int>::max();
-            if (firstFrame > lastFrame) {
-                int tmp = firstFrame;
-                firstFrame = lastFrame;
-                lastFrame = tmp;
+            // Read frame range from the Write node knobs
+            int firstFrame = std::numeric_limits<int>::min();
+            int lastFrame = std::numeric_limits<int>::max();
+
+            KnobIPtr firstKnob = _imp->_fluxExportWriteNode->getKnobByName(std::string("firstFrame"));
+            KnobIPtr lastKnob = _imp->_fluxExportWriteNode->getKnobByName(std::string("lastFrame"));
+            if (firstKnob) {
+                KnobIntBasePtr k = std::dynamic_pointer_cast<KnobIntBase>(firstKnob);
+                if (k) {
+                    firstFrame = k->getValue();
+                }
+            }
+            if (lastKnob) {
+                KnobIntBasePtr k = std::dynamic_pointer_cast<KnobIntBase>(lastKnob);
+                if (k) {
+                    lastFrame = k->getValue();
+                }
+            }
+
+            // Fall back to project range if knobs are at defaults
+            if (firstFrame == std::numeric_limits<int>::min() ||
+                lastFrame == std::numeric_limits<int>::max()) {
+                double projFirst, projLast;
+                getApp()->getProject()->getFrameRange(&projFirst, &projLast);
+                if (firstFrame == std::numeric_limits<int>::min()) {
+                    firstFrame = (int)projFirst;
+                }
+                if (lastFrame == std::numeric_limits<int>::max()) {
+                    lastFrame = (int)projLast;
+                }
             }
 
             // Connect export chain to the true final output (includes adjustment effects)

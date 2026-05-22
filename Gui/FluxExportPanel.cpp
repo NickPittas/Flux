@@ -8,6 +8,7 @@
 
 #include "Gui/Gui.h"
 #include "Gui/GuiAppInstance.h"
+#include "Gui/DockablePanel.h"
 #include "Gui/NodeGui.h"
 #include "Engine/Node.h"
 #include "Engine/EffectInstance.h"
@@ -18,20 +19,21 @@
 
 NATRON_NAMESPACE_ENTER
 
-FluxExportPanel::FluxExportPanel(Gui* gui,
-                                 QWidget* parent)
+FluxExportPanel::FluxExportPanel(Gui* gui, QWidget* parent)
     : QWidget(parent)
-      , PanelWidget(this, gui)
-      , _reformatNode()
-      , _writeNode()
-      , _outputPathEdit(nullptr)
-      , _browseButton(nullptr)
-      , _reformatToggle(nullptr)
-      , _reformatSettingsButton(nullptr)
-      , _firstFrameSpin(nullptr)
-      , _lastFrameSpin(nullptr)
-      , _renderButton(nullptr)
-      , _writeSettingsButton(nullptr)
+    , PanelWidget(this, gui)
+    , _reformatNode()
+    , _writeNode()
+    , _outputPathEdit(nullptr)
+    , _browseButton(nullptr)
+    , _writeGroup(nullptr)
+    , _writeGroupLayout(nullptr)
+    , _writeKnobsPanel(nullptr)
+    , _reformatGroup(nullptr)
+    , _reformatGroupLayout(nullptr)
+    , _reformatKnobsPanel(nullptr)
+    , _reformatToggle(nullptr)
+    , _renderButton(nullptr)
 {
     setObjectName(QString::fromUtf8("FluxExportPanel"));
     setMinimumWidth(200);
@@ -40,8 +42,8 @@ FluxExportPanel::FluxExportPanel(Gui* gui,
     mainLayout->setContentsMargins(8, 8, 8, 8);
     mainLayout->setSpacing(6);
 
-    // --- Output File ---
-    QGroupBox* outputGroup = new QGroupBox(QString::fromUtf8("Output"));
+    // --- Output File (convenience shortcut) ---
+    QGroupBox* outputGroup = new QGroupBox(QString::fromUtf8("Output File"));
     QVBoxLayout* outputLayout = new QVBoxLayout(outputGroup);
 
     QHBoxLayout* pathLayout = new QHBoxLayout();
@@ -52,39 +54,25 @@ FluxExportPanel::FluxExportPanel(Gui* gui,
     pathLayout->addWidget(_browseButton);
     outputLayout->addLayout(pathLayout);
 
-    _writeSettingsButton = new QPushButton(QString::fromUtf8("Advanced Codec Settings..."));
-    outputLayout->addWidget(_writeSettingsButton);
-
     mainLayout->addWidget(outputGroup);
 
-    // --- Format Override ---
-    QGroupBox* formatGroup = new QGroupBox(QString::fromUtf8("Format Override"));
-    QVBoxLayout* formatLayout = new QVBoxLayout(formatGroup);
+    // --- Output Settings (embedded Write node DockablePanel) ---
+    _writeGroup = new QGroupBox(QString::fromUtf8("Output Settings"));
+    _writeGroup->setCheckable(true);
+    _writeGroup->setChecked(true);
+    _writeGroupLayout = new QVBoxLayout(_writeGroup);
+    mainLayout->addWidget(_writeGroup);
 
-    _reformatToggle = new QCheckBox(QString::fromUtf8("Enable Reformat (override project format)"));
-    formatLayout->addWidget(_reformatToggle);
+    // --- Format Override (embedded Reformat DockablePanel) ---
+    _reformatGroup = new QGroupBox(QString::fromUtf8("Format Override"));
+    _reformatGroup->setCheckable(true);
+    _reformatGroup->setChecked(false);
+    _reformatGroupLayout = new QVBoxLayout(_reformatGroup);
 
-    _reformatSettingsButton = new QPushButton(QString::fromUtf8("Reformat Settings..."));
-    _reformatSettingsButton->setEnabled(false);
-    formatLayout->addWidget(_reformatSettingsButton);
+    _reformatToggle = new QCheckBox(QString::fromUtf8("Enable Reformat"));
+    _reformatGroupLayout->addWidget(_reformatToggle);
 
-    mainLayout->addWidget(formatGroup);
-
-    // --- Frame Range ---
-    QGroupBox* rangeGroup = new QGroupBox(QString::fromUtf8("Frame Range"));
-    QFormLayout* rangeLayout = new QFormLayout(rangeGroup);
-
-    _firstFrameSpin = new QSpinBox();
-    _firstFrameSpin->setRange(-100000, 100000);
-    _firstFrameSpin->setValue(0);
-    rangeLayout->addRow(QString::fromUtf8("First Frame:"), _firstFrameSpin);
-
-    _lastFrameSpin = new QSpinBox();
-    _lastFrameSpin->setRange(-100000, 100000);
-    _lastFrameSpin->setValue(100);
-    rangeLayout->addRow(QString::fromUtf8("Last Frame:"), _lastFrameSpin);
-
-    mainLayout->addWidget(rangeGroup);
+    mainLayout->addWidget(_reformatGroup);
 
     // --- Render Button ---
     _renderButton = new QPushButton(QString::fromUtf8("▶ Render"));
@@ -102,17 +90,6 @@ FluxExportPanel::FluxExportPanel(Gui* gui,
     QObject::connect(_outputPathEdit, &QLineEdit::editingFinished, this, &FluxExportPanel::onOutputPathChanged);
     QObject::connect(_reformatToggle, &QCheckBox::stateChanged, this, &FluxExportPanel::onReformatToggleChanged);
     QObject::connect(_renderButton, &QPushButton::clicked, this, &FluxExportPanel::onRenderClicked);
-    QObject::connect(_writeSettingsButton, &QPushButton::clicked, this, &FluxExportPanel::onAdvancedWriteSettingsClicked);
-    QObject::connect(_reformatSettingsButton, &QPushButton::clicked, this, &FluxExportPanel::onAdvancedReformatSettingsClicked);
-
-    // Initialize frame range from project
-    Gui* g = getGui();
-    if (g && g->getApp()) {
-        double first, last;
-        g->getApp()->getProject()->getFrameRange(&first, &last);
-        _firstFrameSpin->setValue((int)first);
-        _lastFrameSpin->setValue((int)last);
-    }
 }
 
 FluxExportPanel::~FluxExportPanel()
@@ -125,10 +102,75 @@ FluxExportPanel::setExportNodes(const NodePtr& reformatNode, const NodePtr& writ
     _reformatNode = reformatNode;
     _writeNode = writeNode;
 
-    // Sync UI from node state
+    // --- Create embedded Write knobs panel ---
+    if (_writeNode) {
+        EffectInstancePtr effect = _writeNode->getEffectInstance();
+        if (effect) {
+            _writeKnobsPanel = new DockablePanel(
+                getGui(),
+                effect.get(),
+                _writeGroupLayout,
+                DockablePanel::eHeaderModeNoHeader,
+                false,
+                QUndoStackPtr()
+            );
+            _writeKnobsPanel->turnOffPages();
+            _writeKnobsPanel->initializeKnobs();
+
+            _writeGroupLayout->addWidget(_writeKnobsPanel);
+
+            // Sync frame range from project to Write node knobs
+            syncFrameRangeFromProject();
+        }
+    }
+
+    // --- Create embedded Reformat knobs panel ---
     if (_reformatNode) {
+        EffectInstancePtr effect = _reformatNode->getEffectInstance();
+        if (effect) {
+            _reformatKnobsPanel = new DockablePanel(
+                getGui(),
+                effect.get(),
+                _reformatGroupLayout,
+                DockablePanel::eHeaderModeNoHeader,
+                false,
+                QUndoStackPtr()
+            );
+            _reformatKnobsPanel->turnOffPages();
+            _reformatKnobsPanel->initializeKnobs();
+
+            _reformatGroupLayout->addWidget(_reformatKnobsPanel);
+        }
+
         _reformatToggle->setChecked(!_reformatNode->isNodeDisabled());
-        _reformatSettingsButton->setEnabled(!_reformatNode->isNodeDisabled());
+    }
+}
+
+void
+FluxExportPanel::syncFrameRangeFromProject()
+{
+    Gui* g = getGui();
+    if (!g || !g->getApp() || !_writeNode) {
+        return;
+    }
+
+    double projFirst, projLast;
+    g->getApp()->getProject()->getFrameRange(&projFirst, &projLast);
+
+    KnobIPtr firstKnob = _writeNode->getKnobByName(std::string("firstFrame"));
+    KnobIPtr lastKnob = _writeNode->getKnobByName(std::string("lastFrame"));
+
+    if (firstKnob) {
+        KnobIntBasePtr k = std::dynamic_pointer_cast<KnobIntBase>(firstKnob);
+        if (k && !k->hasModifications()) {
+            k->setValue((int)projFirst, ViewSpec::all(), 0);
+        }
+    }
+    if (lastKnob) {
+        KnobIntBasePtr k = std::dynamic_pointer_cast<KnobIntBase>(lastKnob);
+        if (k && !k->hasModifications()) {
+            k->setValue((int)projLast, ViewSpec::all(), 0);
+        }
     }
 }
 
@@ -164,12 +206,11 @@ FluxExportPanel::onOutputPathChanged()
     if (!_writeNode) {
         return;
     }
-    std::string path = _outputPathEdit->text().toStdString();
     KnobIPtr filenameKnob = _writeNode->getKnobByName(std::string("filename"));
     if (filenameKnob) {
         KnobStringBasePtr strKnob = std::dynamic_pointer_cast<KnobStringBase>(filenameKnob);
         if (strKnob) {
-            strKnob->setValue(path, ViewSpec::all(), 0);
+            strKnob->setValue(_outputPathEdit->text().toStdString(), ViewSpec::all(), 0);
         }
     }
     Q_EMIT outputPathChanged(_outputPathEdit->text());
@@ -183,43 +224,12 @@ FluxExportPanel::onReformatToggleChanged(int state)
     }
     bool enabled = (state == Qt::Checked);
     _reformatNode->setNodeDisabled(!enabled);
-    _reformatSettingsButton->setEnabled(enabled);
 }
 
 void
 FluxExportPanel::onRenderClicked()
 {
     Q_EMIT renderRequested();
-}
-
-void
-FluxExportPanel::onAdvancedWriteSettingsClicked()
-{
-    if (!_writeNode) {
-        return;
-    }
-    NodeGuiIPtr nodeGui_i = _writeNode->getNodeGui();
-    if (nodeGui_i) {
-        NodeGuiPtr nodeGui = std::dynamic_pointer_cast<NodeGui>(nodeGui_i);
-        if (nodeGui) {
-            nodeGui->setVisibleSettingsPanel(true);
-        }
-    }
-}
-
-void
-FluxExportPanel::onAdvancedReformatSettingsClicked()
-{
-    if (!_reformatNode) {
-        return;
-    }
-    NodeGuiIPtr nodeGui_i = _reformatNode->getNodeGui();
-    if (nodeGui_i) {
-        NodeGuiPtr nodeGui = std::dynamic_pointer_cast<NodeGui>(nodeGui_i);
-        if (nodeGui) {
-            nodeGui->setVisibleSettingsPanel(true);
-        }
-    }
 }
 
 NATRON_NAMESPACE_EXIT
