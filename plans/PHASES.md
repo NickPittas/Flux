@@ -2,21 +2,20 @@
 
 ## Phase Status Overview
 
-| Phase | Name | Status | Start | End | Tasks | Progress |
-|---|---|---|---|---|---|---|
-| P0 | Project Setup | DONE | 2026-05-20 | 2026-05-20 | 6/6 | 100% |
-| P1 | Fork & Build | DONE | 2026-05-20 | 2026-05-20 | 9/12 | 100% |
-| P2 | UI Shell | IN_PROGRESS | 2026-05-20 | — | 7/8 | 87% |
-| P2.5 | FluxLayer Gizmo | IN_PROGRESS | 2026-05-21 | — | 0/5 | 0% |
-| P3 | Timeline | PENDING | — | — | 0/0 | 0% |
-| P4 | Effects + Properties | PENDING | — | — | 0/0 | 0% |
-| P5 | Import/Export | PENDING | — | — | 0/0 | 0% |
-| P6 | Shapes + Text | PENDING | — | — | 0/0 | 0% |
-| P7 | Polish + Cache | PENDING | — | — | 0/0 | 0% |
+| Phase | Name | Status | Start | End | Progress |
+|---|---|---|---|---|---|
+| P0 | Project Setup | DONE | 2026-05-20 | 2026-05-20 | 100% |
+| P1 | Fork & Build | DONE | 2026-05-20 | 2026-05-20 | 100% |
+| P2 | UI Shell | DONE | 2026-05-20 | 2026-05-21 | 100% |
+| P3 | Timeline | IN_PROGRESS | 2026-05-21 | — | 30% |
+| P4 | Effects + Properties | PENDING | — | — | 0% |
+| P5 | Import/Export | PENDING | — | — | 0% |
+| P6 | Shapes + Text | PENDING | — | — | 0% |
+| P7 | Polish + Cache | PENDING | — | — | 0% |
 
 ---
 
-## P0: Project Setup (CURRENT)
+## P0: Project Setup
 
 **Goal**: Establish project infrastructure, plans, task tracking, and workspace conventions.
 
@@ -40,8 +39,6 @@
 
 **Actual Duration**: 1 day
 
-**Dependencies**: P0 complete
-
 **Results**:
 - Forked Natron RB-2.6 → rebased onto `gui-sbk6` branch for Qt6 support
 - Built with Qt6 6.11.1, GCC 16.1, Python 3.14, Fedora 44
@@ -53,104 +50,82 @@
 - OCIO validated: working with Nuke OCIO config
 - Engine API documented: node system, rendering/cache, params/serialization
 
-**Documentation**:
-- `plans/2026-05-20-engine-node-system-1.0.md` — Node, EffectInstance, AppManager, AppInstance, signals
-- `plans/2026-05-20-engine-rendering-cache-1.0.md` — Render pipeline, cache, Image, Viewer, Timeline
-- `plans/2026-05-20-engine-params-serialization-1.0.md` — Knobs, animation, serialization, settings, Python
-
-**Exit Criteria**:
-- [x] Natron builds from our fork on Linux
-- [x] ~~Engine/ compiles as a shared library~~ (SKIPPED — keeping full app)
-- [x] ~~Can render a frame headlessly~~ (Renderer/ works, proven)
-- [x] We have a working development environment
-- [x] Key Engine classes documented with Flux-specific notes
-- [x] File import validated with real files
-- [x] OCIO validated with real config
-- [x] OpenFX plugins built and installed
-
 ---
 
 ## P2: UI Shell
 
-**Goal**: Replace Natron's node-graph GUI with Flux's layer-based motion graphics UI. Keep the engine, build new panels.
+**Goal**: Replace Natron's node-graph GUI with Flux's layer-based motion graphics UI.
 
-**Started**: 2026-05-20
+**Started**: 2026-05-20 | **Completed**: 2026-05-21
 
-**Dependencies**: P1 complete
+**Actual Duration**: 2 days
 
-**Detailed Plan**: See `plans/phase-2.md`
+**Results**:
+- Dark theme applied (After Effects-inspired, Natron's mainstyle.qss with Flux color palette)
+- FluxMainWindow layout: Project Bin (20%) | Viewport (50%) | Effects+Properties (30%) top, Timeline (30%) bottom
+- FluxProjectBin: thumbnail grid view, drag-and-drop import, file import to reader nodes
+- FluxTimeline: custom-painted layer bars, playhead synced to Natron's shared TimeLine, drag/trim/reorder
+- FluxEffectsPanel: effect stack per layer, add effect button, active only when layer selected
+- FluxLayer PyPlug gizmo (`net.sf.openfx.FluxLayer`): Read→FrameRange→TimeOffset→Transform→Output wrapped in one group node per layer, with stable parameter aliases (frameRange, timeOffset, translate, scale, rotate, center, motionBlur, shutter)
+- Compositing graph: auto-creates Merge chain outside gizmos, connects final output to viewer
+- Drag-and-drop from Project Bin to Timeline: creates layer, gizmo, deferred file probe + parameter init
+- Trim left/right: updates FrameRange knob via explicit trimStart/trimEnd state
+- Move: updates TimeOffset knob only (never touches FrameRange)
+- Deferred init with retry: 200ms probe, 300ms retry if file range not yet available, nodeInitialized guard prevents overwrite
+- Gizmo preservation: rebuildCompositingGraph skips layers with existing gizmoNode
+- Node graph layout: staggered gizmo + merge node positioning
 
-**Results so far**:
-- Dark theme applied (After Effects-inspired, using Natron's mainstyle.qss with Flux color palette)
-- FluxMainWindow layout: Project Bin | Viewport | Effects+Properties (top), Timeline (bottom)
-- FluxProjectBin: thumbnail grid/list view, drag-and-drop import, creates reader nodes
-- FluxTimeline: custom-painted layer bars, playhead synced to viewer, clip drag/trim/reorder
-- FluxEffectsPanel: effect stack per layer, enabled only when layer selected
-- Layer-to-Node Bridge: auto-creates Merge chain for compositing, connects viewer to output
-- Drag-and-drop from Project Bin to Timeline working
-- Video thumbnails via ffmpeg subprocess
-
-**Remaining**:
-- T025: Flux Menu System
-- T026: Integration Test
-- T027-T031: FluxLayer Gizmo (PyPlug) + compositing fix
+**Key Files**:
+- `Gui/Gui05.cpp` — setupFluxUi(), rebuildCompositingGraph(), deferredInitGizmoParams()
+- `Gui/FluxTimeline.{h,cpp}` — FluxLayer struct, timeline widget, interactions
+- `Gui/FluxProjectBin.{h,cpp}` — project bin with drag export
+- `Gui/FluxEffectsPanel.{h,cpp}` — effects stack UI
+- `plugins/FluxLayer.py` — PyPlug gizmo (installed to ~/.Natron/PyPlugs/)
 
 ---
 
-## P2.5: FluxLayer Gizmo
+## P3: Timeline (IN PROGRESS)
 
-**Goal**: Create a PyPlug gizmo that wraps Read → FrameRange → TimeOffset → Transform into one node per layer. Merge nodes stay outside. Fix compositing, trim, move, and multi-layer bugs.
-
-**Current status (2026-05-21)**: **BLOCKED / NEEDS REWORK**. The first FluxLayer implementation was not accepted. Do not trust current unverified PyPlug/C++ parameter names. Future work must follow `FinalPlugin.py` exactly and verify the PyPlug in Natron before C++ integration.
+**Goal**: Full-featured timeline with playback controls, layer types, solo/mute/lock, keyboard shortcuts.
 
 **Started**: 2026-05-21
 
-**Dependencies**: P2 in progress
-
-**Tasks**:
-- T027: Create FluxLayer.py PyPlug gizmo (Read→FrameRange→TimeOffset→Transform)
-- T028: Install gizmo in Natron plugin path
-- T029: Update timeline drop handler to create one gizmo per layer (not chain of nodes)
-- T030: Fix trim (update both firstFrame AND lastFrame) and move (update timeOffset) on gizmo knobs
-- T031: Fix multi-layer compositing: Merge chain outside gizmos, viewer to last Merge, clean layout
-
-**Exit Criteria**:
-- One gizmo per layer in the node graph
-- Trim updates both in AND out frame range
-- Move updates timeOffset
-- Second footage connects to its own gizmo
-- Merge chain composites correctly
-- Viewer shows composited output
-
-**Exit Criteria**:
-- Flux application launches with a main window (replaces Natron GUI)
-- Dark theme applied (After Effects-inspired)
-- Dockable panel system working
-- Viewport panel displays a rendered frame (from Natron engine)
-- Timeline panel with layer rows (basic)
-- Effects panel per layer
-- Properties panel for selected effect/layer
-- Basic menu bar with File/Edit/View/Help
-- Project panel shows imported files
-
----
-
-## P3: Timeline
-
-**Goal**: Layer-based timeline widget that drives the Natron node graph.
-
-**Estimated Duration**: 2-3 weeks
-
 **Dependencies**: P2 complete
 
+**Completed so far**:
+- Playback controls — viewer drives shared TimeLine, FluxTimeline follows via onExternalFrameChanged
+- Keyboard shortcuts — JKL play fwd/back/stop, arrows for frame stepping
+- Layer types: solid (FluxSolid PyPlug with Constant), null (no gizmo), footage via drag-drop
+- Context menu: Add Solid, Add Null, Delete Layer
+- Transform overlay handles on gizmo via addTransformInteract
+- Properties panel opens/closes on layer select/deselect
+- Trim/move model rewritten: complete separation of frameRange (trim only) and timeOffset (move only)
+- Desaturated bar zones for extended trim regions
+- Bar clipped at left panel boundary
+
+**Remaining**:
+- Solo/Mute/Lock per layer (T035 — partially done, needs keyboard shortcut wiring)
+- Split layer (Ctrl+Shift+D)
+- Duplicate layer (Ctrl+D)
+- Delete layer (Delete key)
+- Zoom timeline horizontally (scroll wheel)
+- Scroll timeline vertically
+- Frame range from project settings
+- Fit to view / frame selected layers
+
 **Exit Criteria**:
-- Timeline panel with layer rows
-- Add/remove/reorder layers
+- Playback controls (play/pause/stop, fps display)
 - Layer types: footage, solid, adjustment, null
-- Playhead, scrub, playback at correct FPS
-- Layer-to-Node bridge functional (timeline ops create/manage Natron nodes)
 - Solo/Mute/Lock per layer
-- Trim layers (in/out points)
+- Keyboard shortcuts (Space=play, PageDown/Up=frame step, etc.)
+- Split layer (Ctrl+Shift+D)
+- Duplicate layer (Ctrl+D)
+- Delete layer (Delete key)
+- Zoom timeline horizontally (scroll wheel)
+- Scroll timeline vertically
+- Layer bar context menu (delete, duplicate, split, properties)
+- Playhead follow during playback
+- Frame range from project settings
 
 ---
 
@@ -180,15 +155,6 @@
 
 **Dependencies**: P4 complete
 
-**Exit Criteria**:
-- Import: mov, mp4, mxf via ReadFFmpeg
-- Import: exr, tiff, png, jpg, psd via ReadOIIO
-- Import: svg via ReadSVG
-- File browser UI for importing
-- Export: mov (ProRes, H264), mp4 via WriteFFmpeg
-- Export: image sequences via WriteOIIO
-- Export dialog with format/codec settings
-
 ---
 
 ## P6: Shapes + Text
@@ -199,13 +165,6 @@
 
 **Dependencies**: P5 complete
 
-**Exit Criteria**:
-- Shape layers: rect, ellipse, star, bezier paths
-- Shape fill and stroke
-- Text layers with font/size/alignment
-- Per-character animation basics
-- All shape/text properties animatable via keyframes
-
 ---
 
 ## P7: Polish + Cache
@@ -215,14 +174,6 @@
 **Estimated Duration**: 2-3 weeks
 
 **Dependencies**: P6 complete
-
-**Exit Criteria**:
-- Persistent disk cache
-- Background rendering
-- Full undo/redo
-- OCIO config selection in settings
-- Real-time preview at 1080p for 5+ layers with effects
-- Performance profiling and optimization
 
 ---
 

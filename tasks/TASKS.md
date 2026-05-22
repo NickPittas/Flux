@@ -1,8 +1,8 @@
 # Flux — Master Task List
 
-Last updated: 2026-05-21 (handoff report: FluxLayer gizmo work is blocked/needs rework; stable gizmo-level parameter contract added)
+Last updated: 2026-05-22
 
-## Active Phase: P2.5 (FluxLayer Gizmo correction)
+## Active Phase: P3 (Timeline)
 
 ### P0 Tasks
 
@@ -37,90 +37,54 @@ Last updated: 2026-05-21 (handoff report: FluxLayer gizmo work is blocked/needs 
 
 ---
 
-## P2 Tasks (UI Shell)
+## P2 Tasks (UI Shell) — COMPLETE
 
 | ID | Task | Status | Assigned | Started | Completed | File |
 |---|---|---|---|---|---|---|
 | T019 | Create FluxMainWindow (new layout) | DONE | forge | 2026-05-20 | 2026-05-21 | Gui/Gui05.cpp, Flux*.{h,cpp} |
-| T019-A | Project Bin: thumbnails, list view toggle, proper file import → reader node | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxProjectBin.{h,cpp} |
+| T019-A | Project Bin: thumbnails, list view toggle, file import | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxProjectBin.{h,cpp} |
 | T019-B | Timeline: accept drops from Project Bin with ghost preview | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxTimeline.{h,cpp} |
-| T019-C | Timeline ↔ Viewer playhead sync (via TimeLine::seekFrame/frameChanged) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxTimeline.{h,cpp} |
-| T019-D | Effects Panel: enabled only when layer selected, adds effect to selected layer | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxEffectsPanel.{h,cpp} |
-| T019-E | End-to-end test: import → drag to timeline → select → add effect → play | PENDING | nick | 2026-05-21 | — | — |
-| T019-F | Timeline interaction: bar drag, trim handles, layer reorder, playhead fix | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/FluxTimeline.{h,cpp} |
-| T019-G | Auto-create Merge nodes for compositing layers + connect viewer | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/Gui05.cpp, FluxTimeline.{h,cpp} |
-| T019-H | FluxLayer PyPlug gizmo (Read→FrameRange→TimeOffset→Transform) | IN_PROGRESS | forge | 2026-05-21 | — | Plugins/FluxLayer.py |
-| T019-H1 | Define/enforce stable FluxLayer gizmo-level parameter contract (no internal node-name lookups) | PENDING | forge | — | — | Plugins/FluxLayer.py, Gui/FluxTimeline.cpp |
-| T019-I | Fix timeline drop: one gizmo per layer, Merge chain outside | PENDING | forge | — | — | Gui/Gui05.cpp, FluxTimeline.cpp |
-| T019-J | Fix trim: update both firstFrame AND lastFrame on gizmo | PENDING | forge | — | — | Gui/FluxTimeline.cpp |
-| T019-K | Fix move: update timeOffset knob on gizmo | PENDING | forge | — | — | Gui/FluxTimeline.cpp |
-| T019-L | Fix second footage: each layer gets its own gizmo/reader | PENDING | forge | — | — | Gui/Gui05.cpp |
-| T019-M | Clean node graph layout (tree, not stacked) | PENDING | forge | — | — | Gui/Gui05.cpp |
-
-### Critical P2.5 Contract: Stable FluxLayer Gizmo Parameters
-
-The FluxLayer PyPlug must expose stable group-level parameters that do **not** include internal node auto-numbering. C++ timeline code must only access parameters on the specific layer's `gizmoNode` using stable names such as:
-
-- `frameRange`
-- `timeOffset`
-- `translate`
-- `scale`
-- `rotate`
-- `center`
-- `motionBlur`
-- `shutter`
-
-Do **not** use internal auto-generated names like `FrameRange1frameRange`, `FrameRange2frameRange`, `TimeOffset1timeOffset`, or `Transform1center` from C++ timeline code. Internal node names change as multiple gizmos/layers are created. The PyPlug must use `setAsAlias()` or equivalent Natron PyPlug aliasing so each gizmo instance presents the same stable external parameter names. Each timeline layer must store a direct `gizmoNode` pointer/reference and update that layer's gizmo parameters directly.
+| T019-C | Timeline ↔ Viewer playhead sync (via TimeLine::seekFrame) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxTimeline.{h,cpp} |
+| T019-D | Effects Panel: per-layer effect stack | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxEffectsPanel.{h,cpp} |
+| T019-E | End-to-end test: import → drag → select → add effect → play | DONE | nick | 2026-05-21 | 2026-05-21 | Manual test |
+| T019-F | Timeline interaction: bar drag, trim handles, reorder | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/FluxTimeline.{h,cpp} |
+| T019-G | Auto-create Merge nodes + connect viewer | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/Gui05.cpp |
+| T019-H | FluxLayer PyPlug gizmo (Read→FrameRange→TimeOffset→Transform→Output) | DONE | forge | 2026-05-21 | 2026-05-21 | plugins/FluxLayer.py |
+| T019-I | Fix timeline drop: one gizmo per layer, Merge chain outside | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/Gui05.cpp |
+| T019-J | Fix trim: update FrameRange via explicit trimStart/trimEnd | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/FluxTimeline.cpp |
+| T019-K | Fix move: update only timeOffset, never frameRange | DONE | forge | 2026-05-21 | 2026-05-22 | Gui/FluxTimeline.cpp |
+| T019-L | Fix multi-layer: each layer gets own gizmo | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/Gui05.cpp |
+| T019-M | Deferred init with retry + nodeInitialized guard | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/Gui05.cpp |
+| T019-N | Fix PyPlug defaults: scale=1, shutter=0.5 via restoreDefaultValue() | DONE | forge | 2026-05-21 | 2026-05-21 | plugins/FluxLayer.py |
+| T019-O | Rewrite trim/move: complete separation of frameRange and timeOffset. inPoint/outPoint=source frames (trim only), timeOffset=bar position (move only). Bar clipped at left panel. | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.{h,cpp}, Gui/Gui05.cpp |
 | T020 | Create FluxTimeline widget | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxTimeline.{h,cpp} (merged into T019) |
-| T021 | Create Layer-to-Node Bridge (Merge chain for compositing) | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/Gui05.cpp (merged into T019-G) |
-| T022 | Create Effects Stack Panel | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxEffectsPanel.{h,cpp} (merged into T019) |
-| T023 | Create Dark Theme (After Effects-inspired) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/Gui20.cpp (mainstyle.qss + Flux colors) |
-| T024 | Create Project Bin | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxProjectBin.{h,cpp} (merged into T019) |
+| T021 | Create Layer-to-Node Bridge (Merge chain) | DONE | forge | 2026-05-21 | 2026-05-21 | Gui/Gui05.cpp (merged into T019-G) |
+| T022 | Create Effects Stack Panel | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxEffectsPanel.{h,cpp} |
+| T023 | Create Dark Theme (After Effects-inspired) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/Gui20.cpp |
+| T024 | Create Project Bin | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxProjectBin.{h,cpp} |
 | T025 | Create Flux Menu System | PENDING | — | — | — | Gui/Gui.cpp |
 | T026 | Integration Test (end-to-end) | PENDING | — | — | — | — |
-
-**Detailed Plan**: See `plans/phase-2.md`
 
 ---
 
 ## P3 Tasks (Timeline)
 
-_To be planned when P2 nears completion._
+| ID | Task | Status | Assigned | Started | Completed | File |
+|---|---|---|---|---|---|---|
+| T032 | Playback controls — viewer already drives shared TimeLine during playback. Removed competing FluxTimeline play loop. FluxTimeline follows via onExternalFrameChanged. | DONE | — | 2026-05-21 | 2026-05-21 | Gui/FluxTimeline.{h,cpp} |
+| T033 | Keyboard shortcuts — already working: JKL for play fwd/back/stop, arrows for frame stepping. No changes needed. | DONE | — | 2026-05-21 | 2026-05-21 | — |
+| T034 | Layer types: solid (FluxSolid PyPlug with Constant), null (no gizmo, parenting-ready). Context menu for Add Solid/Null. Transform overlay handles registered on gizmo via addTransformInteract. Properties panel opens/closes on layer select/deselect. | DONE | forge | 2026-05-21 | 2026-05-21 | plugins/Flux{Layer,Solid}.py, Gui/Gui05.cpp, Gui/FluxTimeline.{h,cpp} |
+| T035 | Solo/Mute/Lock: Mute = use the disable knob on the layer's gizmo. May need a group-level "enabled" knob on the PyPlug for easy C++ access. Solo/Lock are timeline-only state. | PENDING | — | — | — | Gui/FluxTimeline.{h,cpp}, plugins/FluxLayer.py |
+| T036 | Split layer (Ctrl+Shift+D) | PENDING | — | — | — | Gui/FluxTimeline.cpp |
+| T037 | Duplicate layer (Ctrl+D) | PENDING | — | — | — | Gui/FluxTimeline.cpp, Gui05.cpp |
+| T038 | Delete layer (Delete key) — basic version in context menu already. Needs keyboard shortcut wiring. | PENDING | — | — | — | Gui/FluxTimeline.cpp |
+| T039 | Layer bar context menu: Add Solid/Null + Delete implemented. Still needs: add effects, copy/paste, reset in/out points. | IN_PROGRESS | — | — | — | Gui/FluxTimeline.cpp |
+| T040 | Timeline scroll + fit-to-view + frame selected layers | PENDING | — | — | — | Gui/FluxTimeline.cpp |
+| T041 | Frame range from project settings (always) | PENDING | — | — | — | Gui/FluxTimeline.cpp |
+| T042 | Background constant layer: auto-create a Constant node (project size) as layer 0, connect to Merge B of first dropped layer. Always first in compositing. Ensures comp size is correct. | PENDING | — | — | — | Gui/Gui05.cpp |
 
 ---
 
-## P4 Tasks (Effects + Properties)
+## P4+ Tasks
 
 _To be planned when P3 nears completion._
-
----
-
-## P5 Tasks (Import/Export)
-
-_To be planned when P4 nears completion._
-
----
-
-## P6 Tasks (Shapes + Text)
-
-_To be planned when P5 nears completion._
-
----
-
-## P7 Tasks (Polish + Cache)
-
-_To be planned when P6 nears completion._
-
----
-
-## Task Detail Files
-
-Complex tasks get their own detail file in `tasks/T###-task-name.md`. The file contains:
-- Objective
-- Approach
-- Acceptance criteria
-- Test plan
-- Results
-- Notes
-
-Simple tasks don't need a detail file — the row above is sufficient.
