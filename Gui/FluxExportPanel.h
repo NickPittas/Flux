@@ -24,6 +24,7 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QVBoxLayout>
 #include <QFileDialog>
 #include <QGroupBox>
+#include <QTabWidget>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 

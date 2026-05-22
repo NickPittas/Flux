@@ -106,18 +106,60 @@ FluxExportPanel::setExportNodes(const NodePtr& reformatNode, const NodePtr& writ
     if (_writeNode) {
         EffectInstancePtr effect = _writeNode->getEffectInstance();
         if (effect) {
+            // Hide the internal "Node" page — its knobs (disableNode, previewEnabled, etc.)
+            // are internal and shouldn't be in the export panel
+            KnobIPtr nodePageKnob = _writeNode->getKnobByName(std::string("Node"));
+            if (nodePageKnob) {
+                KnobPagePtr nodePage = std::dynamic_pointer_cast<KnobPage>(nodePageKnob);
+                if (nodePage) {
+                    nodePage->setSecret(true);
+                }
+            }
+
             _writeKnobsPanel = new DockablePanel(
                 getGui(),
                 effect.get(),
-                _writeGroupLayout,
+                nullptr,
                 DockablePanel::eHeaderModeNoHeader,
                 false,
                 QUndoStackPtr()
             );
-            _writeKnobsPanel->turnOffPages();
+            // Do NOT call turnOffPages() — we want pages as collapsible groups
             _writeKnobsPanel->initializeKnobs();
 
+            // Extract each tab page into a collapsible QGroupBox
+            QList<QTabWidget*> tabs = _writeKnobsPanel->findChildren<QTabWidget*>();
+            if (!tabs.isEmpty()) {
+                QTabWidget* tabWidget = tabs.first();
+                for (int i = tabWidget->count() - 1; i >= 0; --i) {
+                    QString pageTitle = tabWidget->tabText(i);
+
+                    // Skip the "Node" page (should already be hidden, but double-check)
+                    if (pageTitle == QString::fromUtf8("Node")) {
+                        continue;
+                    }
+
+                    QWidget* pageWidget = tabWidget->widget(i);
+                    tabWidget->removeTab(i);
+
+                    QGroupBox* group = new QGroupBox(pageTitle, _writeGroup);
+                    group->setCheckable(true);
+                    group->setChecked(true);
+                    QVBoxLayout* groupLayout = new QVBoxLayout(group);
+                    groupLayout->setContentsMargins(4, 4, 4, 4);
+                    groupLayout->addWidget(pageWidget);
+
+                    // Make it collapsible — hide page widget when unchecked
+                    QObject::connect(group, &QGroupBox::toggled, pageWidget, &QWidget::setVisible);
+
+                    _writeGroupLayout->addWidget(group);
+                }
+                tabWidget->hide();
+            }
+
+            // Add the panel itself (now mostly empty) so it stays alive as a child
             _writeGroupLayout->addWidget(_writeKnobsPanel);
+            _writeKnobsPanel->hide();
 
             // Sync frame range from project to Write node knobs
             syncFrameRangeFromProject();
@@ -128,18 +170,55 @@ FluxExportPanel::setExportNodes(const NodePtr& reformatNode, const NodePtr& writ
     if (_reformatNode) {
         EffectInstancePtr effect = _reformatNode->getEffectInstance();
         if (effect) {
+            // Hide the internal "Node" page
+            KnobIPtr nodePageKnob = _reformatNode->getKnobByName(std::string("Node"));
+            if (nodePageKnob) {
+                KnobPagePtr nodePage = std::dynamic_pointer_cast<KnobPage>(nodePageKnob);
+                if (nodePage) {
+                    nodePage->setSecret(true);
+                }
+            }
+
             _reformatKnobsPanel = new DockablePanel(
                 getGui(),
                 effect.get(),
-                _reformatGroupLayout,
+                nullptr,
                 DockablePanel::eHeaderModeNoHeader,
                 false,
                 QUndoStackPtr()
             );
-            _reformatKnobsPanel->turnOffPages();
             _reformatKnobsPanel->initializeKnobs();
 
+            // Extract each tab page into a collapsible QGroupBox
+            QList<QTabWidget*> tabs = _reformatKnobsPanel->findChildren<QTabWidget*>();
+            if (!tabs.isEmpty()) {
+                QTabWidget* tabWidget = tabs.first();
+                for (int i = tabWidget->count() - 1; i >= 0; --i) {
+                    QString pageTitle = tabWidget->tabText(i);
+
+                    if (pageTitle == QString::fromUtf8("Node")) {
+                        continue;
+                    }
+
+                    QWidget* pageWidget = tabWidget->widget(i);
+                    tabWidget->removeTab(i);
+
+                    QGroupBox* group = new QGroupBox(pageTitle, _reformatGroup);
+                    group->setCheckable(true);
+                    group->setChecked(true);
+                    QVBoxLayout* groupLayout = new QVBoxLayout(group);
+                    groupLayout->setContentsMargins(4, 4, 4, 4);
+                    groupLayout->addWidget(pageWidget);
+
+                    QObject::connect(group, &QGroupBox::toggled, pageWidget, &QWidget::setVisible);
+
+                    _reformatGroupLayout->addWidget(group);
+                }
+                tabWidget->hide();
+            }
+
             _reformatGroupLayout->addWidget(_reformatKnobsPanel);
+            _reformatKnobsPanel->hide();
         }
 
         _reformatToggle->setChecked(!_reformatNode->isNodeDisabled());
