@@ -838,9 +838,8 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                                 effect.node->getLabel().c_str(), adjustmentOutput->getLabel().c_str(), i);
                     }
                 }
-                // Adjustment rows: mute only, solo does not apply
-                bool adjVisible = !layer.muted;
-                effect.node->setNodeDisabled(!effect.enabled || !adjVisible);
+                // Disable state is controlled by updateAdjustmentTrimKeyframes(),
+                // not by setNodeDisabled() which would overwrite the trim keyframes.
                 _imp->_fluxMergeNodes.push_back(effect.node);
                 adjustmentOutput = effect.node;
             }

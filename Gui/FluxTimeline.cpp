@@ -266,6 +266,15 @@ FluxTimeline::duplicateLayer(int index)
         duplicate.solo = false;
         duplicate.color = layer.color;
         duplicate.effects = newEffects;
+        // Copy range state so trim/move work correctly on the duplicate
+        duplicate.inPoint = layer.inPoint;
+        duplicate.outPoint = layer.outPoint;
+        duplicate.originalInPoint = layer.originalInPoint;
+        duplicate.originalOutPoint = layer.originalOutPoint;
+        duplicate.originalFirstFrame = layer.originalFirstFrame;
+        duplicate.originalLastFrame = layer.originalLastFrame;
+        duplicate.timeOffset = layer.timeOffset;
+        duplicate.nodeInitialized = true;
 
         _layers.insert(index, duplicate);
 
@@ -1386,6 +1395,9 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             } else if (visRect.contains(x, y)) {
                 // Toggle mute
                 _layers[layerIdx].muted = !_layers[layerIdx].muted;
+                if (isAdjustmentRow(layerIdx)) {
+                    updateAdjustmentTrimKeyframes(layerIdx);
+                }
                 Q_EMIT compositingChanged();
                 update();
                 return;
@@ -1761,20 +1773,8 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                 layer.trimStart = 0;
                 layer.trimEnd = 0;
                 if (isAdjustmentRow(layerIdx)) {
-                    // Adjustment rows: clear disable-knob keyframes (effect always on)
-                    for (int e = 0; e < layer.effects.size(); ++e) {
-                        NodePtr effectNode = layer.effects[e].node;
-                        if (!effectNode || !effectNode->isActivated()) continue;
-                        KnobIPtr dk = effectNode->getKnobByName(kDisableNodeKnobName);
-                        if (dk) {
-                            dk->removeAnimation(ViewSpec::all(), 0);
-                            // Set disabled based on layer mute state
-                            KnobBoolBasePtr dkBool = std::dynamic_pointer_cast<KnobBoolBase>(dk);
-                            if (dkBool) {
-                                dkBool->setValue(false, ViewSpec::all(), 0);
-                            }
-                        }
-                    }
+                    // Adjustment rows: update disable-knob keyframes (respects mute/enabled)
+                    updateAdjustmentTrimKeyframes(layerIdx);
                 } else if (layer.gizmoNode) {
                     KnobIPtr frameRangeKnob = layer.gizmoNode->getKnobByName(std::string("frameRange"));
                     if (frameRangeKnob) {
@@ -2109,15 +2109,8 @@ FluxTimeline::updateAdjustmentTrimKeyframes(int layerIndex)
         return;
     }
 
-    // The adjustment row's visible range is [inPoint + timeOffset, outPoint + timeOffset].
-    // For each effect in this row, set disable-knob keyframes:
-    //   disabled at (inPoint + timeOffset - 1)
-    //   enabled  at (inPoint + timeOffset)
-    //   disabled at (outPoint + timeOffset + 1)
-    // This makes the effect active only within the trimmed/moved bar range.
-
     int startFrame = layer.inPoint + layer.timeOffset;
-    int endFrame = layer.outPoint + layer.timeOffset;
+    int endFrame   = layer.outPoint + layer.timeOffset;
 
     for (int e = 0; e < layer.effects.size(); ++e) {
         NodePtr effectNode = layer.effects[e].node;
@@ -2125,7 +2118,6 @@ FluxTimeline::updateAdjustmentTrimKeyframes(int layerIndex)
             continue;
         }
 
-        // Get the disable knob for this effect node
         KnobIPtr disableKnobI = effectNode->getKnobByName(kDisableNodeKnobName);
         if (!disableKnobI) {
             continue;
@@ -2135,30 +2127,28 @@ FluxTimeline::updateAdjustmentTrimKeyframes(int layerIndex)
             continue;
         }
 
-        // Enable animation on the disable knob (disabled by default in Natron)
+        // Enable animation (safe: KnobBool::canAnimate() == true)
         disableKnob->setAnimationEnabled(true);
 
-        // Clear existing animation on dimension 0
+        // Remove old keyframes
         disableKnob->removeAnimation(ViewSpec::all(), 0);
 
-        // Set keyframes:
-        // Disabled before the start frame
+        // If the layer is muted or this effect is disabled, keep it statically off
+        bool keepDisabled = !layer.effects[e].enabled || layer.muted;
+        if (keepDisabled) {
+            disableKnob->setValue(true, ViewSpec::all(), 0);
+            continue;
+        }
+
+        // Set trim keyframes using 4-arg overload (no nullptr dereference)
         if (startFrame > 0) {
             disableKnob->setValueAtTime((double)(startFrame - 1), true,
-                                         ViewSpec::all(), 0,
-                                         eValueChangedReasonNatronInternalEdited,
-                                         nullptr);
+                                         ViewSpec::all(), 0);
         }
-        // Enabled at the start frame
         disableKnob->setValueAtTime((double)startFrame, false,
-                                     ViewSpec::all(), 0,
-                                     eValueChangedReasonNatronInternalEdited,
-                                     nullptr);
-        // Disabled after the end frame
+                                     ViewSpec::all(), 0);
         disableKnob->setValueAtTime((double)(endFrame + 1), true,
-                                     ViewSpec::all(), 0,
-                                     eValueChangedReasonNatronInternalEdited,
-                                     nullptr);
+                                     ViewSpec::all(), 0);
 
         fprintf(stderr, "FLUX ADJ TRIM: effect '%s' keyframed: disabled@%d, enabled@%d, disabled@%d\n",
                 effectNode->getLabel().c_str(), startFrame - 1, startFrame, endFrame + 1);
