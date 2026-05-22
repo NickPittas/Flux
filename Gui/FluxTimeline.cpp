@@ -1788,6 +1788,28 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                 update();
             });
 
+            // Open Read Node (footage layers only)
+            if (_layers[layerIdx].type == QString::fromUtf8("footage") && _layers[layerIdx].readerNode) {
+                QAction* openReadAction = menu.addAction(QString::fromUtf8("Open Read Node"));
+                connect(openReadAction, &QAction::triggered, this, [this, layerIdx]() {
+                    if (layerIdx < 0 || layerIdx >= _layers.size()) {
+                        return;
+                    }
+                    const FluxLayer& layer = _layers[layerIdx];
+                    if (!layer.readerNode) {
+                        return;
+                    }
+                    // Open the Read node's settings panel in the properties bin
+                    NodeGuiIPtr nodeGui_i = layer.readerNode->getNodeGui();
+                    if (nodeGui_i) {
+                        NodeGuiPtr nodeGui = std::dynamic_pointer_cast<NodeGui>(nodeGui_i);
+                        if (nodeGui) {
+                            nodeGui->setVisibleSettingsPanel(true);
+                        }
+                    }
+                });
+            }
+
             QAction* addEffectAction = menu.addAction(QString::fromUtf8("Add Effect..."));
             addEffectAction->setEnabled(canAddEffectToRow(layerIdx));
             connect(addEffectAction, &QAction::triggered, this, [this, layerIdx]() {
