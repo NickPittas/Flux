@@ -1288,8 +1288,8 @@ FluxTimeline::hitTest(int x,
         *outLayerIndex = layerIdx;
     }
 
-    // Adjustment and null rows: body only, never trim handles
-    if (isAdjustmentRow(layerIdx) || isNullRow(layerIdx)) {
+    // Null rows: body only, never trim handles
+    if (isNullRow(layerIdx)) {
         return eHitBarBody;
     }
 
