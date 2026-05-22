@@ -116,6 +116,15 @@ FluxExportPanel::setExportNodes(const NodePtr& reformatNode, const NodePtr& writ
                 }
             }
 
+            // Also hide the "Info" page — read-only metadata, not user-facing
+            KnobIPtr infoPageKnob = _writeNode->getKnobByName(std::string("Info"));
+            if (infoPageKnob) {
+                KnobPagePtr infoPage = std::dynamic_pointer_cast<KnobPage>(infoPageKnob);
+                if (infoPage) {
+                    infoPage->setSecret(true);
+                }
+            }
+
             _writeKnobsPanel = new DockablePanel(
                 getGui(),
                 effect.get(),
@@ -134,8 +143,8 @@ FluxExportPanel::setExportNodes(const NodePtr& reformatNode, const NodePtr& writ
                 for (int i = tabWidget->count() - 1; i >= 0; --i) {
                     QString pageTitle = tabWidget->tabText(i);
 
-                    // Skip the "Node" page (should already be hidden, but double-check)
-                    if (pageTitle == QString::fromUtf8("Node")) {
+                    // Skip the "Node" and "Info" pages (should already be hidden, but double-check)
+                    if (pageTitle == QString::fromUtf8("Node") || pageTitle == QString::fromUtf8("Info")) {
                         continue;
                     }
 
@@ -179,6 +188,15 @@ FluxExportPanel::setExportNodes(const NodePtr& reformatNode, const NodePtr& writ
                 }
             }
 
+            // Also hide the "Info" page — read-only metadata, not user-facing
+            KnobIPtr infoPageKnob = _reformatNode->getKnobByName(std::string("Info"));
+            if (infoPageKnob) {
+                KnobPagePtr infoPage = std::dynamic_pointer_cast<KnobPage>(infoPageKnob);
+                if (infoPage) {
+                    infoPage->setSecret(true);
+                }
+            }
+
             _reformatKnobsPanel = new DockablePanel(
                 getGui(),
                 effect.get(),
@@ -196,7 +214,7 @@ FluxExportPanel::setExportNodes(const NodePtr& reformatNode, const NodePtr& writ
                 for (int i = tabWidget->count() - 1; i >= 0; --i) {
                     QString pageTitle = tabWidget->tabText(i);
 
-                    if (pageTitle == QString::fromUtf8("Node")) {
+                    if (pageTitle == QString::fromUtf8("Node") || pageTitle == QString::fromUtf8("Info")) {
                         continue;
                     }
 
