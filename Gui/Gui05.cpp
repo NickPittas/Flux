@@ -671,29 +671,39 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
     _imp->_fluxMergeNodes.clear();
 
     // ====================================================================
-    // Node Graph Layout — Strict Vertical Pipeline
+    // Node Graph Layout — Per-Layer Vertical Branch Stack
     //
-    //   X:  centerX (main pipe)    gizmoX (layer branches, LEFT of pipe)
+    //   X:  centerX (main pipe)    branchX = centerX + kGizmoOffsetX
     //
     //        ┌──────────┐
     //        │ Reformat │  ← top anchor, project format canvas
     //        └────┬─────┘
     //             │  (vertical main pipe, all B inputs)
-    //        ┌────┴─────┐   ┌──────────┐
-    //        │ Merge 0  │───│ Gizmo 0  │  ← bottom timeline layer (background)
-    //        └────┬─────┘   └──────────┘
-    //             │
-    //        ┌────┴─────┐   ┌──────────┐
-    //        │ Merge N  │───│ Gizmo N  │  ← top timeline layer (foreground) → Viewer
-    //        └────┬─────┘   └──────────┘
-    //             │
-    //           Viewer
+    //     branchX│            centerX
+    //     ┌──────┴──┐    ┌────────────┐
+    //     │ Read 0  │    │            │  ← branch top
+    //     ├─────────┤    │            │
+    //     │ Gizmo 0 │    │            │  ← branch middle
+    //     ├─────────┤    │            │  ← (future effect stack here)
+    //     │         ├───>│  Merge 0   │  ← branch bottom, on main pipe
+    //     └─────────┘    └─────┬──────┘
+    //                           │
+    //     ┌──────┴──┐    ┌────────────┐
+    //     │ Read N  │    │            │
+    //     ├─────────┤    │            │
+    //     │ Gizmo N │    │            │
+    //     ├─────────┤    │            │  ← (future effect stack here)
+    //     │         ├───>│  Merge N   │  → Viewer
+    //     └─────────┘    └────────────┘
     //
     //   Rules:
     //   - Reformat at top center (anchor point)
-    //   - All Merge nodes stacked vertically at centerX (main pipe)
-    //   - Each layer gizmo placed to the LEFT of its Merge
-    //   - Effects placed below gizmo, above merge (same X as gizmo) — future
+    //   - Each layer occupies kNodesPerLayer vertical rows:
+    //       Row 0: Read node (footage) or Solid gizmo (solid)
+    //       Row 1: FluxLayer gizmo (footage) — empty for solid
+    //       Row 2: Merge on main pipe (room for future effects between gizmo & merge)
+    //   - Merge nodes stacked at centerX (main pipe)
+    //   - Read + Gizmo at branchX (LEFT of main pipe)
     //   - No overlaps, uniform vertical spacing
     //   - Chain built bottom-to-top so top timeline layer = foreground
     //   - NEVER destroy existing nodes. Only create missing ones.
@@ -701,10 +711,12 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
     // ====================================================================
 
     // Layout constants
-    const double kCenterX = 0.0;       // X position for Reformat + all Merge nodes (main pipe)
-    const double kGizmoOffsetX = -200.0; // gizmos go LEFT of the main pipe
-    const double kYStart = 0.0;        // Reformat Y position (top of tree)
-    const double kYSpacing = 120.0;    // vertical gap between each node row
+    const double kCenterX = 0.0;         // X position for Reformat + all Merge nodes (main pipe)
+    const double kGizmoOffsetX = -200.0; // branch column: Read + Gizmo go LEFT of main pipe
+    const double kYStart = 0.0;          // Reformat Y position (top of tree)
+    const double kYSpacing = 120.0;      // vertical gap between each node row
+    const int kNodesPerLayer = 3;        // rows per layer: [Read|Solid] / Gizmo / Merge(+effects)
+    // Future: Insert effect-stack nodes at row index 2..N-1 between gizmo and merge.
 
     // -- Ensure background Reformat node exists --
     if (!_imp->_fluxBgReformatNode) {
@@ -947,12 +959,21 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             }
         }
 
-        // -- Reposition gizmo + Read node (runs every rebuild) --
+        // -- Reposition per-layer branch stack (runs every rebuild) --
+        // Each layer uses kNodesPerLayer rows:
+        //   Row 0: Read (footage) or Solid gizmo — branch top
+        //   Row 1: FluxLayer gizmo (footage only)
+        //   Row 2+: Merge (main pipe) — row index kNodesPerLayer-1
         {
-            double gizmoY = kYStart + (pi + 1) * kYSpacing;
-            layer.gizmoNode->setPosition(kCenterX + kGizmoOffsetX, gizmoY);
-            if (layer.readerNode) {
-                layer.readerNode->setPosition(kCenterX + kGizmoOffsetX, gizmoY - kYSpacing);
+            double branchTopY = kYStart + (pi * kNodesPerLayer + 1) * kYSpacing;
+
+            if (layer.type == QString::fromUtf8("footage") && layer.readerNode) {
+                // Footage: Read at branch top, Gizmo one row below
+                layer.readerNode->setPosition(kCenterX + kGizmoOffsetX, branchTopY);
+                layer.gizmoNode->setPosition(kCenterX + kGizmoOffsetX, branchTopY + kYSpacing);
+            } else {
+                // Solid (or footage without reader): gizmo at branch top
+                layer.gizmoNode->setPosition(kCenterX + kGizmoOffsetX, branchTopY);
             }
         }
 
@@ -1020,7 +1041,9 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
 
         // -- Always reconnect + reposition (layer order may have changed) --
         {
-            double mergeY = kYStart + (pi + 1) * kYSpacing;
+            // Merge sits at the bottom of this layer's branch, on the main pipe.
+            // Y = branchTopY + (kNodesPerLayer - 1) * kYSpacing
+            double mergeY = kYStart + (pi * kNodesPerLayer + kNodesPerLayer) * kYSpacing;
             layer.mergeNode->setPosition(kCenterX, mergeY);
 
             // Disconnect stale inputs before reconnecting (handles layer deletion/reorder)

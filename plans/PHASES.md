@@ -7,7 +7,7 @@
 | P0 | Project Setup | DONE | 2026-05-20 | 2026-05-20 | 100% |
 | P1 | Fork & Build | DONE | 2026-05-20 | 2026-05-20 | 100% |
 | P2 | UI Shell | DONE | 2026-05-20 | 2026-05-21 | 100% |
-| P3 | Timeline | IN_PROGRESS | 2026-05-21 | — | 55% |
+| P3 | Timeline | IN_PROGRESS | 2026-05-21 | — | 82% |
 | P4 | Effects + Properties | PENDING | — | — | 0% |
 | P5 | Import/Export | PENDING | — | — | 0% |
 | P6 | Shapes + Text | PENDING | — | — | 0% |
@@ -102,9 +102,10 @@
 - Trim/move model rewritten: complete separation of frameRange (trim only) and timeOffset (move only)
 - Desaturated bar zones for extended trim regions
 - Bar clipped at left panel boundary
-- Duplicate Layer: native Natron clipboard copy/paste, Read+Gizmo+Merge for footage, Gizmo+Merge for solids
+- Duplicate Layer: Ctrl+D keyboard shortcut + context menu; native Natron clipboard copy/paste, Read+Gizmo+Merge for footage, Gizmo+Merge for solids
 - Split Layer: duplicate + trim original outPoint / duplicate inPoint at playhead
 - Delete Layer: deactivates Read/Gizmo/Merge and rebuild reconnects the remaining chain
+- Solo/Mute/Lock per layer: L button toggle in layer header; locked layers block trim, move, reorder, delete, split, and duplicate
 - Background/Reformat anchor: persistent Reformat node at top of chain, inputs forcibly disconnected each rebuild
 - Non-destructive rebuild: existing Read/Gizmo/Merge nodes reused; only missing nodes created, reconnect + reposition only
 - External Read node: footage layers have Read outside gizmo; gizmo uses internal Input node
@@ -114,7 +115,6 @@
 - Timeline duration synced to project frame range via Project::frameRangeChanged signal
 
 **Remaining**:
-- Solo/Mute/Lock per layer (T035 — partially done, needs keyboard shortcut wiring)
 - Zoom timeline horizontally (scroll wheel)
 - Scroll timeline vertically
 - Fit to view / frame selected layers
@@ -122,7 +122,7 @@
 **Exit Criteria**:
 - Playback controls (play/pause/stop, fps display)
 - Layer types: footage, solid, adjustment, null
-- Solo/Mute/Lock per layer
+- Solo/Mute/Lock per layer — DONE
 - Keyboard shortcuts (Space=play, PageDown/Up=frame step, etc.)
 - Split layer (Ctrl+Shift+D) — DONE
 - Duplicate layer (Ctrl+D) — DONE

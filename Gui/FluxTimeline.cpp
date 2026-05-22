@@ -562,6 +562,7 @@ FluxTimeline::drawLayerBars(QPainter& painter,
         painter.setFont(smallFont);
         int soloX = labelRect.right() - 14;
         int visX = labelRect.right() - 30;
+        int lockX = labelRect.right() - 46;
         int btnY = labelRect.top();
         int btnH = kLayerRowHeight;
 
@@ -584,6 +585,16 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             painter.setPen(QColor(100, 100, 110));
         }
         painter.drawText(QRect(visX - 2, btnY, 16, btnH), Qt::AlignCenter, QString::fromUtf8("V"));
+
+        // L button (amber = locked)
+        if (layer.locked) {
+            painter.setPen(Qt::NoPen);
+            painter.fillRect(lockX - 2, btnY + 6, 16, btnH - 12, QColor(220, 160, 50));
+            painter.setPen(QColor(40, 40, 40));
+        } else {
+            painter.setPen(QColor(100, 100, 110));
+        }
+        painter.drawText(QRect(lockX - 2, btnY, 16, btnH), Qt::AlignCenter, QString::fromUtf8("L"));
 
         // Layer bar (right area)
         // Step 1: compute positions from inPoint/outPoint (source frames)
@@ -627,20 +638,35 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             if (effectivelyMuted) {
                 desatColor = desatColor.darker(200);
             }
+            if (layer.locked) {
+                desatColor = desatColor.darker(150);
+            }
             painter.fillRect(barRect, desatColor);
 
             // Fill active zone with normal color (overwrites desaturated)
             if (activeX2 > activeX1) {
                 QRect activeRect(activeX1, barRect.top(), activeX2 - activeX1, barRect.height());
-                painter.fillRect(activeRect, effectivelyMuted ? layer.color.darker(200) : layer.color);
+                QColor activeColor = effectivelyMuted ? layer.color.darker(200) : layer.color;
+                if (layer.locked) {
+                    activeColor = activeColor.darker(150);
+                }
+                painter.fillRect(activeRect, activeColor);
             }
 
             // Bar border
             painter.setPen(layer.color.darker(130));
             painter.drawRect(barRect);
 
-            // Trim handle highlights
-            if (barRect.width() > kTrimHandleWidth * 2) {
+            // Locked indicator: thin diagonal hatch overlay
+            if (layer.locked) {
+                painter.setPen(QPen(QColor(255, 255, 255, 25), 1));
+                for (int hx = barRect.left() - barRect.height(); hx < barRect.right(); hx += 8) {
+                    painter.drawLine(hx, barRect.bottom(), hx + barRect.height(), barRect.top());
+                }
+            }
+
+            // Trim handle highlights (skip if locked — no trimming allowed)
+            if (!layer.locked && barRect.width() > kTrimHandleWidth * 2) {
                 // Left trim handle zone
                 QRect leftHandle(barRect.left(), barRect.top(), kTrimHandleWidth, barRect.height());
                 painter.fillRect(leftHandle, QColor(255, 255, 255, 30));
@@ -652,7 +678,7 @@ FluxTimeline::drawLayerBars(QPainter& painter,
 
             // Bar text (filename)
             if (barRect.width() > 40) {
-                painter.setPen(Qt::white);
+                painter.setPen(layer.locked ? QColor(180, 180, 180) : Qt::white);
                 QFont barFont;
                 barFont.setPointSize(8);
                 painter.setFont(barFont);
@@ -861,7 +887,7 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
         return;
     }
 
-    // Click on layer label → check S/V buttons, then select layer
+    // Click on layer label → check S/V/L buttons, then select layer
     if (x < kLayerLabelWidth && y > kTimeRulerHeight) {
         int layerIdx = yToLayer(y);
         if (layerIdx >= 0 && layerIdx < _layers.size()) {
@@ -877,6 +903,10 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             int visX = labelRight - 30;
             QRect visRect(visX - 2, btnY + 6, 16, btnH - 12);
 
+            // L button region
+            int lockX = labelRight - 46;
+            QRect lockRect(lockX - 2, btnY + 6, 16, btnH - 12);
+
             if (soloRect.contains(x, y)) {
                 // Toggle solo
                 _layers[layerIdx].solo = !_layers[layerIdx].solo;
@@ -887,6 +917,11 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
                 // Toggle mute
                 _layers[layerIdx].muted = !_layers[layerIdx].muted;
                 applyLayerVisibility();
+                update();
+                return;
+            } else if (lockRect.contains(x, y)) {
+                // Toggle lock
+                _layers[layerIdx].locked = !_layers[layerIdx].locked;
                 update();
                 return;
             }
@@ -931,7 +966,10 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
         _interactionOrigTrimEnd = _layers[layerIdx].trimEnd;
         _reorderTargetRow = layerIdx;
 
-        if (zone == eHitTrimLeft) {
+        if (_layers[layerIdx].locked) {
+            // Locked layers: selection works, but no drag interactions
+            _interactionMode = eModeNone;
+        } else if (zone == eHitTrimLeft) {
             _interactionMode = eModeTrimLeft;
         } else if (zone == eHitTrimRight) {
             _interactionMode = eModeTrimRight;
@@ -1055,9 +1093,17 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
         int layerIdx = -1;
         HitZone zone = hitTest(x, y, &layerIdx);
         if (zone == eHitTrimLeft || zone == eHitTrimRight) {
-            setCursor(Qt::SplitHCursor);
+            if (layerIdx >= 0 && layerIdx < _layers.size() && _layers[layerIdx].locked) {
+                setCursor(Qt::ForbiddenCursor);
+            } else {
+                setCursor(Qt::SplitHCursor);
+            }
         } else if (zone == eHitBarBody) {
-            setCursor(Qt::OpenHandCursor);
+            if (layerIdx >= 0 && layerIdx < _layers.size() && _layers[layerIdx].locked) {
+                setCursor(Qt::ForbiddenCursor);
+            } else {
+                setCursor(Qt::OpenHandCursor);
+            }
         } else if (y < kTimeRulerHeight && x > kLayerLabelWidth) {
             setCursor(Qt::PointingHandCursor);
         } else {
@@ -1144,15 +1190,19 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
 
         if (layerIdx >= 0 && layerIdx < _layers.size()) {
             menu.addSeparator();
+            bool isLocked = _layers[layerIdx].locked;
             QAction* duplicateAction = menu.addAction(QString::fromUtf8("Duplicate Layer"));
+            duplicateAction->setEnabled(!isLocked);
             connect(duplicateAction, &QAction::triggered, this, [this, layerIdx]() {
                 duplicateLayer(layerIdx);
             });
             QAction* splitAction = menu.addAction(QString::fromUtf8("Split Layer"));
+            splitAction->setEnabled(!isLocked);
             connect(splitAction, &QAction::triggered, this, [this, layerIdx]() {
                 splitLayer(layerIdx, _currentFrame);
             });
             QAction* deleteAction = menu.addAction(QString::fromUtf8("Delete Layer"));
+            deleteAction->setEnabled(!isLocked);
             connect(deleteAction, &QAction::triggered, this, [this, layerIdx]() {
                 removeLayer(layerIdx);
             });
@@ -1189,11 +1239,19 @@ FluxTimeline::keyPressEvent(QKeyEvent* event)
             }
         }
         event->accept();
-    } else if (event->key() == Qt::Key_D && event->modifiers() & Qt::ControlModifier && event->modifiers() & Qt::ShiftModifier) {
+    } else if (event->key() == Qt::Key_D && (event->modifiers() & Qt::ControlModifier) && (event->modifiers() & Qt::ShiftModifier)) {
         // Ctrl+Shift+D = Split at playhead
         if (_selectedLayer >= 0 && _selectedLayer < _layers.size()) {
             if (!_layers[_selectedLayer].locked) {
                 splitLayer(_selectedLayer, _currentFrame);
+            }
+        }
+        event->accept();
+    } else if (event->key() == Qt::Key_D && (event->modifiers() & Qt::ControlModifier) && !(event->modifiers() & Qt::ShiftModifier)) {
+        // Ctrl+D = Duplicate selected layer
+        if (_selectedLayer >= 0 && _selectedLayer < _layers.size()) {
+            if (!_layers[_selectedLayer].locked) {
+                duplicateLayer(_selectedLayer);
             }
         }
         event->accept();
