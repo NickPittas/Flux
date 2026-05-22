@@ -305,6 +305,11 @@ public:
 
     // Flux compositing graph - Merge nodes for layer compositing
     std::list<NodePtr> _fluxMergeNodes;
+
+    // Flux background canvas — Reformat node at project format size.
+    // Created once when the first layer is added. Every layer's Merge B
+    // input connects here (or chains from the previous Merge).
+    NodePtr _fluxBgReformatNode;
 };
 
 NATRON_NAMESPACE_EXIT

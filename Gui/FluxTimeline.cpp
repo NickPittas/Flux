@@ -14,6 +14,7 @@
 #include <QFileInfo>
 #include <QMimeData>
 #include <QUrl>
+#include <QMenu>
 #include <QDrag>
 
 #include "Gui/Gui.h"
@@ -41,14 +42,15 @@ FluxTimeline::FluxTimeline(Gui* gui,
       , _zoom(10.0)
       , _scrollOffsetX(0)
       , _scrollOffsetY(0)
-      , _playTimer(new QTimer(this))
-      , _playing(false)
       , _interactionMode(eModeNone)
       , _interactionLayerIndex(-1)
       , _interactionStartX(0)
       , _interactionStartY(0)
-      , _interactionOrigInPoint(0)
+       , _interactionOrigInPoint(0)
       , _interactionOrigOutPoint(0)
+      , _interactionOrigTimeOffset(0)
+      , _interactionOrigTrimStart(0)
+      , _interactionOrigTrimEnd(0)
       , _reorderTargetRow(-1)
       , _isDragOver(false)
       , _dragPreviewPos()
@@ -59,8 +61,6 @@ FluxTimeline::FluxTimeline(Gui* gui,
     setMouseTracking(true);
     setFocusPolicy(Qt::ClickFocus);
     setAcceptDrops(true);
-
-    QObject::connect(_playTimer, SIGNAL(timeout()), this, SLOT(onPlayTimeout()));
 
     // T019-C: Connect to the app's shared TimeLine for playhead sync
     if (gui && gui->getApp()) {
@@ -100,6 +100,24 @@ FluxTimeline::addLayer(const QString& name,
     } else {
         layer.color = QColor(120, 120, 120);
     }
+
+    _layers.append(layer);
+    Q_EMIT compositingChanged();
+    update();
+}
+
+void
+FluxTimeline::addSolidLayer(const QColor& color)
+{
+    FluxLayer layer;
+    layer.name = QString::fromUtf8("Solid");
+    layer.type = QString::fromUtf8("solid");
+    layer.inPoint = _firstFrame;
+    layer.outPoint = _lastFrame;
+    layer.color = QColor(130, 180, 80);
+    // Store the solid color as a QString for later use by the gizmo
+    // (actual color is set on the Constant node's "color" knob)
+    layer.solidColor = color;
 
     _layers.append(layer);
     Q_EMIT compositingChanged();
@@ -168,36 +186,10 @@ FluxTimeline::getCurrentFrame() const
     return _currentFrame;
 }
 
-void
-FluxTimeline::play()
-{
-    if (!_playing) {
-        _playing = true;
-        _playTimer->start(41); // ~24fps
-    }
-}
-
-void
-FluxTimeline::stop()
-{
-    _playing = false;
-    _playTimer->stop();
-}
-
-void
-FluxTimeline::onPlayTimeout()
-{
-    ++_currentFrame;
-    if (_currentFrame > _lastFrame) {
-        _currentFrame = _firstFrame;
-    }
-    // T019-C: Sync with shared timeline
-    if (_timeline) {
-        _timeline->seekFrame(SequenceTime(_currentFrame), false, nullptr, eTimelineChangeReasonPlaybackSeek);
-    }
-    Q_EMIT frameChanged(_currentFrame);
-    update();
-}
+// Playback is driven by the viewer's render engine via the shared TimeLine.
+// The viewer calls TimeLine::seekFrame() during playback, which emits
+// frameChanged → our onExternalFrameChanged() updates the playhead.
+// No separate play loop needed here.
 
 void
 FluxTimeline::onExternalFrameChanged(SequenceTime time,
@@ -339,25 +331,87 @@ FluxTimeline::drawLayerBars(QPainter& painter,
         }
         painter.drawText(labelRect.adjusted(6, 0, -4, 0), Qt::AlignVCenter | Qt::AlignLeft, displayName);
 
-        // Visibility indicator
-        QString visStr = layer.visible ? QString::fromUtf8("V") : QString::fromUtf8("-");
-        painter.drawText(labelRect.adjusted(0, 0, -6, 0), Qt::AlignVCenter | Qt::AlignRight, visStr);
+        // Solo indicator (rightmost)
+        QFont smallFont;
+        smallFont.setPointSize(8);
+        painter.setFont(smallFont);
+        int soloX = labelRect.right() - 14;
+        int visX = labelRect.right() - 30;
+        int btnY = labelRect.top();
+        int btnH = kLayerRowHeight;
+
+        // S button
+        if (layer.solo) {
+            painter.setPen(Qt::NoPen);
+            painter.fillRect(soloX - 2, btnY + 6, 16, btnH - 12, QColor(255, 200, 50));
+            painter.setPen(QColor(40, 40, 40));
+        } else {
+            painter.setPen(QColor(100, 100, 110));
+        }
+        painter.drawText(QRect(soloX - 2, btnY, 16, btnH), Qt::AlignCenter, QString::fromUtf8("S"));
+
+        // V button (green = muted)
+        if (layer.muted) {
+            painter.setPen(Qt::NoPen);
+            painter.fillRect(visX - 2, btnY + 6, 16, btnH - 12, QColor(80, 180, 120));
+            painter.setPen(QColor(40, 40, 40));
+        } else {
+            painter.setPen(QColor(100, 100, 110));
+        }
+        painter.drawText(QRect(visX - 2, btnY, 16, btnH), Qt::AlignCenter, QString::fromUtf8("V"));
 
         // Layer bar (right area)
-        int barX1 = frameToX(layer.inPoint);
-        int barX2 = frameToX(layer.outPoint);
+        // Step 1: compute positions from inPoint/outPoint (source frames)
+        // Step 2: add timeOffset to shift the drawn position on the timeline
+        int drawStart = layer.inPoint + layer.timeOffset;
+        int drawEnd = layer.outPoint + layer.timeOffset;
+        int barX1 = frameToX(drawStart);
+        int barX2 = frameToX(drawEnd);
+
+        // Clip bar to the right of the left panel (name/mute/solo buttons)
+        int clipLeft = kLayerLabelWidth;
+        if (barX1 < clipLeft) {
+            barX1 = clipLeft;
+        }
         QRect barRect(barX1, y + 4, barX2 - barX1, kLayerRowHeight - 8);
 
-        if (barRect.width() > 0) {
-            // Bar fill
-            QColor barColor = layer.color;
-            if (!layer.visible) {
-                barColor = barColor.darker(200);
+        // Determine effective visibility:
+        // If any layer is soloed, only soloed layers are visible
+        bool anySoloed = false;
+        for (int j = 0; j < _layers.size(); ++j) {
+            if (_layers[j].solo) {
+                anySoloed = true;
+                break;
             }
-            painter.fillRect(barRect, barColor);
+        }
+        // Dim bar if muted or solo-muted
+        bool effectivelyMuted = layer.muted || (anySoloed && !layer.solo);
+
+        if (barRect.width() > 0) {
+            // Compute active zone (where actual source frames play) vs desaturated zones
+            // originalInPoint/originalOutPoint define the real source boundaries
+            int origDrawStart = layer.originalInPoint + layer.timeOffset;
+            int origDrawEnd = layer.originalOutPoint + layer.timeOffset;
+
+            // Active zone = intersection of [drawStart,drawEnd] with [origDrawStart,origDrawEnd]
+            int activeX1 = frameToX(qMax(drawStart, origDrawStart));
+            int activeX2 = frameToX(qMin(drawEnd, origDrawEnd));
+
+            // Fill entire bar with desaturated color
+            QColor desatColor = layer.color.darker(170);
+            if (effectivelyMuted) {
+                desatColor = desatColor.darker(200);
+            }
+            painter.fillRect(barRect, desatColor);
+
+            // Fill active zone with normal color (overwrites desaturated)
+            if (activeX2 > activeX1) {
+                QRect activeRect(activeX1, barRect.top(), activeX2 - activeX1, barRect.height());
+                painter.fillRect(activeRect, effectivelyMuted ? layer.color.darker(200) : layer.color);
+            }
 
             // Bar border
-            painter.setPen(barColor.darker(130));
+            painter.setPen(layer.color.darker(130));
             painter.drawRect(barRect);
 
             // Trim handle highlights
@@ -532,8 +586,8 @@ FluxTimeline::hitTest(int x,
     }
 
     const FluxLayer& layer = _layers[layerIdx];
-    int barX1 = frameToX(layer.inPoint);
-    int barX2 = frameToX(layer.outPoint);
+    int barX1 = frameToX(layer.inPoint + layer.timeOffset);
+    int barX2 = frameToX(layer.outPoint + layer.timeOffset);
 
     // Check if within the bar's horizontal extent
     if (x < barX1 || x > barX2) {
@@ -582,10 +636,37 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
         return;
     }
 
-    // Click on layer label → select layer
+    // Click on layer label → check S/V buttons, then select layer
     if (x < kLayerLabelWidth && y > kTimeRulerHeight) {
         int layerIdx = yToLayer(y);
-        if (layerIdx >= 0) {
+        if (layerIdx >= 0 && layerIdx < _layers.size()) {
+            int labelRight = kLayerLabelWidth - 4;
+            int btnH = kLayerRowHeight;
+            int btnY = kTimeRulerHeight + layerIdx * kLayerRowHeight - _scrollOffsetY;
+
+            // S button region (rightmost)
+            int soloX = labelRight - 14;
+            QRect soloRect(soloX - 2, btnY + 6, 16, btnH - 12);
+
+            // V button region
+            int visX = labelRight - 30;
+            QRect visRect(visX - 2, btnY + 6, 16, btnH - 12);
+
+            if (soloRect.contains(x, y)) {
+                // Toggle solo
+                _layers[layerIdx].solo = !_layers[layerIdx].solo;
+                applyLayerVisibility();
+                update();
+                return;
+            } else if (visRect.contains(x, y)) {
+                // Toggle mute
+                _layers[layerIdx].muted = !_layers[layerIdx].muted;
+                applyLayerVisibility();
+                update();
+                return;
+            }
+
+            // No button hit — select the layer
             _selectedLayer = layerIdx;
             Q_EMIT layerSelected(layerIdx);
             update();
@@ -620,6 +701,9 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
         _interactionStartY = y;
         _interactionOrigInPoint = _layers[layerIdx].inPoint;
         _interactionOrigOutPoint = _layers[layerIdx].outPoint;
+        _interactionOrigTimeOffset = _layers[layerIdx].timeOffset;
+        _interactionOrigTrimStart = _layers[layerIdx].trimStart;
+        _interactionOrigTrimEnd = _layers[layerIdx].trimEnd;
         _reorderTargetRow = layerIdx;
 
         if (zone == eHitTrimLeft) {
@@ -666,14 +750,11 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
             break;
         }
 
-        // Move bar horizontally: shift both inPoint and outPoint by the frame delta
+        // Move: only timeOffset changes. inPoint/outPoint stay the same.
         int frameDelta = (int)( deltaX / _zoom );
-        int newIn = _interactionOrigInPoint + frameDelta;
-        int newOut = _interactionOrigOutPoint + frameDelta;
 
         if (_interactionLayerIndex >= 0 && _interactionLayerIndex < _layers.size()) {
-            _layers[_interactionLayerIndex].inPoint = newIn;
-            _layers[_interactionLayerIndex].outPoint = newOut;
+            _layers[_interactionLayerIndex].timeOffset = _interactionOrigTimeOffset + frameDelta;
         }
         update();
         break;
@@ -686,8 +767,8 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
         int deltaX = x - _interactionStartX;
         int frameDelta = (int)( deltaX / _zoom );
         int newIn = _interactionOrigInPoint + frameDelta;
-        // Clamp: inPoint must stay before outPoint and within range
-        newIn = qMin(newIn, _interactionOrigOutPoint - 1);
+        // Clamp: inPoint must stay before outPoint
+        newIn = qMin(newIn, _layers[_interactionLayerIndex].outPoint - 1);
         _layers[_interactionLayerIndex].inPoint = newIn;
         update();
         break;
@@ -703,6 +784,10 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
         // Clamp: outPoint must stay after inPoint
         newOut = qMax(newOut, _interactionOrigInPoint + 1);
         _layers[_interactionLayerIndex].outPoint = newOut;
+        // Update explicit trim state:
+        // trimEnd = how many frames we've moved outPoint left from initial position
+        int trimDelta = _interactionOrigOutPoint - newOut;
+        _layers[_interactionLayerIndex].trimEnd = qMax(0, _interactionOrigTrimEnd + trimDelta);
         update();
         break;
     }
@@ -762,8 +847,16 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
 void
 FluxTimeline::mouseReleaseEvent(QMouseEvent* /*event*/)
 {
-    if (_interactionMode == eModeMoveBar || _interactionMode == eModeTrimLeft || _interactionMode == eModeTrimRight) {
-        // Emit compositingChanged for bar moves and trims (reorder already emits during drag)
+    if (_interactionMode == eModeMoveBar) {
+        // MOVE: only timeOffset changes
+        updateLayerMoveKnob(_interactionLayerIndex);
+    } else if (_interactionMode == eModeTrimLeft || _interactionMode == eModeTrimRight) {
+        // TRIM: only frameRange changes
+        updateLayerTrimKnobs(_interactionLayerIndex);
+    }
+
+    if (_interactionMode == eModeReorderLayer) {
+        // Reorder requires Merge node reconnection — full rebuild
         Q_EMIT compositingChanged();
     }
 
@@ -783,6 +876,58 @@ FluxTimeline::mouseDoubleClickEvent(QMouseEvent* event)
         if (layerIdx >= 0) {
             Q_EMIT layerDoubleClicked(layerIdx);
         }
+    }
+}
+
+void
+FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
+{
+    QMenu menu(this);
+
+    int x = event->pos().x();
+    int y = event->pos().y();
+
+    // -- "Add Layer" submenu (shown when right-clicking empty space or in bar area) --
+    if (y > kTimeRulerHeight) {
+        QMenu* addMenu = menu.addMenu(QString::fromUtf8("Add Layer"));
+
+        QAction* solidAction = addMenu->addAction(QString::fromUtf8("Solid"));
+        connect(solidAction, &QAction::triggered, this, [this]() {
+            addSolidLayer();
+        });
+
+        QAction* nullAction = addMenu->addAction(QString::fromUtf8("Null"));
+        connect(nullAction, &QAction::triggered, this, [this]() {
+            FluxLayer layer;
+            layer.name = QString::fromUtf8("Null");
+            layer.type = QString::fromUtf8("null");
+            layer.inPoint = _firstFrame;
+            layer.outPoint = _lastFrame;
+            layer.color = QColor(180, 180, 180);
+            _layers.append(layer);
+            Q_EMIT compositingChanged();
+            update();
+        });
+
+        // -- Per-layer actions (shown when right-clicking on a layer bar or label) --
+        int layerIdx = -1;
+        HitZone zone = hitTest(x, y, &layerIdx);
+        if (layerIdx < 0 && x < kLayerLabelWidth) {
+            // Clicked on label area
+            layerIdx = yToLayer(y);
+        }
+
+        if (layerIdx >= 0 && layerIdx < _layers.size()) {
+            menu.addSeparator();
+            QAction* deleteAction = menu.addAction(QString::fromUtf8("Delete Layer"));
+            connect(deleteAction, &QAction::triggered, this, [this, layerIdx]() {
+                removeLayer(layerIdx);
+            });
+        }
+    }
+
+    if (!menu.actions().isEmpty()) {
+        menu.exec(event->globalPos());
     }
 }
 
@@ -906,10 +1051,10 @@ FluxTimeline::dropEvent(QDropEvent* event)
     _selectedLayer = row;
     Q_EMIT layerSelected(row);
 
-    // Emit signal so Gui can create a reader node
+    // Emit signal so Gui can create the gizmo + rebuild compositing graph
     Q_EMIT layerAddedFromDrop(filePath, row, inFrame);
-
-    Q_EMIT compositingChanged();
+    // Note: layerAddedFromDrop triggers rebuildCompositingGraph in Gui05.cpp.
+    // Do NOT also emit compositingChanged here — that would cause a double rebuild.
 
     update();
     event->acceptProposedAction();
@@ -938,7 +1083,7 @@ FluxTimeline::setLayerReaderNode(int layerIndex,
 }
 
 void
-FluxTimeline::updateLayerNodeChainParams(int layerIndex)
+FluxTimeline::updateLayerMoveKnob(int layerIndex)
 {
     if (layerIndex < 0 || layerIndex >= _layers.size()) {
         return;
@@ -948,38 +1093,133 @@ FluxTimeline::updateLayerNodeChainParams(int layerIndex)
         return;
     }
 
-    // Update FrameRange knobs on the gizmo (firstFrame and lastFrame)
-    KnobIPtr firstFrameKnob = layer.gizmoNode->getKnobByName(std::string("firstFrame"));
-    if (firstFrameKnob) {
-        KnobIntBasePtr intKnob = std::dynamic_pointer_cast<KnobIntBase>(firstFrameKnob);
-        if (intKnob) {
-            intKnob->setValue(layer.inPoint, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited);
-        }
-    }
+    // MOVE: only timeOffset changes. NEVER touch frameRange/inPoint/outPoint.
+    // timeOffset is already updated in mouseMoveEvent. Just write it to the knob.
 
-    KnobIPtr lastFrameKnob = layer.gizmoNode->getKnobByName(std::string("lastFrame"));
-    if (lastFrameKnob) {
-        KnobIntBasePtr intKnob = std::dynamic_pointer_cast<KnobIntBase>(lastFrameKnob);
-        if (intKnob) {
-            intKnob->setValue(layer.outPoint, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited);
-        }
-    }
+    fprintf(stderr, "FLUX MOVE: layer=%d timeOffset=%d\n",
+            layerIndex, layer.timeOffset);
 
-    // Update TimeOffset knob on the gizmo
     KnobIPtr offsetKnob = layer.gizmoNode->getKnobByName(std::string("timeOffset"));
     if (offsetKnob) {
         KnobIntBasePtr intKnob = std::dynamic_pointer_cast<KnobIntBase>(offsetKnob);
         if (intKnob) {
-            intKnob->setValue(layer.inPoint, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited);
+            intKnob->setValue(layer.timeOffset, ViewSpec::all(), 0);
         }
     }
 }
 
 void
-FluxTimeline::createLayerNodeChain(int layerIndex)
+FluxTimeline::updateLayerTrimKnobs(int layerIndex)
 {
-    // Node chain creation is now handled by rebuildCompositingGraph in Gui05.cpp
-    // which creates the FluxLayer PyPlug gizmo per layer
+    if (layerIndex < 0 || layerIndex >= _layers.size()) {
+        return;
+    }
+    FluxLayer& layer = _layers[layerIndex];
+    if (!layer.gizmoNode) {
+        return;
+    }
+
+    // TRIM: only frameRange changes. timeOffset untouched.
+    // inPoint = frameRange first. outPoint = frameRange last.
+    // mouseMoveEvent already updated inPoint/outPoint. Just write them to the knob.
+
+    fprintf(stderr, "FLUX TRIM: layer=%d inPoint=%d outPoint=%d (originalInPoint=%d originalOutPoint=%d)\n",
+            layerIndex, layer.inPoint, layer.outPoint, layer.originalInPoint, layer.originalOutPoint);
+
+    // Set FrameRange
+    KnobIPtr frameRangeKnob = layer.gizmoNode->getKnobByName(std::string("frameRange"));
+    if (frameRangeKnob) {
+        KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(frameRangeKnob);
+        if (int2D) {
+            int2D->setValue(layer.inPoint, ViewSpec::all(), 0);
+            int2D->setValue(layer.outPoint, ViewSpec::all(), 1);
+        }
+    }
+
+    // Set before/after to black
+    KnobIPtr beforeKnob = layer.gizmoNode->getKnobByName(std::string("before"));
+    if (beforeKnob) {
+        KnobIntBasePtr choice = std::dynamic_pointer_cast<KnobIntBase>(beforeKnob);
+        if (choice) {
+            choice->setValue(2, ViewSpec::all(), 0); // black
+        }
+    }
+    KnobIPtr afterKnob = layer.gizmoNode->getKnobByName(std::string("after"));
+    if (afterKnob) {
+        KnobIntBasePtr choice = std::dynamic_pointer_cast<KnobIntBase>(afterKnob);
+        if (choice) {
+            choice->setValue(2, ViewSpec::all(), 0); // black
+        }
+    }
+}
+
+void
+FluxTimeline::applyLayerVisibility()
+{
+    // Determine if any layer is soloed
+    int soloIdx = -1;
+    for (int i = 0; i < _layers.size(); ++i) {
+        if (_layers[i].solo) {
+            soloIdx = i;
+            break;
+        }
+    }
+
+    bool anySoloed = (soloIdx >= 0);
+
+    // Mute: disable the Merge node for muted layers
+    for (int i = 0; i < _layers.size(); ++i) {
+        FluxLayer& layer = _layers[i];
+        if (layer.type == QString::fromUtf8("null") || !layer.mergeNode) {
+            continue;
+        }
+
+        bool shouldMute = layer.muted;
+        if (anySoloed && !layer.solo) {
+            shouldMute = true;
+        }
+        layer.mergeNode->setNodeDisabled(shouldMute);
+    }
+
+    // Solo: reconnect viewer to show only the soloed layer's output
+    if (anySoloed && _layers[soloIdx].gizmoNode) {
+        Gui* gui = getGui();
+        if (gui) {
+            const std::list<ViewerTab*>& viewerTabs = gui->getViewersList();
+            if (!viewerTabs.empty()) {
+                ViewerTab* viewerTab = viewerTabs.front();
+                NodePtr viewerNode = viewerTab->getInternalNode()->getNode();
+                if (viewerNode) {
+                    viewerNode->disconnectInput(0);
+                    viewerNode->connectInput(_layers[soloIdx].gizmoNode, 0);
+                }
+            }
+        }
+    } else {
+        // No solo active — reconnect viewer to the final merge node in the chain.
+        // The chain is built bottom-to-top, so the topmost layer's merge is the final output.
+        NodePtr lastMerge;
+        for (int i = 0; i < _layers.size(); ++i) {
+            if (_layers[i].mergeNode) {
+                lastMerge = _layers[i].mergeNode;
+                break; // first hit = topmost layer = final merge in chain
+            }
+        }
+        if (lastMerge) {
+            Gui* gui = getGui();
+            if (gui) {
+                const std::list<ViewerTab*>& viewerTabs = gui->getViewersList();
+                if (!viewerTabs.empty()) {
+                    ViewerTab* viewerTab = viewerTabs.front();
+                    NodePtr viewerNode = viewerTab->getInternalNode()->getNode();
+                    if (viewerNode) {
+                        viewerNode->disconnectInput(0);
+                        viewerNode->connectInput(lastMerge, 0);
+                    }
+                }
+            }
+        }
+    }
 }
 
 void

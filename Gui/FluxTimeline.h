@@ -25,13 +25,13 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QPaintEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
-#include <QTimer>
 #include <QStringList>
 #include <QList>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QPoint>
+#include <QContextMenuEvent>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
@@ -45,13 +45,21 @@ struct FluxLayer {
     QString name;
     QString filePath;    // empty for solid/adjustment/null layers
     QString type;        // "footage", "solid", "adjustment", "null"
-    bool visible;
+    bool muted;          // true = merge node disabled, V button highlighted
     bool locked;
     bool solo;
-    int inPoint;         // frame number
-    int outPoint;        // frame number
-    int originalFirstFrame;  // from reader node
-    int originalLastFrame;   // from reader node
+    int inPoint;         // current frameRange first (source frame start, changes on trim only)
+    int outPoint;        // current frameRange last (source frame end, changes on trim only)
+    int originalInPoint;  // first frame of source media. NEVER changes.
+    int originalOutPoint; // last frame of source media. NEVER changes.
+    int originalFirstFrame;  // first frame of the source media (e.g. 1)
+    int originalLastFrame;   // last frame of the source media (e.g. 225)
+    int timeOffset;      // how many frames the bar moved. Changes on move only.
+    int trimStart;       // frames trimmed from start of media (0 = no trim)
+    int trimEnd;         // frames trimmed from end of media (0 = no trim)
+    bool nodeInitialized;// true after deferredInit has successfully set frameRange/timeOffset
+    QColor solidColor;   // color for solid layers (used when creating Constant node)
+    int parentLayerIndex;// index of parent layer (-1 = no parent), for null/parenting
     QColor color;        // layer bar color
 
     QString readerNodeId; // Natron node ID for the reader (set after node creation)
@@ -63,13 +71,21 @@ struct FluxLayer {
 
     FluxLayer()
         : type(QString::fromUtf8("footage"))
-        , visible(true)
+        , muted(false)
         , locked(false)
         , solo(false)
         , inPoint(0)
         , outPoint(100)
+        , originalInPoint(0)
+        , originalOutPoint(100)
         , originalFirstFrame(0)
         , originalLastFrame(100)
+        , timeOffset(0)
+        , trimStart(0)
+        , trimEnd(0)
+        , nodeInitialized(false)
+        , solidColor(128, 128, 128)
+        , parentLayerIndex(-1)
         , color(QColor(80, 130, 200))
     {}
 };
@@ -92,6 +108,9 @@ public:
     /** @brief Add a new layer from a file path. */
     void addLayer(const QString& name, const QString& filePath, const QString& type = QString::fromUtf8("footage"));
 
+    /** @brief Add a solid color layer. */
+    void addSolidLayer(const QColor& color = QColor(128, 128, 128));
+
     /** @brief Remove a layer by index. */
     void removeLayer(int index);
 
@@ -109,12 +128,6 @@ public:
 
     /** @brief Get the current frame. */
     int getCurrentFrame() const;
-
-    /** @brief Start playback. */
-    void play();
-
-    /** @brief Stop playback. */
-    void stop();
 
     /** @brief Set the reader NodePtr for a layer (called after node creation). */
     void setLayerReaderNode(int index, const NodePtr& node);
@@ -141,9 +154,7 @@ Q_SIGNALS:
 
 public Q_SLOTS:
 
-    void onPlayTimeout();
-
-    /** @brief Responds to external TimeLine frame changes (from Viewer, etc.). */
+    /** @brief Responds to external TimeLine frame changes (from Viewer playback, etc.). */
     void onExternalFrameChanged(SequenceTime time, int reason);
 
 protected:
@@ -155,6 +166,7 @@ protected:
     virtual void mouseDoubleClickEvent(QMouseEvent* event) OVERRIDE;
     virtual void wheelEvent(QWheelEvent* event) OVERRIDE;
     virtual void resizeEvent(QResizeEvent* event) OVERRIDE;
+    virtual void contextMenuEvent(QContextMenuEvent* event) OVERRIDE;
 
     // Drag and drop support
     virtual void dragEnterEvent(QDragEnterEvent* event) OVERRIDE;
@@ -173,11 +185,11 @@ protected:
     /** @brief Update the TimeOffset node knob for a layer (move). */
     void updateLayerMoveKnob(int layerIndex);
 
-    /** @brief Update FrameRange/TimeOffset knob values for a layer. */
-    void updateLayerNodeChainParams(int layerIndex);
-
     /** @brief Reconnect Merge.B inputs after layer reorder (no node create/destroy). */
     void reconnectMergeChain();
+
+    /** @brief Apply solo/mute state: mute disables merge, solo reconnects viewer. */
+    void applyLayerVisibility();
 
     // getGui() inherited from PanelWidget
 
@@ -211,10 +223,6 @@ private:
     static const int kLayerRowHeight = 30;
     static const int kPlayheadWidth = 2;
 
-    // Playback
-    QTimer* _playTimer;
-    bool _playing;
-
     static const int kTrimHandleWidth = 6; // pixels for trim handles at bar edges
 
     // Interaction modes
@@ -233,6 +241,9 @@ private:
     int _interactionStartY;    // mouse Y at interaction start
     int _interactionOrigInPoint;  // original inPoint at drag start
     int _interactionOrigOutPoint; // original outPoint at drag start
+    int _interactionOrigTimeOffset; // original timeOffset at drag start
+    int _interactionOrigTrimStart; // original trimStart at drag start
+    int _interactionOrigTrimEnd;   // original trimEnd at drag start
     int _reorderTargetRow;     // target row for layer reordering
 
     // Drag and drop state

@@ -702,6 +702,10 @@ private:
 
     void rebuildCompositingGraph(class FluxTimeline* timeline);
 
+    /** @brief Deferred initialization of gizmo params (frame range, time offset, center).
+     * Called via QTimer::singleShot after the Read node has had time to probe the file. */
+    void deferredInitGizmoParams(class FluxTimeline* timeline);
+
     void wipeLayout();
 
     void createDefaultLayoutInternal(bool wipePrevious);

@@ -149,19 +149,26 @@ After Effects is internally node-based. Flux does the same thing:
 ```
 User sees (Timeline):              Engine creates (Node Graph):
 
-Layer 3: "Title" (Text)       ->   Text -> Transform -> Merge(over Layer 2)
-Layer 2: "Glow" (Adjustment)  ->   Blur -> Glow (applied to Layer 1 output)
-Layer 1: "BG" (Footage.mov)   ->   ReadFFmpeg
+Layer 3: "Title" (Text)       ->   FluxLayer gizmo #3 ──┐
+                                                         Merge3 ──→ Viewer
+Layer 2: "Glow" (Adjustment)  ->   FluxLayer gizmo #2 ──┘ ──┐
+                                                              Merge2
+Layer 1: "BG" (Footage.mov)   ->   FluxLayer gizmo #1 ───────┘
 ```
 
-- Each **layer** = a chain of Natron nodes
-- **Effects** on a layer = additional nodes inserted in the chain
-- **Layer order** = Merge nodes stacked bottom-to-top
+Each **FluxLayer gizmo** contains: Read → FrameRange → TimeOffset → Transform → Output
+
+- Each **layer** = one FluxLayer PyPlug gizmo node
+- **Effects** on a layer = additional nodes inserted in the chain (future)
+- **Layer order** = Merge nodes stacked bottom-to-top (outside gizmos)
 - **Solo/Mute** = enable/disable nodes
-- **Trim** = time range parameters on reader nodes
+- **Trim** = FrameRange knob on gizmo (trimStart/trimEnd state tracked in FluxLayer struct)
+- **Move** = TimeOffset knob on gizmo (never touches FrameRange)
+- **Transform** = translate, scale, rotate, center knobs on gizmo (aliased to internal Transform node)
 - **Precomps** = Natron Group nodes
 
-The Layer-to-Node bridge (`Engine/FluxLayerBridge`) is the core new code in Flux. It translates timeline operations into Natron node graph operations.
+The compositing bridge lives in `Gui/Gui05.cpp` (`rebuildCompositingGraph`, `deferredInitGizmoParams`).
+The FluxLayer PyPlug is in `plugins/FluxLayer.py` (installed to `~/.Natron/PyPlugs/`).
 
 ---
 
@@ -189,13 +196,18 @@ The Layer-to-Node bridge (`Engine/FluxLayerBridge`) is the core new code in Flux
 
 | Component | Description | Phase | Status |
 |---|---|---|---|
-| **FluxMainWindow** | New layout: Viewport + Right Panel + Timeline | P2 | Planned |
-| **FluxTimeline** | Layer-based timeline widget | P2/P3 | Planned |
-| **FluxLayerBridge** | Layer-to-Node translation engine | P2/P3 | Planned |
-| **FluxEffectsPanel** | Per-layer effect stack UI | P2 | Planned |
-| **FluxProjectPanel** | Project file tree | P2 | Planned |
-| **Dark Theme** | Qt stylesheet, After Effects-inspired | P2 | Planned |
-| **Flux Menu System** | Composition-focused menus | P2 | Planned |
+| **FluxMainWindow** | New layout: Project Bin + Viewport + Effects + Timeline | P2 | Done |
+| **FluxTimeline** | Layer-based timeline widget with drag/trim/reorder | P2 | Done |
+| **FluxLayer PyPlug** | Read→FrameRange→TimeOffset→Transform→Output gizmo per layer | P2 | Done |
+| **FluxProjectBin** | Thumbnail grid, drag-and-drop import | P2 | Done |
+| **FluxEffectsPanel** | Per-layer effect stack UI | P2 | Done |
+| **Flux Compositing Bridge** | Auto Merge chain + viewer connection | P2 | Done |
+| **Dark Theme** | Qt stylesheet, After Effects-inspired | P2 | Done |
+| **Flux Menu System** | Composition-focused menus | P2 | Pending |
+| **Playback Controls** | Play/pause/stop, fps display, keyboard shortcuts | P3 | Pending |
+| **Layer Types** | Solid, adjustment, null layers | P3 | Pending |
+| **Solo/Mute/Lock** | Per-layer visibility controls | P3 | Pending |
+| **Split/Duplicate** | Layer operations | P3 | Pending |
 | **Shape Layers** | Rect, ellipse, star, bezier | P6 | Planned |
 | **Text Layers** | Text rendering with animation | P6 | Planned |
 | **Export Templates** | Saveable export configurations | P5 | Planned |
@@ -232,17 +244,13 @@ flux/                              <- Forked from NatronGitHub/Natron (gui-sbk6 
 ├── PythonBin/                     <- KEEP: Python scripting support
 ├── Gui/                           <- EXTEND: Flux UI added, Natron widgets kept
 │   ├── (existing Natron GUI)      <- KEPT: TabWidget, ViewerGL, DockablePanel, etc.
-│   ├── FluxTimeline.h/cpp         <- NEW: Layer-based timeline
-│   ├── FluxTimeRuler.h/cpp        <- NEW: Time ruler with playhead
-│   ├── FluxLayerRow.h/cpp         <- NEW: Single layer row
-│   ├── FluxPlaybackControls.h/cpp <- NEW: Play/pause/stop controls
+│   ├── Gui05.cpp                  <- NEW: setupFluxUi(), rebuildCompositingGraph(), deferredInitGizmoParams()
+│   ├── FluxTimeline.h/cpp         <- NEW: Layer-based timeline widget
+│   ├── FluxProjectBin.h/cpp       <- NEW: Project bin with drag-and-drop
 │   ├── FluxEffectsPanel.h/cpp     <- NEW: Effects stack per layer
-│   ├── FluxEffectPickerDialog.h/cpp <- NEW: Effect browser
-│   └── FluxProjectPanel.h/cpp     <- NEW: Project file tree
-├── Engine/
-│   ├── (existing Natron Engine)   <- KEPT: All rendering, caching, I/O
-│   ├── FluxLayerBridge.h/cpp      <- NEW: Layer-to-Node translation
-│   └── FluxLayer.h/cpp            <- NEW: Layer data model
+│   └── ...
+├── plugins/                       <- NEW: Flux PyPlug gizmos
+│   └── FluxLayer.py               <- NEW: Read→FrameRange→TimeOffset→Transform→Output gizmo
 ├── App/                           <- EXTEND: Flux mode flag in main window
 ├── Shiboken/                      <- KEEP: Python bindings generator
 ├── Resources/
@@ -256,7 +264,7 @@ flux/                              <- Forked from NatronGitHub/Natron (gui-sbk6 
 ├── plans/                         <- Phase plans and status
 │   ├── PHASES.md                  <- Phase overview
 │   ├── phase-1.md                 <- P1 plan (completed)
-│   ├── phase-2.md                 <- P2 plan (current)
+│   ├── phase-2.md                 <- P2 plan (completed)
 │   ├── 2026-05-20-engine-node-system-1.0.md      <- Engine API: nodes, signals
 │   ├── 2026-05-20-engine-rendering-cache-1.0.md  <- Engine API: rendering, cache
 │   └── 2026-05-20-engine-params-serialization-1.0.md <- Engine API: knobs, serialization
@@ -273,25 +281,12 @@ flux/                              <- Forked from NatronGitHub/Natron (gui-sbk6 
 |---|---|---|---|---|
 | **P0: Setup** | Project infrastructure, plans, tasks | 1 day | DONE | All tracking files created |
 | **P1: Fork & Build** | Natron builds, engine validated | 1 day | DONE | Real images/videos imported, OCIO tested |
-| **P2: UI Shell** | Flux app shell, dark theme, panels, timeline | 2-3 weeks | IN_PROGRESS | Flux layout with layer timeline |
-| **P3: Timeline** | Layer-to-Node bridge, playback | 2-3 weeks | PENDING | Layers drive node graph |
+| **P2: UI Shell** | Flux app shell, dark theme, panels, timeline, gizmo | 2 days | DONE | Drag footage → timeline → trim/move → viewer |
+| **P3: Timeline** | Playback controls, keyboard shortcuts, layer types | 2-3 weeks | NEXT | Full timeline interaction |
 | **P4: Effects + Properties** | Effects stack, property inspector | 1-2 weeks | PENDING | Effects applied per-layer |
 | **P5: Import/Export** | File browser, export dialog | 1 week | PENDING | All formats work end-to-end |
 | **P6: Shapes + Text** | Shape/text layer types | 2-3 weeks | PENDING | Shapes and text render |
 | **P7: Polish + Cache** | Improved cache, undo/redo, performance | 2-3 weeks | PENDING | 1080p 5-layer real-time target |
-
-### P2 Tasks (Current)
-
-| ID | Task | Est. Time |
-|---|---|---|
-| T023 | Dark Theme (flux-dark.qss) | 0.5 day |
-| T019 | FluxMainWindow (new layout) | 1-2 days |
-| T025 | Flux Menu System | 0.5 day |
-| T020 | FluxTimeline widget | 2-3 days |
-| T021 | Layer-to-Node Bridge | 2-3 days |
-| T022 | Effects Stack Panel | 1-2 days |
-| T024 | Project Panel | 1 day |
-| T026 | Integration Test | 1 day |
 
 ---
 
@@ -358,6 +353,57 @@ Natron already achieves this for compositing workloads. Flux adds minimal overhe
 | Zoom In | = |
 | Zoom Out | - |
 | Pan | Middle Mouse Drag |
+
+---
+
+## Timeline Trim/Move Model (CRITICAL — DO NOT DEVIATE)
+
+This section defines how trim and move work. Every agent working on timeline code MUST follow these rules exactly.
+
+### Data Model
+
+| Field | What It Is | Changes On |
+|---|---|---|
+| `inPoint` | Current frameRange first value (source frame start) | Trim only |
+| `outPoint` | Current frameRange last value (source frame end) | Trim only |
+| `originalInPoint` | First frame of source media (Read node start). NEVER changes. | Never |
+| `originalOutPoint` | Last frame of source media (Read node end). NEVER changes. | Never |
+| `timeOffset` | How many frames the bar moved from its original position | Move only |
+
+### Trim
+
+Mouse moves delta frames (positive = right, negative = left).
+
+- **Trim start:** `inPoint = inPoint + delta` → write to `frameRange` first knob. Done.
+- **Trim end:** `outPoint = outPoint + delta` → write to `frameRange` last knob. Done.
+
+- NEVER touch `timeOffset` during trim.
+- NEVER touch `inPoint`/`outPoint` on move.
+- `before`/`after` on FrameRange node = **black** (index 2).
+- `frameRange` values CAN go negative.
+
+### Move
+
+Mouse moves delta frames (positive = right, negative = left).
+
+- `timeOffset = timeOffset + delta` → write to `timeOffset` knob. Done.
+- NEVER touch `frameRange`, `inPoint`, or `outPoint` during move.
+
+### Bar Drawing (Two Steps)
+
+1. **Draw everything** using `inPoint`, `outPoint`, `originalInPoint`, `originalOutPoint`. No `timeOffset` involved.
+   - Active zone: `originalInPoint` to `originalOutPoint` (real source content)
+   - Left desaturated zone: if `inPoint < originalInPoint`, desaturate from `inPoint` to `originalInPoint`
+   - Right desaturated zone: if `outPoint > originalOutPoint`, desaturate from `originalOutPoint` to `outPoint`
+   - Cut (hidden): if `inPoint > originalInPoint`, bar starts at `inPoint`. If `outPoint < originalOutPoint`, bar ends at `outPoint`.
+2. **Shift the entire drawing** by `timeOffset` frames. Everything moves together.
+
+### Forbidden
+
+- NEVER use `timeOffset` to calculate `frameRange` values or vice versa.
+- NEVER mix trim and move calculations.
+- NEVER re-evaluate or recalculate frameRange from inPoint/outPoint after a move.
+- NEVER change `originalInPoint` or `originalOutPoint` after initial creation.
 
 ---
 
