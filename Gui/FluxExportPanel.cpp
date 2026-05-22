@@ -8,8 +8,9 @@
 
 #include "Gui/Gui.h"
 #include "Gui/GuiAppInstance.h"
-#include "Gui/DockablePanel.h"
 #include "Gui/NodeGui.h"
+#include "Gui/NodeSettingsPanel.h"
+#include "Gui/DockablePanel.h"
 #include "Engine/Node.h"
 #include "Engine/EffectInstance.h"
 #include "Engine/Project.h"
@@ -26,51 +27,58 @@ FluxExportPanel::FluxExportPanel(Gui* gui, QWidget* parent)
     , _writeNode()
     , _outputPathEdit(nullptr)
     , _browseButton(nullptr)
-    , _writeGroup(nullptr)
-    , _writeGroupLayout(nullptr)
-    , _writeKnobsPanel(nullptr)
+    , _writeSettingsContainer(nullptr)
+    , _writeScrollArea(nullptr)
     , _reformatGroup(nullptr)
-    , _reformatGroupLayout(nullptr)
-    , _reformatKnobsPanel(nullptr)
     , _reformatToggle(nullptr)
+    , _reformatSettingsContainer(nullptr)
     , _renderButton(nullptr)
 {
     setObjectName(QString::fromUtf8("FluxExportPanel"));
     setMinimumWidth(200);
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(8, 8, 8, 8);
-    mainLayout->setSpacing(6);
+    mainLayout->setContentsMargins(4, 4, 4, 4);
+    mainLayout->setSpacing(4);
 
-    // --- Output File (convenience shortcut) ---
+    // --- Output File ---
     QGroupBox* outputGroup = new QGroupBox(QString::fromUtf8("Output File"));
-    QVBoxLayout* outputLayout = new QVBoxLayout(outputGroup);
+    QHBoxLayout* pathLayout = new QHBoxLayout(outputGroup);
 
-    QHBoxLayout* pathLayout = new QHBoxLayout();
     _outputPathEdit = new QLineEdit();
     _outputPathEdit->setPlaceholderText(QString::fromUtf8("Click browse to set output file..."));
     pathLayout->addWidget(_outputPathEdit);
+
     _browseButton = new QPushButton(QString::fromUtf8("Browse"));
     pathLayout->addWidget(_browseButton);
-    outputLayout->addLayout(pathLayout);
 
     mainLayout->addWidget(outputGroup);
 
-    // --- Output Settings (embedded Write node DockablePanel) ---
-    _writeGroup = new QGroupBox(QString::fromUtf8("Output Settings"));
-    _writeGroup->setCheckable(true);
-    _writeGroup->setChecked(true);
-    _writeGroupLayout = new QVBoxLayout(_writeGroup);
-    mainLayout->addWidget(_writeGroup);
+    // --- Write Node Settings Container ---
+    // This will hold the NodeGui's existing settings panel, reparented here
+    _writeScrollArea = new QScrollArea();
+    _writeScrollArea->setWidgetResizable(true);
+    _writeScrollArea->setFrameShape(QFrame::NoFrame);
+    _writeSettingsContainer = new QWidget();
+    QVBoxLayout* writeContainerLayout = new QVBoxLayout(_writeSettingsContainer);
+    writeContainerLayout->setContentsMargins(0, 0, 0, 0);
+    writeContainerLayout->setSpacing(0);
+    _writeScrollArea->setWidget(_writeSettingsContainer);
+    mainLayout->addWidget(_writeScrollArea);
 
-    // --- Format Override (embedded Reformat DockablePanel) ---
+    // --- Format Override ---
     _reformatGroup = new QGroupBox(QString::fromUtf8("Format Override"));
-    _reformatGroup->setCheckable(true);
-    _reformatGroup->setChecked(false);
-    _reformatGroupLayout = new QVBoxLayout(_reformatGroup);
+    QVBoxLayout* reformatLayout = new QVBoxLayout(_reformatGroup);
 
     _reformatToggle = new QCheckBox(QString::fromUtf8("Enable Reformat"));
-    _reformatGroupLayout->addWidget(_reformatToggle);
+    reformatLayout->addWidget(_reformatToggle);
+
+    // Reformat settings container — holds the Reformat NodeGui's settings panel
+    _reformatSettingsContainer = new QWidget();
+    QVBoxLayout* reformatContainerLayout = new QVBoxLayout(_reformatSettingsContainer);
+    reformatContainerLayout->setContentsMargins(0, 0, 0, 0);
+    reformatContainerLayout->setSpacing(0);
+    reformatLayout->addWidget(_reformatSettingsContainer);
 
     mainLayout->addWidget(_reformatGroup);
 
@@ -83,8 +91,6 @@ FluxExportPanel::FluxExportPanel(Gui* gui, QWidget* parent)
         "QPushButton:pressed { background-color: #1f5e33; }"));
     mainLayout->addWidget(_renderButton);
 
-    mainLayout->addStretch();
-
     // --- Connections ---
     QObject::connect(_browseButton, &QPushButton::clicked, this, &FluxExportPanel::onBrowseClicked);
     QObject::connect(_outputPathEdit, &QLineEdit::editingFinished, this, &FluxExportPanel::onOutputPathChanged);
@@ -94,152 +100,195 @@ FluxExportPanel::FluxExportPanel(Gui* gui, QWidget* parent)
 
 FluxExportPanel::~FluxExportPanel()
 {
+    // Reparent panels back so Qt doesn't delete them with us.
+    // NodeGui owns the panels — we just borrowed them.
+    auto reparentOut = [](const NodePtr& node, QWidget* container) {
+        if (!node || !container) {
+            return;
+        }
+        QLayout* layout = container->layout();
+        if (!layout) {
+            return;
+        }
+
+        QLayoutItem* child;
+        while ((child = layout->takeAt(0)) != nullptr) {
+            if (child->widget()) {
+                // Restore header visibility
+                NodeSettingsPanel* panel = qobject_cast<NodeSettingsPanel*>(child->widget());
+                if (panel) {
+                    QWidget* header = panel->getHeaderWidget();
+                    if (header) {
+                        header->setVisible(true);
+                    }
+                }
+                child->widget()->setParent(nullptr);
+                child->widget()->hide();
+            }
+            delete child;
+        }
+    };
+
+    reparentOut(_writeNode, _writeSettingsContainer);
+    reparentOut(_reformatNode, _reformatSettingsContainer);
 }
 
 void
 FluxExportPanel::setExportNodes(const NodePtr& reformatNode, const NodePtr& writeNode)
 {
-    _reformatNode = reformatNode;
-    _writeNode = writeNode;
-
-    // --- Create embedded Write knobs panel ---
-    if (_writeNode) {
-        EffectInstancePtr effect = _writeNode->getEffectInstance();
-        if (effect) {
-            // Hide the internal "Node" page — its knobs (disableNode, previewEnabled, etc.)
-            // are internal and shouldn't be in the export panel
-            KnobIPtr nodePageKnob = _writeNode->getKnobByName(std::string("Node"));
-            if (nodePageKnob) {
-                KnobPagePtr nodePage = std::dynamic_pointer_cast<KnobPage>(nodePageKnob);
-                if (nodePage) {
-                    nodePage->setSecret(true);
+    // Fix 3: Clean up previous panels — reparent them out so Qt doesn't delete them
+    {
+        QLayout* writeLayout = _writeSettingsContainer->layout();
+        if (writeLayout) {
+            QLayoutItem* child;
+            while ((child = writeLayout->takeAt(0)) != nullptr) {
+                if (child->widget()) {
+                    child->widget()->setParent(nullptr);
+                    child->widget()->hide();
                 }
+                delete child;
             }
-
-            // Also hide the "Info" page — read-only metadata, not user-facing
-            KnobIPtr infoPageKnob = _writeNode->getKnobByName(std::string("Info"));
-            if (infoPageKnob) {
-                KnobPagePtr infoPage = std::dynamic_pointer_cast<KnobPage>(infoPageKnob);
-                if (infoPage) {
-                    infoPage->setSecret(true);
+        }
+        QLayout* reformatLayout = _reformatSettingsContainer->layout();
+        if (reformatLayout) {
+            QLayoutItem* child;
+            while ((child = reformatLayout->takeAt(0)) != nullptr) {
+                if (child->widget()) {
+                    child->widget()->setParent(nullptr);
+                    child->widget()->hide();
                 }
+                delete child;
             }
-
-            _writeKnobsPanel = new DockablePanel(
-                getGui(),
-                effect.get(),
-                nullptr,
-                DockablePanel::eHeaderModeNoHeader,
-                false,
-                QUndoStackPtr()
-            );
-            // Do NOT call turnOffPages() — we want pages as collapsible groups
-            _writeKnobsPanel->initializeKnobs();
-
-            // Extract each tab page into a collapsible QGroupBox
-            QList<QTabWidget*> tabs = _writeKnobsPanel->findChildren<QTabWidget*>();
-            if (!tabs.isEmpty()) {
-                QTabWidget* tabWidget = tabs.first();
-                for (int i = tabWidget->count() - 1; i >= 0; --i) {
-                    QString pageTitle = tabWidget->tabText(i);
-
-                    // Skip the "Node" and "Info" pages (should already be hidden, but double-check)
-                    if (pageTitle == QString::fromUtf8("Node") || pageTitle == QString::fromUtf8("Info")) {
-                        continue;
-                    }
-
-                    QWidget* pageWidget = tabWidget->widget(i);
-                    tabWidget->removeTab(i);
-
-                    QGroupBox* group = new QGroupBox(pageTitle, _writeGroup);
-                    group->setCheckable(true);
-                    group->setChecked(true);
-                    QVBoxLayout* groupLayout = new QVBoxLayout(group);
-                    groupLayout->setContentsMargins(4, 4, 4, 4);
-                    groupLayout->addWidget(pageWidget);
-
-                    // Make it collapsible — hide page widget when unchecked
-                    QObject::connect(group, &QGroupBox::toggled, pageWidget, &QWidget::setVisible);
-
-                    _writeGroupLayout->addWidget(group);
-                }
-                tabWidget->hide();
-            }
-
-            // Add the panel itself (now mostly empty) so it stays alive as a child
-            _writeGroupLayout->addWidget(_writeKnobsPanel);
-            _writeKnobsPanel->hide();
-
-            // Sync frame range from project to Write node knobs
-            syncFrameRangeFromProject();
         }
     }
 
-    // --- Create embedded Reformat knobs panel ---
-    if (_reformatNode) {
-        EffectInstancePtr effect = _reformatNode->getEffectInstance();
-        if (effect) {
-            // Hide the internal "Node" page
-            KnobIPtr nodePageKnob = _reformatNode->getKnobByName(std::string("Node"));
-            if (nodePageKnob) {
-                KnobPagePtr nodePage = std::dynamic_pointer_cast<KnobPage>(nodePageKnob);
-                if (nodePage) {
-                    nodePage->setSecret(true);
+    _reformatNode = reformatNode;
+    _writeNode = writeNode;
+
+    // --- Embed Write node's existing settings panel ---
+    if (_writeNode) {
+        // Initialize path field from Write node's filename knob
+        KnobIPtr filenameKnob = _writeNode->getKnobByName(std::string("filename"));
+        if (filenameKnob) {
+            KnobStringBasePtr strKnob = std::dynamic_pointer_cast<KnobStringBase>(filenameKnob);
+            if (strKnob) {
+                std::string val = strKnob->getValue();
+                if (!val.empty()) {
+                    _outputPathEdit->setText(QString::fromStdString(val));
+                }
+
+                // Fix 5: Two-way sync — knob → edit field
+                KnobSignalSlotHandlerPtr handler = filenameKnob->getSignalSlotHandler();
+                if (handler) {
+                    QObject::connect(
+                        handler.get(),
+                        &KnobSignalSlotHandler::valueChanged,
+                        this,
+                        [this, strKnob](ViewSpec, int, int) {
+                            if (_outputPathEdit->hasFocus()) {
+                                return;
+                            }
+                            _outputPathEdit->setText(QString::fromStdString(strKnob->getValue()));
+                        }
+                    );
                 }
             }
-
-            // Also hide the "Info" page — read-only metadata, not user-facing
-            KnobIPtr infoPageKnob = _reformatNode->getKnobByName(std::string("Info"));
-            if (infoPageKnob) {
-                KnobPagePtr infoPage = std::dynamic_pointer_cast<KnobPage>(infoPageKnob);
-                if (infoPage) {
-                    infoPage->setSecret(true);
-                }
-            }
-
-            _reformatKnobsPanel = new DockablePanel(
-                getGui(),
-                effect.get(),
-                nullptr,
-                DockablePanel::eHeaderModeNoHeader,
-                false,
-                QUndoStackPtr()
-            );
-            _reformatKnobsPanel->initializeKnobs();
-
-            // Extract each tab page into a collapsible QGroupBox
-            QList<QTabWidget*> tabs = _reformatKnobsPanel->findChildren<QTabWidget*>();
-            if (!tabs.isEmpty()) {
-                QTabWidget* tabWidget = tabs.first();
-                for (int i = tabWidget->count() - 1; i >= 0; --i) {
-                    QString pageTitle = tabWidget->tabText(i);
-
-                    if (pageTitle == QString::fromUtf8("Node") || pageTitle == QString::fromUtf8("Info")) {
-                        continue;
-                    }
-
-                    QWidget* pageWidget = tabWidget->widget(i);
-                    tabWidget->removeTab(i);
-
-                    QGroupBox* group = new QGroupBox(pageTitle, _reformatGroup);
-                    group->setCheckable(true);
-                    group->setChecked(true);
-                    QVBoxLayout* groupLayout = new QVBoxLayout(group);
-                    groupLayout->setContentsMargins(4, 4, 4, 4);
-                    groupLayout->addWidget(pageWidget);
-
-                    QObject::connect(group, &QGroupBox::toggled, pageWidget, &QWidget::setVisible);
-
-                    _reformatGroupLayout->addWidget(group);
-                }
-                tabWidget->hide();
-            }
-
-            _reformatGroupLayout->addWidget(_reformatKnobsPanel);
-            _reformatKnobsPanel->hide();
         }
 
+        // Get the NodeGui and ensure its settings panel is created
+        NodeGuiIPtr nodeGui_i = _writeNode->getNodeGui();
+        if (nodeGui_i) {
+            NodeGuiPtr nodeGui = std::dynamic_pointer_cast<NodeGui>(nodeGui_i);
+            if (nodeGui) {
+                nodeGui->ensurePanelCreated();
+
+                NodeSettingsPanel* settingsPanel = nodeGui->getSettingPanel();
+                if (settingsPanel) {
+                    // Fix 1: Use setVisible/show instead of setClosed(false)
+                    settingsPanel->setVisible(true);
+                    settingsPanel->show();
+
+                    // Fix 2: Hide the DockablePanel header while embedded
+                    QWidget* header = settingsPanel->getHeaderWidget();
+                    if (header) {
+                        header->hide();
+                    }
+
+                    // Reparent the panel into our container
+                    QVBoxLayout* containerLayout = qobject_cast<QVBoxLayout*>(_writeSettingsContainer->layout());
+                    if (containerLayout) {
+                        containerLayout->addWidget(settingsPanel);
+                    }
+                }
+            }
+        }
+
+        // Sync frame range from project
+        syncFrameRangeFromProject();
+    }
+
+    // --- Embed Reformat node's existing settings panel ---
+    if (_reformatNode) {
         _reformatToggle->setChecked(!_reformatNode->isNodeDisabled());
+
+        // Fix 6: Sync reformat toggle from external disabled state
+        KnobIPtr disableKnob = _reformatNode->getKnobByName(kDisableNodeKnobName);
+        if (disableKnob) {
+            KnobSignalSlotHandlerPtr handler = disableKnob->getSignalSlotHandler();
+            if (handler) {
+                QObject::connect(
+                    handler.get(),
+                    &KnobSignalSlotHandler::valueChanged,
+                    this,
+                    [this](ViewSpec, int, int) {
+                        if (!_reformatNode) {
+                            return;
+                        }
+                        _reformatToggle->setChecked(!_reformatNode->isNodeDisabled());
+                    }
+                );
+            }
+        }
+
+        NodeGuiIPtr nodeGui_i = _reformatNode->getNodeGui();
+        if (nodeGui_i) {
+            NodeGuiPtr nodeGui = std::dynamic_pointer_cast<NodeGui>(nodeGui_i);
+            if (nodeGui) {
+                nodeGui->ensurePanelCreated();
+
+                NodeSettingsPanel* settingsPanel = nodeGui->getSettingPanel();
+                if (settingsPanel) {
+                    // Fix 1: Use setVisible/show instead of setClosed(false)
+                    settingsPanel->setVisible(true);
+                    settingsPanel->show();
+
+                    // Fix 2: Hide the DockablePanel header while embedded
+                    QWidget* header = settingsPanel->getHeaderWidget();
+                    if (header) {
+                        header->hide();
+                    }
+
+                    QVBoxLayout* containerLayout = qobject_cast<QVBoxLayout*>(_reformatSettingsContainer->layout());
+                    if (containerLayout) {
+                        containerLayout->addWidget(settingsPanel);
+                    }
+                }
+            }
+        }
+    }
+
+    // Fix 7: Keep frame range in sync with project changes
+    Gui* g = getGui();
+    if (g && g->getApp()) {
+        ProjectPtr project = g->getApp()->getProject();
+        if (project) {
+            QObject::connect(
+                project.get(),
+                SIGNAL(frameRangeChanged(int, int)),
+                this,
+                SLOT(syncFrameRangeFromProject())
+            );
+        }
     }
 }
 

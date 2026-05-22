@@ -26,7 +26,7 @@
 #include "Gui.h"
 
 #include <cassert>
-#include <limits>
+
 #include <stdexcept>
 
 #include <QCoreApplication>
@@ -738,8 +738,8 @@ Gui::setupFluxUi()
             }
 
             // Read frame range from the Write node knobs
-            int firstFrame = std::numeric_limits<int>::min();
-            int lastFrame = std::numeric_limits<int>::max();
+            bool hasFirst = false, hasLast = false;
+            int firstFrame = 0, lastFrame = 0;
 
             KnobIPtr firstKnob = _imp->_fluxExportWriteNode->getKnobByName(std::string("firstFrame"));
             KnobIPtr lastKnob = _imp->_fluxExportWriteNode->getKnobByName(std::string("lastFrame"));
@@ -747,24 +747,25 @@ Gui::setupFluxUi()
                 KnobIntBasePtr k = std::dynamic_pointer_cast<KnobIntBase>(firstKnob);
                 if (k) {
                     firstFrame = k->getValue();
+                    hasFirst = true;
                 }
             }
             if (lastKnob) {
                 KnobIntBasePtr k = std::dynamic_pointer_cast<KnobIntBase>(lastKnob);
                 if (k) {
                     lastFrame = k->getValue();
+                    hasLast = true;
                 }
             }
 
-            // Fall back to project range if knobs are at defaults
-            if (firstFrame == std::numeric_limits<int>::min() ||
-                lastFrame == std::numeric_limits<int>::max()) {
+            // Fall back to project range if knobs not found
+            if (!hasFirst || !hasLast) {
                 double projFirst, projLast;
                 getApp()->getProject()->getFrameRange(&projFirst, &projLast);
-                if (firstFrame == std::numeric_limits<int>::min()) {
+                if (!hasFirst) {
                     firstFrame = (int)projFirst;
                 }
-                if (lastFrame == std::numeric_limits<int>::max()) {
+                if (!hasLast) {
                     lastFrame = (int)projLast;
                 }
             }

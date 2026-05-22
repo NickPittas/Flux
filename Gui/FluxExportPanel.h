@@ -24,15 +24,13 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QVBoxLayout>
 #include <QFileDialog>
 #include <QGroupBox>
-#include <QTabWidget>
+#include <QScrollArea>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
 #include "Gui/PanelWidget.h"
 
 NATRON_NAMESPACE_ENTER
-
-class DockablePanel;
 
 class FluxExportPanel
     : public QWidget
@@ -74,16 +72,14 @@ private:
     QLineEdit* _outputPathEdit;
     QPushButton* _browseButton;
 
-    // Embedded Write node knobs
-    QGroupBox* _writeGroup;
-    QVBoxLayout* _writeGroupLayout;
-    DockablePanel* _writeKnobsPanel;
+    // Write node settings — we reparent the NodeGui's existing settings panel
+    QWidget* _writeSettingsContainer;
+    QScrollArea* _writeScrollArea;
 
-    // Embedded Reformat node knobs
+    // Reformat section
     QGroupBox* _reformatGroup;
-    QVBoxLayout* _reformatGroupLayout;
-    DockablePanel* _reformatKnobsPanel;
     QCheckBox* _reformatToggle;
+    QWidget* _reformatSettingsContainer;
 
     // Render button
     QPushButton* _renderButton;
