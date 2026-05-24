@@ -679,8 +679,25 @@ Gui::createMenuActions()
         });
 
         QAction* actionNewText = new QAction(tr("Text"), this);
-        actionNewText->setEnabled(false);
-        actionNewText->setToolTip(tr("Text layers are scheduled for P7."));
+        bool textProviderAvailable = false;
+        if (appPTR) {
+            const std::list<std::string> textPlugins = appPTR->getPluginIDs("Text");
+            for (std::list<std::string>::const_iterator it = textPlugins.begin(); it != textPlugins.end(); ++it) {
+                if (*it == std::string("net.fxarena.openfx.Text")) {
+                    textProviderAvailable = true;
+                    break;
+                }
+            }
+        }
+        actionNewText->setEnabled(textProviderAvailable);
+        if (!textProviderAvailable) {
+            actionNewText->setToolTip(tr("Text.ofx provider is not available."));
+        }
+        QObject::connect(actionNewText, &QAction::triggered, this, [this]() {
+            if (_imp->_fluxTimeline) {
+                _imp->_fluxTimeline->addTextLayer();
+            }
+        });
 
         QAction* actionDuplicateLayer = new QAction(tr("Duplicate Layer"), this);
         QObject::connect(actionDuplicateLayer, &QAction::triggered, this, [this]() {

@@ -131,3 +131,19 @@ Last updated: 2026-05-24
 | T067 | Property control polish — larger readable line edits/spin boxes/dropdowns/buttons/tabs, modern checkbox treatment, more visible slider axis/handle, and final Flux QSS overrides to beat duplicate Natron rules without rewriting the stylesheet. Build passed; autosave launch smoke passed. | DONE | forge | 2026-05-24 | 2026-05-24 | Gui/Resources/Stylesheets/flux-dark.qss, Gui/LineEdit.cpp, Gui/ComboBox.cpp, Gui/ScaleSliderQWidget.cpp, Gui/AnimatedCheckBox.cpp |
 | T068 | Export panel scroll/layout fix — replaced the nested Write-only scroll area with a single full-panel scroll area so Write codec controls and Reformat controls keep natural height and the whole Export panel scrolls when the pane is small. Build passed; screenshot captured. | DONE | forge | 2026-05-24 | 2026-05-24 | Gui/FluxExportPanel.{h,cpp} |
 | T069 | Restore missing OFX provider coverage — SeExpr/Text/Tile/Magick/ResolveMath providers installed; dependency audit now reports 0 missing IDs; `lp_roughenEdges`, `lp_SimpleKeyer`, `Luma_to_Normals`, and `Vectors_Normalize` creation validated; missing-plugin/library diagnostics Oracle-reviewed. | DONE | forge | 2026-05-24 | 2026-05-24 | tasks/T069-ofx-plugin-restoration.md |
+
+---
+
+## P7 Tasks (Shapes + Text)
+
+| ID | Task | Status | Assigned | Started | Completed | File |
+|---|---|---|---|---|---|---|
+| T071 | Text layer v1 — add FluxText PyPlug wrapping native Text→TimeOffset→Multiply→Output; no extra Transform or FrameRange node. Text OFX native knobs are exposed front-and-center, with Flux stable transform names aliased to Text `transform*` knobs and Flux `frameRange` aliased directly to Text `frameRange` for trim/split/reset. UI Text actions are gated when Text.ofx provider is unavailable; text layer masks use alpha-safe Unpremult/Roto/Premult path. Build passed, native text/transform/frameRange alias smoke reached `FLUX_TEXT_SMOKE_OK`; Natron `-b -t` still segfaults on interpreter shutdown after success, so needs live GUI validation before DONE. | TESTING | forge | 2026-05-24 | — | plugins/FluxText.py, Gui/FluxTimeline.{h,cpp}, Gui/Gui.cpp, Gui/Gui05.cpp |
+
+---
+
+## Cross-phase Infrastructure Tasks
+
+| ID | Task | Status | Assigned | Started | Completed | File |
+|---|---|---|---|---|---|---|
+| T070 | Linux workstation installer/checker — Fedora-first `--bootstrap` helper updates submodules, verifies/installs deps, configures/builds Flux, deploys PyPlugs/OFX bundles, writes user launcher, clears scoped OFX cache, stages transferable OFX extras, and validates OFX binaries with `ldd`; canonical Linux runbook added. Needs clean Fedora workstation/VM end-to-end validation before DONE. | TESTING | forge | 2026-05-24 | — | tasks/T070-linux-workstation-installer.md |

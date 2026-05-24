@@ -305,5 +305,15 @@ Gui/Qt5
 openfx-io/
 openfx-misc/
 
-# Built plugins
-plugins/
+# Built/plugin artifacts. Keep only Flux runtime-critical plugin payloads tracked.
+plugins/*
+!plugins/FluxLayer.py
+!plugins/FluxSolid.py
+!plugins/FluxText.py
+!plugins/IO.ofx.bundle/
+!plugins/IO.ofx.bundle/**
+!plugins/Misc.ofx.bundle/
+!plugins/Misc.ofx.bundle/**
+!plugins/ofx-extras/
+!plugins/ofx-extras/**
+!plugins/natron-plugins

@@ -13,3 +13,6 @@
 [submodule "libs/google-breakpad"]
 	path = libs/google-breakpad
 	url = https://github.com/NatronGitHub/google-breakpad.git
+[submodule "plugins/natron-plugins"]
+	path = plugins/natron-plugins
+	url = https://github.com/NatronGitHub/natron-plugins.git

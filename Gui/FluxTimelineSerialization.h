@@ -95,7 +95,7 @@ struct FluxLayerSerialization
     // Identity
     std::string name;
     std::string filePath;
-    std::string type; // "footage", "solid", "adjustment", "null"
+    std::string type; // "footage", "solid", "text", "adjustment", "null"
 
     // State
     bool muted;

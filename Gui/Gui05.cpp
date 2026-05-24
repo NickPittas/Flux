@@ -1441,6 +1441,8 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             QString pluginId;
             if (layer.type == QString::fromUtf8("solid")) {
                 pluginId = QString::fromUtf8("net.sf.openfx.FluxSolid");
+            } else if (layer.type == QString::fromUtf8("text")) {
+                pluginId = QString::fromUtf8("net.sf.openfx.FluxText");
             } else {
                 pluginId = QString::fromUtf8("net.sf.openfx.FluxLayer");
             }
@@ -1576,6 +1578,74 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                 layer.nodeInitialized = true;
 
                 fprintf(stderr, "FLUX: solidInit — layer '%s' inPoint=%d outPoint=%d timeOffset=%d\n",
+                        layer.name.toStdString().c_str(), layer.inPoint, layer.outPoint, layer.timeOffset);
+            }
+
+            // -- Text-specific: initialize immediately (no file probe needed) --
+            if (layer.type == QString::fromUtf8("text") && !layer.nodeInitialized) {
+                int projectFirst = 0, projectLast = 100;
+                {
+                    double pf = 0, pl = 100;
+                    getApp()->getProject()->getFrameRange(&pf, &pl);
+                    projectFirst = (int)pf;
+                    projectLast = (int)pl;
+                }
+
+                KnobIPtr frameRangeKnob = gizmoNode->getKnobByName("frameRange");
+                if (frameRangeKnob) {
+                    KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(frameRangeKnob);
+                    if (int2D) {
+                        int2D->setValue(projectFirst, ViewSpec::all(), 0);
+                        int2D->setValue(projectLast, ViewSpec::all(), 1);
+                    }
+                }
+
+                KnobIPtr timeOffsetKnob = gizmoNode->getKnobByName("timeOffset");
+                if (timeOffsetKnob) {
+                    KnobIntBasePtr intKnob = std::dynamic_pointer_cast<KnobIntBase>(timeOffsetKnob);
+                    if (intKnob) {
+                        intKnob->setValue(0, ViewSpec::all(), 0);
+                    }
+                }
+
+                {
+                    KnobIPtr beforeKnob = gizmoNode->getKnobByName(std::string("before"));
+                    if (beforeKnob) {
+                        KnobIntBasePtr choice = std::dynamic_pointer_cast<KnobIntBase>(beforeKnob);
+                        if (choice) choice->setValue(2, ViewSpec::all(), 0);
+                    }
+                    KnobIPtr afterKnob = gizmoNode->getKnobByName(std::string("after"));
+                    if (afterKnob) {
+                        KnobIntBasePtr choice = std::dynamic_pointer_cast<KnobIntBase>(afterKnob);
+                        if (choice) choice->setValue(2, ViewSpec::all(), 0);
+                    }
+                }
+
+                {
+                    Format projectFormat;
+                    getApp()->getProject()->getProjectDefaultFormat(&projectFormat);
+                    double cx = projectFormat.x1 + projectFormat.width() / 2.0;
+                    double cy = projectFormat.y1 + projectFormat.height() / 2.0;
+                    KnobIPtr centerKnob = gizmoNode->getKnobByName("center");
+                    if (centerKnob) {
+                        KnobDoubleBasePtr dbl2D = std::dynamic_pointer_cast<KnobDoubleBase>(centerKnob);
+                        if (dbl2D) {
+                            dbl2D->setValue(cx, ViewSpec::all(), 0);
+                            dbl2D->setValue(cy, ViewSpec::all(), 1);
+                        }
+                    }
+                }
+
+                layer.originalFirstFrame = projectFirst;
+                layer.originalLastFrame = projectLast;
+                layer.inPoint = projectFirst;
+                layer.outPoint = projectLast;
+                layer.originalInPoint = projectFirst;
+                layer.originalOutPoint = projectLast;
+                layer.timeOffset = 0;
+                layer.nodeInitialized = true;
+
+                fprintf(stderr, "FLUX: textInit — layer '%s' inPoint=%d outPoint=%d timeOffset=%d\n",
                         layer.name.toStdString().c_str(), layer.inPoint, layer.outPoint, layer.timeOffset);
             }
 
@@ -1731,9 +1801,11 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             // Determine if Unpremult is needed (conservative V1 rule):
             // - Footage layers: assume alpha may exist
             // - Layers with effects before mask: assume alpha may exist
+            // - Text layers: generated alpha/antialiased edges
             // - Pure solid with no prior effects: skip
             bool needsUnpremult = false;
-            if (layer.type == QString::fromUtf8("footage")) {
+            if (layer.type == QString::fromUtf8("footage") ||
+                layer.type == QString::fromUtf8("text")) {
                 needsUnpremult = true;
             }
             if (!layer.effects.isEmpty()) {
@@ -1887,7 +1959,9 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             if (lmask) {
                 inlineMaskRows = 2; // Roto + Premult
                 // Check if Unpremult is needed (same logic as above)
-                if (layer.type == QString::fromUtf8("footage") || !layer.effects.isEmpty()) {
+                if (layer.type == QString::fromUtf8("footage") ||
+                    layer.type == QString::fromUtf8("text") ||
+                    !layer.effects.isEmpty()) {
                     inlineMaskRows = 3; // Unpremult + Roto + Premult
                 }
             }

@@ -37,6 +37,7 @@
 #include "Engine/ViewIdx.h"
 #include "Engine/CreateNodeArgs.h"
 #include "Gui/ViewerTab.h"
+#include "Gui/GuiApplicationManager.h"
 #include "Engine/ViewerInstance.h"
 #include "Gui/FluxTimelineSerialization.h"
 #include "Gui/FluxMaskUtils.h"
@@ -116,6 +117,8 @@ FluxTimeline::addLayer(const QString& name,
         layer.color = QColor(80, 130, 200);
     } else if (type == QString::fromUtf8("solid")) {
         layer.color = QColor(130, 180, 80);
+    } else if (type == QString::fromUtf8("text")) {
+        layer.color = QColor(200, 130, 80);
     } else if (type == QString::fromUtf8("adjustment")) {
         layer.color = QColor(180, 130, 80);
     } else {
@@ -140,6 +143,22 @@ FluxTimeline::addSolidLayer(const QColor& color)
     // Store the solid color as a QString for later use by the gizmo
     // (actual color is set on the Constant node's "color" knob)
     layer.solidColor = color;
+
+    _layers.append(layer);
+    rebuildVisibleRows();
+    Q_EMIT compositingChanged();
+    update();
+}
+
+void
+FluxTimeline::addTextLayer()
+{
+    FluxLayer layer;
+    layer.name = QString::fromUtf8("Text");
+    layer.type = QString::fromUtf8("text");
+    layer.inPoint = _firstFrame;
+    layer.outPoint = _lastFrame;
+    layer.color = QColor(200, 130, 80);
 
     _layers.append(layer);
     rebuildVisibleRows();
@@ -2781,6 +2800,25 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
         QAction* solidAction = addMenu->addAction(QString::fromUtf8("Solid"));
         connect(solidAction, &QAction::triggered, this, [this]() {
             addSolidLayer();
+        });
+
+        QAction* textAction = addMenu->addAction(QString::fromUtf8("Text"));
+        bool textProviderAvailable = false;
+        if (appPTR) {
+            const std::list<std::string> textPlugins = appPTR->getPluginIDs("Text");
+            for (std::list<std::string>::const_iterator it = textPlugins.begin(); it != textPlugins.end(); ++it) {
+                if (*it == std::string("net.fxarena.openfx.Text")) {
+                    textProviderAvailable = true;
+                    break;
+                }
+            }
+        }
+        textAction->setEnabled(textProviderAvailable);
+        if (!textProviderAvailable) {
+            textAction->setToolTip(QString::fromUtf8("Text.ofx provider is not available."));
+        }
+        connect(textAction, &QAction::triggered, this, [this]() {
+            addTextLayer();
         });
 
         QAction* nullAction = addMenu->addAction(QString::fromUtf8("Null"));

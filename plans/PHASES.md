@@ -11,7 +11,7 @@
 | P4 | Effects + Properties | DONE | 2026-05-22 | 2026-05-22 | 100% |
 | P5 | Import/Export | DONE | 2026-05-22 | 2026-05-23 | 100% |
 | P6 | Timeline Tree + Masks | DONE | 2026-05-23 | 2026-05-23 | 100% |
-| P7 | Shapes + Text | PENDING | — | — | 0% |
+| P7 | Shapes + Text | IN_PROGRESS | 2026-05-24 | — | 10% |
 | P8 | Polish + Cache | PENDING | — | — | 0% |
 
 ---
@@ -243,8 +243,13 @@
 
 **Dependencies**: P6 complete
 
+**Started**: 2026-05-24
+
 **Prerequisite restoration work**:
 - T069: ✅ Restore missing OFX provider coverage for bundled PyPlugs before implementing text/shape features that may depend on legacy native OpenFX providers. SeExpr/Text/Tile/Magick/ResolveMath providers are installed and validated; dependency audit reports 0 missing IDs; `lp_roughenEdges`, `lp_SimpleKeyer`, `Luma_to_Normals`, and `Vectors_Normalize` creation passes. Missing-plugin/library diagnostics Oracle-reviewed and validated with cold/warm cache broken-binary tests.
+
+**Tasks**:
+- T071: 🧪 Text layer v1 — FluxText PyPlug and UI actions implemented. Current architecture uses native Text OFX knobs directly: no extra Transform or FrameRange node; Flux transform aliases point to Text `transform*` knobs, and Flux `frameRange` aliases to Text `frameRange` for trim/split/reset. Build passed and background PyPlug smoke reached `FLUX_TEXT_SMOKE_OK`; still needs live GUI validation for create/edit/animate/trim/duplicate/split/save-reopen/export before DONE.
 
 ---
 

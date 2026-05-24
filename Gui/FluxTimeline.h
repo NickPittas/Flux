@@ -109,7 +109,7 @@ struct FluxMask {
 struct FluxLayer {
     QString name;
     QString filePath;    // empty for solid/adjustment/null layers
-    QString type;        // "footage", "solid", "adjustment", "null"
+    QString type;        // "footage", "solid", "text", "adjustment", "null"
     bool muted;          // true = merge node disabled, V button highlighted
     bool locked;
     bool solo;
@@ -182,6 +182,9 @@ public:
 
     /** @brief Add a solid color layer. */
     void addSolidLayer(const QColor& color = QColor(128, 128, 128));
+
+    /** @brief Add a text layer. */
+    void addTextLayer();
 
     /** @brief Remove a layer by index. */
     void removeLayer(int index);
