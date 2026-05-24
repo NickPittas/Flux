@@ -363,7 +363,7 @@ Gui::activateViewerTab(ViewerInstance* viewer)
         QMutexLocker l(&_imp->_viewerTabsMutex);
         for (std::list<ViewerTab*>::iterator it = _imp->_viewerTabs.begin(); it != _imp->_viewerTabs.end(); ++it) {
             if ( (*it)->getViewer() == viewport ) {
-                TabWidget* viewerAnchor = getAnchor();
+                TabWidget* viewerAnchor = (sFluxMode && _imp->_fluxViewerPane) ? _imp->_fluxViewerPane : getAnchor();
                 assert(viewerAnchor);
                 viewerAnchor->appendTab(*it, *it);
                 (*it)->show();
@@ -620,7 +620,7 @@ void
 Gui::appendTabToDefaultViewerPane(PanelWidget* tab,
                                   ScriptObject* obj)
 {
-    TabWidget* viewerAnchor = getAnchor();
+    TabWidget* viewerAnchor = (sFluxMode && _imp->_fluxViewerPane) ? _imp->_fluxViewerPane : getAnchor();
 
     assert(viewerAnchor);
     viewerAnchor->appendTab(tab, obj);
@@ -1013,6 +1013,11 @@ Gui::renderViewersAndRefreshKnobsAfterTimelineTimeChange(SequenceTime time,
         return;
     }
 
+    ProjectPtr project = getApp()->getProject();
+    if ( project && project->isLoadingProject() ) {
+        return;
+    }
+
     assert( QThread::currentThread() == qApp->thread() );
     if ( (reason == eTimelineChangeReasonUserSeek) ||
          ( reason == eTimelineChangeReasonDopeSheetEditorSeek) ||
@@ -1022,21 +1027,38 @@ Gui::renderViewersAndRefreshKnobsAfterTimelineTimeChange(SequenceTime time,
         }
     }
 
-    ProjectPtr project = getApp()->getProject();
     bool isPlayback = reason == eTimelineChangeReasonPlaybackSeek;
 
     ///Refresh all visible knobs at the current time
     if ( !getApp()->isGuiFrozen() ) {
-        for (std::list<DockablePanel*>::const_iterator it = _imp->openedPanels.begin(); it != _imp->openedPanels.end(); ++it) {
+        std::list<DockablePanel*> panels;
+        {
+            QMutexLocker k(&_imp->openedPanelsMutex);
+            panels = _imp->openedPanels;
+        }
+
+        for (std::list<DockablePanel*>::const_iterator it = panels.begin(); it != panels.end(); ++it) {
+            if (!*it) {
+                continue;
+            }
             NodeSettingsPanel* nodePanel = dynamic_cast<NodeSettingsPanel*>(*it);
             if (nodePanel) {
-                NodePtr node = nodePanel->getNode()->getNode();
+                NodeGuiPtr nodeGui = nodePanel->getNode();
+                if (!nodeGui) {
+                    continue;
+                }
+                NodePtr node = nodeGui->getNode();
+                if ( !node || !node->getEffectInstance() ) {
+                    continue;
+                }
                 node->getEffectInstance()->refreshAfterTimeChange(isPlayback, time);
 
                 NodesList children;
                 node->getChildrenMultiInstance(&children);
                 for (NodesList::iterator it2 = children.begin(); it2 != children.end(); ++it2) {
-                    (*it2)->getEffectInstance()->refreshAfterTimeChange(isPlayback, time);
+                    if ( *it2 && (*it2)->getEffectInstance() ) {
+                        (*it2)->getEffectInstance()->refreshAfterTimeChange(isPlayback, time);
+                    }
                 }
             }
         }

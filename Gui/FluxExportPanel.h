@@ -46,7 +46,6 @@ public:
     virtual ~FluxExportPanel();
 
     void setExportNodes(const NodePtr& reformatNode, const NodePtr& writeNode);
-    void syncFrameRangeFromProject();
 
     NodePtr getWriteNode() const;
     NodePtr getReformatNode() const;
@@ -57,6 +56,8 @@ Q_SIGNALS:
     void outputPathChanged(const QString& path);
 
 private Q_SLOTS:
+
+    void syncFrameRangeFromProject();
 
     void onBrowseClicked();
     void onOutputPathChanged();
@@ -72,9 +73,11 @@ private:
     QLineEdit* _outputPathEdit;
     QPushButton* _browseButton;
 
+    // Full export panel scroll area — write/reformat settings scroll together
+    QScrollArea* _contentScrollArea;
+
     // Write node settings — we reparent the NodeGui's existing settings panel
     QWidget* _writeSettingsContainer;
-    QScrollArea* _writeScrollArea;
 
     // Reformat section
     QGroupBox* _reformatGroup;

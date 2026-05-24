@@ -211,7 +211,21 @@ RotoPaint::initializeKnobs()
         enabled->setHintToolTip( tr("Enable drawing onto this channel") );
         generalPage->addKnob(enabled);
         _imp->enabledKnobs[i] = enabled;
+        QObject::connect( enabled->getSignalSlotHandler().get(), SIGNAL(valueChanged(ViewSpec,int,int)),
+                          this, SLOT(onReplaceChannelsKnobChanged(ViewSpec,int,int)) );
     }
+
+    KnobBoolPtr replaceKnob = AppManager::createKnob<KnobBool>(this, tr("Zero selected input channels"), 1, false);
+    replaceKnob->setName("replaceSelectedChannels");
+    replaceKnob->setAnimationEnabled(false);
+    replaceKnob->setAddNewLine(true);
+    replaceKnob->setDefaultValue(false);
+    replaceKnob->setHintToolTip( tr("When enabled, the selected channels are zeroed from the input before drawing/compositing shapes and strokes. "
+                                    "Unselected channels pass through unchanged.") );
+    generalPage->addKnob(replaceKnob);
+    _imp->replaceSelectedChannelsKnob = replaceKnob;
+    QObject::connect( replaceKnob->getSignalSlotHandler().get(), SIGNAL(valueChanged(ViewSpec,int,int)),
+                      this, SLOT(onReplaceChannelsKnobChanged(ViewSpec,int,int)) );
 
 
     KnobBoolPtr premultKnob = AppManager::createKnob<KnobBool>(this, tr("Premultiply"), 1, false);
@@ -1189,7 +1203,6 @@ RotoPaint::knobChanged(KnobI* k,
         return false;
     }
 
-
     RotoContextPtr ctx = getNode()->getRotoContext();
 
     if (!ctx) {
@@ -1326,6 +1339,24 @@ RotoPaint::knobChanged(KnobI* k,
 } // RotoPaint::knobChanged
 
 void
+RotoPaint::onReplaceChannelsKnobChanged(ViewSpec view,
+                                        int dimension,
+                                        int reason)
+{
+    Q_UNUSED(view);
+    Q_UNUSED(dimension);
+    Q_UNUSED(reason);
+
+    RotoContextPtr ctx = getNode()->getRotoContext();
+    if (!ctx) {
+        return;
+    }
+
+    ctx->refreshRotoPaintTree();
+    ctx->evaluateChange();
+}
+
+void
 RotoPaint::refreshExtraStateAfterTimeChanged(bool isPlayback,
                                              double time)
 {
@@ -1457,6 +1488,18 @@ RotoPaint::isIdentity(double time,
         Q_UNUSED(s);
         const RectI maskPixelRod = maskRod.toPixelEnclosing(scale, getAspectRatio(ROTOPAINT_MASK_INPUT_INDEX));
         if ( !maskPixelRod.intersects(roi) ) {
+            // When Replace is enabled and at least one process channel is selected,
+            // selected channels must still be zeroed even if the mask doesn't affect this ROI.
+            KnobBoolPtr replaceKnob = _imp->replaceSelectedChannelsKnob.lock();
+            bool replaceEnabled = replaceKnob && replaceKnob->getValue();
+            if (replaceEnabled) {
+                for (int i = 0; i < 4; ++i) {
+                    if ( _imp->enabledKnobs[i].lock()->getValue() ) {
+                        // At least one selected channel needs zeroing — cannot be identity
+                        return false;
+                    }
+                }
+            }
             *inputTime = time;
             *inputNb = 0;
 
@@ -1466,6 +1509,17 @@ RotoPaint::isIdentity(double time,
 
     std::list<RotoDrawableItemPtr> items = node->getRotoContext()->getCurvesByRenderOrder();
     if ( items.empty() ) {
+        // When Replace is enabled and at least one process channel is selected,
+        // we must render to zero the selected channels.
+        KnobBoolPtr replaceKnob = _imp->replaceSelectedChannelsKnob.lock();
+        bool replaceEnabled = replaceKnob && replaceKnob->getValue();
+        if (replaceEnabled) {
+            for (int i = 0; i < 4; ++i) {
+                if ( _imp->enabledKnobs[i].lock()->getValue() ) {
+                    return false;
+                }
+            }
+        }
         *inputNb = 0;
         *inputTime = time;
 
@@ -1496,6 +1550,16 @@ RotoPaint::render(const RenderActionArgs& args)
         RectI bgImgRoI;
         ImagePtr bgImg = getImage(0, args.time, args.mappedScale, args.view, 0, 0, false /*mapToClipPrefs*/, false /*dontUpscale*/, eStorageModeRAM /*returnOpenGLtexture*/, 0 /*textureDepth*/, &bgImgRoI);
 
+        // Check if Replace is enabled
+        KnobBoolPtr replaceKnob = _imp->replaceSelectedChannelsKnob.lock();
+        bool replaceEnabled = replaceKnob && replaceKnob->getValueAtTime(args.time);
+        std::bitset<4> replaceChannels;
+        if (replaceEnabled) {
+            for (int i = 0; i < 4; ++i) {
+                replaceChannels[i] = _imp->enabledKnobs[i].lock()->getValueAtTime(args.time);
+            }
+        }
+
         for (std::list<std::pair<ImagePlaneDesc, ImagePtr> >::const_iterator plane = args.outputPlanes.begin();
              plane != args.outputPlanes.end(); ++plane) {
             if (bgImg) {
@@ -1508,6 +1572,35 @@ RotoPaint::render(const RenderActionArgs& args)
                     plane->second->pasteFrom(*bgImg, args.roi, false);
                 }
 
+                // Zero selected channels in the output if Replace is enabled
+                if (replaceEnabled) {
+                    const ImagePlaneDesc& comps = plane->second->getComponents();
+                    int nComps = plane->second->getComponentsCount();
+                    RectI intersection = args.roi.intersect(plane->second->getBounds());
+                    if (!intersection.isNull()) {
+                        Image::WriteAccess writeAccess(plane->second.get());
+                        int x1 = intersection.x1, x2 = intersection.x2;
+                        int y1 = intersection.y1, y2 = intersection.y2;
+                        int nC = nComps;
+                        for (int y = y1; y < y2; ++y) {
+                            float* pix = (float*)writeAccess.pixelAt(x1, y);
+                            for (int x = x1; x < x2; ++x) {
+                                if (comps == ImagePlaneDesc::getAlphaComponents()) {
+                                    if (replaceChannels[3]) { pix[0] = 0.f; }
+                                } else if (comps == ImagePlaneDesc::getXYComponents()) {
+                                    if (replaceChannels[0]) { pix[0] = 0.f; }
+                                    if (replaceChannels[1] && nC > 1) { pix[1] = 0.f; }
+                                } else {
+                                    if (replaceChannels[0] && nC > 0) { pix[0] = 0.f; }
+                                    if (replaceChannels[1] && nC > 1) { pix[1] = 0.f; }
+                                    if (replaceChannels[2] && nC > 2) { pix[2] = 0.f; }
+                                    if (replaceChannels[3] && nC > 3) { pix[3] = 0.f; }
+                                }
+                                pix += nC;
+                            }
+                        }
+                    }
+                }
 
                 if ( premultiply && ( plane->second->getComponents() == ImagePlaneDesc::getRGBAComponents() ) ) {
                     plane->second->premultImage(args.roi);
@@ -1641,7 +1734,6 @@ RotoPaint::render(const RenderActionArgs& args)
                     plane->second->fillZero(args.roi);
                 }
             }
-
 
             if ( rotoImagesIt->second->getComponents() != plane->second->getComponents() ) {
                 rotoImagesIt->second->convertToFormat( args.roi,
@@ -3366,4 +3458,3 @@ RotoPaint::onSelectionChanged(int reason)
 NATRON_NAMESPACE_EXIT
 NATRON_NAMESPACE_USING
 #include "moc_RotoPaint.cpp"
-

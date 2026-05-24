@@ -176,7 +176,7 @@ KnobTableItemDelegate::paint(QPainter * painter,
     QPen pen;
 
     if ( !item->flags().testFlag(Qt::ItemIsEnabled) ) {
-        pen.setColor(Qt::black);
+        pen.setColor( QColor(120, 124, 132) );
     } else {
         pen.setColor( QColor(200, 200, 200) );
     }

@@ -1326,7 +1326,7 @@ Settings::initializeKnobsPlugins()
     _pluginsTab->setName("plugins");
 
 #if defined(__linux__) || defined(__FreeBSD__)
-    std::string searchPath("/usr/OFX/Plugins");
+    std::string searchPath("~/.OFX/Plugins and /usr/OFX/Plugins");
 #elif defined(__APPLE__)
     std::string searchPath("/Library/OFX/Plugins");
 #elif defined(WINDOWS)

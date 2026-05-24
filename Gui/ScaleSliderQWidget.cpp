@@ -50,9 +50,9 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/ZoomContext.h"
 #include "Gui/Gui.h"
 
-#define TICK_HEIGHT 7
-#define SLIDER_WIDTH 4
-#define SLIDER_HEIGHT 15
+#define TICK_HEIGHT 8
+#define SLIDER_WIDTH 6
+#define SLIDER_HEIGHT 20
 
 NATRON_NAMESPACE_ENTER
 
@@ -98,7 +98,7 @@ struct ScaleSliderQWidgetPrivate
         , value(initialPos)
         , dragging(false)
         , font( parent->font() )
-        , sliderColor(85, 116, 114)
+        , sliderColor(120, 180, 220)
         , initialized(false)
         , mustInitializeSliderPosition(true)
         , readOnly(false)
@@ -489,7 +489,12 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
 
     /*drawing X axis*/
     double lineYpos = height() - 1 - fontM.height()  - TO_DPIY(TICK_HEIGHT) / 2;
-    p.drawLine(0, lineYpos, width() - 1, lineYpos);
+    {
+        QPen axisPen = p.pen();
+        axisPen.setWidthF(2.0);
+        p.setPen(axisPen);
+        p.drawLine(0, lineYpos, width() - 1, lineYpos);
+    }
 
     double tickBottom = _imp->zoomCtx.toZoomCoordinates( 0, height() - 1 - fontM.height() ).y();
     double tickTop = _imp->zoomCtx.toZoomCoordinates( 0, height() - 1 - fontM.height()  - TO_DPIY(TICK_HEIGHT) ).y();
@@ -523,7 +528,7 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
         QColor color(textColor);
         color.setAlphaF(alpha);
         QPen pen(color);
-        pen.setWidthF(1.9);
+        pen.setWidthF(2.5);
         p.setPen(pen);
 
         // for Int slider, because smallTickSize is at least 1, isFloating can never be true
@@ -635,8 +640,11 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
         //p.setOpacity(0.8); // also sets opacity of the brush/fill!
         p.setPen(pen);
     }
-    // the magic 2.8 factor is here so that the full antialiased circle is not clipped
-    p.drawEllipse(QPointF(positionValue, lineYpos), TO_DPIX(SLIDER_HEIGHT/2.8), TO_DPIX(SLIDER_HEIGHT/2.8));
+    QRectF handleRect(positionValue - TO_DPIX(SLIDER_WIDTH) / 2.,
+                      lineYpos - TO_DPIY(SLIDER_HEIGHT) / 2.,
+                      TO_DPIX(SLIDER_WIDTH),
+                      TO_DPIY(SLIDER_HEIGHT));
+    p.drawRoundedRect(handleRect, TO_DPIX(2), TO_DPIX(2));
     p.setRenderHints(rh);
 #endif
 } // paintEvent

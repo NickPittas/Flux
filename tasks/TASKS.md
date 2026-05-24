@@ -1,8 +1,8 @@
 # Flux — Master Task List
 
-Last updated: 2026-05-22
+Last updated: 2026-05-24
 
-## Active Phase: P5 (Import/Export)
+## Active Phase: P7 (Shapes + Text)
 
 ### P0 Tasks
 
@@ -62,7 +62,7 @@ Last updated: 2026-05-22
 | T022 | Create Effects Stack Panel | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxEffectsPanel.{h,cpp} |
 | T023 | Create Dark Theme (After Effects-inspired) | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/Gui20.cpp |
 | T024 | Create Project Bin | DONE | forge | 2026-05-20 | 2026-05-20 | Gui/FluxProjectBin.{h,cpp} |
-| T025 | Create Flux Menu System | PENDING | — | — | — | Gui/Gui.cpp |
+| T025 | Create Flux Menu System — Flux mode now uses File/Edit/Layer/Composition/View/Window/Help menus; Edit mirrors NodeGraph context edit actions; Layer drives timeline add/duplicate/split/delete/effect/mask actions; Window focuses Flux panes; Natron menu path preserved. Oracle-reviewed, build and smoke launch passed. | DONE | forge | 2026-05-24 | 2026-05-24 | Gui/Gui.cpp, Gui/FluxTimeline.{h,cpp} |
 | T026 | Integration Test (end-to-end) — live P3 signoff: wheel zoom/scroll, Alt-drag, F, label resize, Add Effect, Reset In/Out approved | DONE | nick | 2026-05-22 | 2026-05-22 | Manual test |
 
 ---
@@ -107,3 +107,27 @@ Last updated: 2026-05-22
 |---|---|---|---|---|---|---|
 | T052 | Right-click context menu "Open Read Node" on footage layers — opens the Read node's Natron settings panel in the properties bin so user can set color science, output components, etc. | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxTimeline.cpp |
 | T053 | Flux Export/Render panel — Reformat node (disabled by default), Write node, file browse, frame range, advanced settings buttons, Render button via startWritersRendering. Oracle-audited. | DONE | forge | 2026-05-22 | 2026-05-22 | Gui/FluxExportPanel.{h,cpp}, Gui/Gui05.cpp, Gui/GuiPrivate.h |
+
+---
+
+## P6 Tasks (Timeline Tree + Masks)
+
+| ID | Task | Status | Assigned | Started | Completed | File |
+|---|---|---|---|---|---|---|
+| T054 | Timeline visible-row model — add `FluxVisibleRow`, expanded layer state, `yToRow()`, variable row heights; initially generate only layer rows so behavior stays identical. Oracle-reviewed, build passed. | DONE | forge | 2026-05-23 | 2026-05-23 | Gui/FluxTimeline.{h,cpp} |
+| T055 | Timeline effect sub-rows — expanded layer shows main-pipe effects as indented children; selecting an effect row opens only that effect's Natron properties. Oracle-reviewed, build passed. | DONE | forge | 2026-05-23 | 2026-05-23 | Gui/FluxTimeline.{h,cpp}, Gui/Gui05.cpp |
+| T056 | Move effect actions into timeline — add/remove/reorder effects from timeline row context menus; begin retiring FluxEffectsPanel. Oracle-reviewed, build passed. | DONE | forge | 2026-05-23 | 2026-05-23 | Gui/FluxTimeline.{h,cpp}, Gui/Gui05.cpp, Gui/FluxEffectsPanel.{h,cpp} |
+| T057 | FluxMask data model + serialization — add `FluxMask`, `FluxLayer::masks`, `maskApplyNode`, `hasPrecompBranch`, and save/reopen persistence. Oracle-reviewed, build passed. | DONE | forge | 2026-05-23 | 2026-05-23 | Gui/FluxTimeline.h, Gui/FluxTimelineSerialization.h, Gui/FluxTimeline.cpp |
+| T058 | Mask and branch discovery utilities — implement `discoverMaskInput(NodePtr)`, `isPremultNode(NodePtr)`, and classify upstream layer graph as main pipe, mask branches, or precomp branches. Oracle-reviewed, build passed. | DONE | forge | 2026-05-23 | 2026-05-23 | Gui/FluxMaskUtils.{h,cpp} |
+| T059 | Timeline mask sub-rows and mask model actions — layer/effect mask model entries can be added from timeline context menus and appear as child rows; selecting a mask opens Roto/RotoPaint properties only when backing nodes already exist. No graph node creation or wiring yet. Oracle-reviewed, build passed. | DONE | forge | 2026-05-23 | 2026-05-23 | Gui/FluxTimeline.{h,cpp}, Gui/Gui05.cpp |
+| T060 | Layer mask graph — create/connect Reformat→Roto mask source and mask-apply node in the layer main pipe; enforce terminal Premult rule. Oracle-reviewed, build passed. | DONE | forge | 2026-05-23 | 2026-05-23 | Gui/Gui05.cpp, Gui/FluxTimeline.{h,cpp} |
+| T061 | Effect mask graph — create/connect Reformat→Roto side branch into discovered effect mask input; effect mask branches must not count as precomp. Oracle-reviewed, build passed. | DONE | forge | 2026-05-23 | 2026-05-23 | Gui/Gui05.cpp, Gui/FluxTimeline.{h,cpp} |
+| T062 | Preserve manual layer branches — rebuild must preserve user-added main-pipe and precomp-branch nodes; precomp icon shown on timeline layer row for non-mask branches. Oracle-reviewed, build passed. | DONE | forge | 2026-05-23 | 2026-05-23 | Gui/Gui05.cpp, Gui/FluxTimeline.{h,cpp}, Gui/FluxMaskUtils.{h,cpp} |
+| T062A | P6 scrutinize blocker fixes — FluxLayerSerialization class version, duplicate/split disabled for masked/precomp layers until T063, classifier source base fixed to gizmo, terminal Premult+maskApply classifier input path fixed, restored `hasPrecompBranch` treated as derived, runtime layout artifact removed. | DONE | forge | 2026-05-23 | 2026-05-23 | Gui/FluxTimelineSerialization.h, Gui/FluxTimeline.cpp, Gui/FluxMaskUtils.cpp |
+| T063 | Duplicate/split full branch — branch-aware copy/paste for non-adjustment layers copies main pipe, mask branches, and precomp branches; restores FluxEffect/FluxMask refs by old script name; split uses independent copied nodes; adjustment rows with masks remain disabled. Scrutinize-reviewed, maskApply required-ref fix applied, build passed. | DONE | forge | 2026-05-23 | 2026-05-23 | Gui/FluxTimeline.cpp, Gui/Gui05.cpp |
+| T064 | Correct layer-mask graph — replaced unapproved Merge(in) layer mask implementation with inline `source → [Unpremult] → Roto → Premult → Merge A`; old Flux-owned Merge/Reformat artifacts migrated narrowly; stale inline mask chains and Flux-owned Unpremult cleanup fixed. Oracle-reviewed, scrutinize verdict ship, build passed. | DONE | forge | 2026-05-23 | 2026-05-23 | Gui/Gui05.cpp, Gui/FluxMaskUtils.{h,cpp}, Gui/FluxTimeline.cpp |
+| T065 | Roto/RotoPaint replace selected channels — native `Zero selected input channels` checkbox zeros selected/process channels before Roto/RotoPaint compositing via hidden internal `RotoReplaceChannels`; save/reopen, GL Shadertoy context, stale panel load crash, and user CImg OFX discovery fixes validated. Oracle-reviewed, build passed. | DONE | forge | 2026-05-23 | 2026-05-23 | tasks/T065-roto-replace-selected-channels.md |
+| T066 | UI layout/styling update — new pane layout (ProjectBin/NodeGraph | Viewer | Properties/Export top, full-width Timeline/DopeSheet/CurveEditor bottom); modernize flux-dark.qss; remove inline export button stylesheet. Build passed; deferred autosave prompt validated with restore Yes and clear No/Escape while preserving Nick's autosave. | DONE | forge | 2026-05-23 | 2026-05-23 | Gui/Gui05.cpp, Gui/Gui20.cpp, Gui/FluxExportPanel.cpp, Gui/Resources/Stylesheets/flux-dark.qss, Gui/GuiAppInstance.cpp |
+| T067 | Property control polish — larger readable line edits/spin boxes/dropdowns/buttons/tabs, modern checkbox treatment, more visible slider axis/handle, and final Flux QSS overrides to beat duplicate Natron rules without rewriting the stylesheet. Build passed; autosave launch smoke passed. | DONE | forge | 2026-05-24 | 2026-05-24 | Gui/Resources/Stylesheets/flux-dark.qss, Gui/LineEdit.cpp, Gui/ComboBox.cpp, Gui/ScaleSliderQWidget.cpp, Gui/AnimatedCheckBox.cpp |
+| T068 | Export panel scroll/layout fix — replaced the nested Write-only scroll area with a single full-panel scroll area so Write codec controls and Reformat controls keep natural height and the whole Export panel scrolls when the pane is small. Build passed; screenshot captured. | DONE | forge | 2026-05-24 | 2026-05-24 | Gui/FluxExportPanel.{h,cpp} |
+| T069 | Restore missing OFX provider coverage — SeExpr/Text/Tile/Magick/ResolveMath providers installed; dependency audit now reports 0 missing IDs; `lp_roughenEdges`, `lp_SimpleKeyer`, `Luma_to_Normals`, and `Vectors_Normalize` creation validated; missing-plugin/library diagnostics Oracle-reviewed. | DONE | forge | 2026-05-24 | 2026-05-24 | tasks/T069-ofx-plugin-restoration.md |

@@ -1585,6 +1585,13 @@ EffectInstance::renderRoI(const RenderRoIArgs & args,
         bool attachGLOK = true;
         if (storage == eStorageModeGLTex) {
             assert(glContext);
+            if (glContextLocker) {
+                // Upstream image fetching and allocation may have temporarily changed
+                // the thread-current context. Make the render context current again
+                // immediately before the OFX context-attached action: several GL
+                // plug-ins initialize shaders/resources there and query GL_VERSION.
+                glContextLocker->reattach();
+            }
             Natron::StatusEnum stat = renderInstance->attachOpenGLContext_public(glContext, &planesToRender->glContextData);
             if (stat == eStatusOutOfMemory) {
                 renderRetCode = eRenderRoIStatusRenderOutOfGPUMemory;

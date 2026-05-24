@@ -1400,6 +1400,12 @@ public:
      */
     NodesList globalMergeNodes;
 
+    /*
+     * Internal preprocessing node that zeroes selected channels from the input when
+     * the parent Roto/RotoPaint "Zero selected input channels" knob is enabled.
+     */
+    NodeWPtr replaceChannelsNode;
+
     RotoContextPrivate(const NodePtr& n )
         : rotoContextMutex()
         , isPaintNode(false)
@@ -1413,6 +1419,7 @@ public:
         , doingNeatRender(false)
         , mustDoNeatRender(false)
         , globalMergeNodes()
+        , replaceChannelsNode()
     {
         EffectInstancePtr effect = n->getEffectInstance();
         RotoPaint* isRotoNode = dynamic_cast<RotoPaint*>( effect.get() );

@@ -250,6 +250,7 @@ GuiPrivate::GuiPrivate(const GuiAppInstancePtr& app,
     , _fluxProjectBin(0)
     , _fluxTimeline(0)
     , _fluxEffectsPanel(0)
+    , _fluxViewerPane(0)
     , _fluxMergeNodes()
 {
 }
@@ -305,6 +306,7 @@ void
 GuiPrivate::createPropertiesBinGui()
 {
     _propertiesBin = new PropertiesBinWrapper(_gui);
+    _propertiesBin->setObjectName( QString::fromUtf8("FluxPropertiesPanel") );
     _propertiesBin->setScriptName(kPropertiesBinName);
     _propertiesBin->setLabel( tr("Properties").toStdString() );
 

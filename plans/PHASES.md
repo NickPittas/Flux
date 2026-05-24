@@ -10,8 +10,9 @@
 | P3 | Timeline | DONE | 2026-05-21 | 2026-05-22 | 100% |
 | P4 | Effects + Properties | DONE | 2026-05-22 | 2026-05-22 | 100% |
 | P5 | Import/Export | DONE | 2026-05-22 | 2026-05-23 | 100% |
-| P6 | Shapes + Text | PENDING | — | — | 0% |
-| P7 | Polish + Cache | PENDING | — | — | 0% |
+| P6 | Timeline Tree + Masks | DONE | 2026-05-23 | 2026-05-23 | 100% |
+| P7 | Shapes + Text | PENDING | — | — | 0% |
+| P8 | Polish + Cache | PENDING | — | — | 0% |
 
 ---
 
@@ -64,6 +65,7 @@
 - Dark theme applied (After Effects-inspired, Natron's mainstyle.qss with Flux color palette)
 - FluxMainWindow layout: Project Bin (20%) | Viewport (50%) | Effects+Properties (30%) top, Timeline (30%) bottom
 - FluxProjectBin: thumbnail grid view, drag-and-drop import, file import to reader nodes
+- Flux Menu System: File/Edit/Layer/Composition/View/Window/Help menu bar for Flux mode, with NodeGraph edit actions, timeline layer actions, and pane focus actions; Natron menu path preserved
 - FluxTimeline: custom-painted layer bars, playhead synced to Natron's shared TimeLine, drag/trim/reorder
 - FluxEffectsPanel: effect stack per layer, add effect button, active only when layer selected
 - FluxLayer PyPlug gizmo (`net.sf.openfx.FluxLayer`): Input→FrameRange→TimeOffset→Transform→Multiply→Output wrapped in one group node per footage layer, with stable parameter aliases (frameRange, timeOffset, translate, scale, rotate, center, motionBlur, shutter)
@@ -190,23 +192,69 @@
 
 ---
 
-## P6: Shapes + Text
+## P6: Timeline Tree + Masks (COMPLETE)
 
-**Goal**: Shape and text layer types for motion graphics.
+**Goal**: Replace the separate effects-list workflow with an expandable timeline tree, then add layer/effect masks using Natron-native Roto/RotoPaint branches while preserving manual nodegraph edits.
 
 **Estimated Duration**: 2-3 weeks
 
 **Dependencies**: P5 complete
 
+**Started**: 2026-05-23
+
+**Completed**: 2026-05-23
+
+**UX Decision**:
+- The timeline becomes the hierarchy for layers, effects, masks, and later keyframes.
+- Selecting a layer row opens only the layer/gizmo properties.
+- Selecting an effect row opens only that effect's properties.
+- Selecting a mask row opens the Roto/RotoPaint properties and activates viewer tools.
+- The old FluxEffectsPanel is phased out once effect rows work in the timeline.
+- Precomp/manual branch nodes are preserved but not shown as layer children; a precomp icon appears on the layer row.
+
+**Graph Rules**:
+- Layer mask: `Read/Solid → Gizmo → Effects → [Unpremult] → Roto → Premult → Merge A`.
+- Effect mask: `Reformat → Roto` side branch into the effect mask input.
+- Effect mask branches do **not** count as precomp branches.
+- Manual non-mask branches merging into the layer's main pipe count as precomp and must be preserved.
+
+**Tasks**:
+- T054: ✅ Timeline visible-row model — add `FluxVisibleRow`, expanded layer state, `yToRow()`, variable row heights; behavior initially identical to flat layer rows. Oracle-reviewed, build passed.
+- T055: ✅ Timeline effect sub-rows — expanded layer shows main-pipe effects as indented children; selecting effect opens only that effect properties. Oracle-reviewed, build passed.
+- T056: ✅ Move effect actions into timeline — add/remove/reorder effects from timeline context menus; start retiring FluxEffectsPanel. Oracle-reviewed, build passed.
+- T057: ✅ FluxMask data model + serialization — `FluxMask`, `layer.masks`, `maskApplyNode`, `hasPrecompBranch`, project save/reopen. Oracle-reviewed, build passed.
+- T058: ✅ Mask/branch discovery utilities — `discoverMaskInput(NodePtr)`, `isPremultNode(NodePtr)`, upstream branch classifier. Oracle-reviewed, build passed.
+- T059: ✅ Timeline mask sub-rows and mask model actions — layer/effect mask model entries can be added from timeline context menus and appear as child rows; selecting a mask opens Roto/RotoPaint properties only when backing nodes already exist. No graph node creation or wiring yet. Oracle-reviewed, build passed.
+- T060: ✅ Layer mask graph — create/connect mask apply in the layer main pipe with Reformat→Roto source; handle terminal Premult rule. Oracle-reviewed, build passed.
+- T061: ✅ Effect mask graph — create/connect Reformat→Roto side branch into effect mask input. Oracle-reviewed, build passed.
+- T062: ✅ Preserve manual layer branches — classify main pipe vs mask branches vs precomp branches; never destroy user-added nodes. Oracle-reviewed, build passed.
+- T062A: ✅ P6 scrutinize blocker fixes — serialization versioning, temporary duplicate/split guards for masked/precomp layers, classifier source/path fixes, derived precomp-state reset, runtime artifact cleanup. Oracle-reviewed, build passed.
+- T063: ✅ Duplicate/split full branch — branch-aware copy/paste for non-adjustment layers copies main pipe, mask branches, and precomp branches; restores FluxMask/FluxEffect references by old script name. Adjustment rows with masks remain disabled. Scrutinize-reviewed, build passed.
+- T064: ✅ Correct layer-mask graph — removed unapproved Merge(in) layer-mask implementation; layer masks are now inline `source → [Unpremult] → Roto → Premult → Merge A`, with narrow old-artifact migration and stale-chain cleanup. Scrutinize-reviewed, build passed.
+- T065: ✅ Roto/RotoPaint replace selected channels — added native `Zero selected input channels` checkbox, hidden internal `RotoReplaceChannels` preprocessing node, empty-Roto zeroing path, save/reopen crash fix, GL context fix for Shadertoy, and user CImg OFX discovery. Oracle-reviewed, build passed, CImg cache verified.
+
 ---
 
-## P7: Polish + Cache
+## P7: Shapes + Text
+
+**Goal**: Shape and text layer types for motion graphics.
+
+**Estimated Duration**: 2-3 weeks
+
+**Dependencies**: P6 complete
+
+**Prerequisite restoration work**:
+- T069: ✅ Restore missing OFX provider coverage for bundled PyPlugs before implementing text/shape features that may depend on legacy native OpenFX providers. SeExpr/Text/Tile/Magick/ResolveMath providers are installed and validated; dependency audit reports 0 missing IDs; `lp_roughenEdges`, `lp_SimpleKeyer`, `Luma_to_Normals`, and `Vectors_Normalize` creation passes. Missing-plugin/library diagnostics Oracle-reviewed and validated with cold/warm cache broken-binary tests.
+
+---
+
+## P8: Polish + Cache
 
 **Goal**: Improved cache, undo/redo, OCIO integration, performance optimization.
 
 **Estimated Duration**: 2-3 weeks
 
-**Dependencies**: P6 complete
+**Dependencies**: P7 complete
 
 ---
 

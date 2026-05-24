@@ -303,6 +303,7 @@ public:
     class FluxTimeline* _fluxTimeline;
     class FluxEffectsPanel* _fluxEffectsPanel;
     class FluxExportPanel* _fluxExportPanel;
+    TabWidget* _fluxViewerPane;
 
     // Flux compositing graph - Merge nodes for layer compositing
     std::list<NodePtr> _fluxMergeNodes;

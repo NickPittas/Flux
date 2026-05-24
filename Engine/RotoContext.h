@@ -370,6 +370,16 @@ public:
      **/
     void refreshRotoPaintTree();
 
+    void syncReplaceChannelsNodeKnobs();
+
+    /**
+     * @brief Returns the effective base input for the internal rotopaint tree.
+     * When the Replace knob is active and the hidden RotoReplaceChannels node exists,
+     * returns that node so that both global-merge and per-item paths see zeroed channels.
+     * Otherwise returns the parent node's raw input 0.
+     */
+    NodePtr getRotoPaintInputForInternalTree();
+
     void onRotoPaintInputChanged(const NodePtr& node);
 
     void getRotoPaintTreeNodes(NodesList* nodes) const;
@@ -454,6 +464,8 @@ private:
 
 
     NodePtr getOrCreateGlobalMergeNode(int *availableInputIndex);
+
+    NodePtr getOrCreateReplaceChannelsNode();
 
     void selectInternal(const RotoItemPtr& b, bool slaveKnobs = true);
     void deselectInternal(RotoItemPtr b);

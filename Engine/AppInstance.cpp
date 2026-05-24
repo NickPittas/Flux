@@ -42,6 +42,7 @@
 #include <QEventLoop>
 #include <QSettings>
 #include <QNetworkReply>
+#include <QDateTime>
 
 // ofxhPropertySuite.h:565:37: warning: 'this' pointer cannot be null in well-defined C++ code; comparison may be assumed to always evaluate to true [-Wtautological-undefined-compare]
 // clang-format off
@@ -1131,6 +1132,21 @@ AppInstance::createNodeInternal(CreateNodeArgs& args)
 
     bool isSilentCreation = args.getProperty<bool>(kCreateNodeArgsPropSilent);
 
+    const auto reportCreateNodeFailure = [this, isSilentCreation](const QString& pluginID, int majorVersion, const QString& reason) {
+        QString versionText = majorVersion == -1 ? tr("highest available") : QString::number(majorVersion);
+        QString message = tr("Cannot create node for plug-in ID `%1` (requested major version: %2).\n\nReason:\n%3\n\nHelp: this usually means the required OpenFX/PyPlug provider is not installed, failed to load, or was skipped because a shared library is missing. Check the OpenFX Error Log for failed bundle loads, run `ldd` on the relevant .ofx binary, install the missing libraries or provider bundle into `~/.OFX/Plugins` or `/usr/OFX/Plugins`, then clear the scoped OpenFX cache and restart Flux.")
+                          .arg(pluginID)
+                          .arg(versionText)
+                          .arg(reason);
+        appPTR->writeToErrorLog_mt_safe(QLatin1String("Plugin"), QDateTime::currentDateTime(), message);
+        appendToScriptEditor(message.toStdString());
+        if (isSilentCreation) {
+            std::cerr << message.toStdString() << std::endl;
+        } else {
+            Dialogs::errorDialog(tr("Plugin error").toStdString(), message.toStdString(), false);
+        }
+    };
+
 
 #ifdef NATRON_ENABLE_IO_META_NODES
     NodePtr argsIOContainer = args.getProperty<NodePtr>(kCreateNodeArgsPropMetaNodeContainer);
@@ -1153,17 +1169,14 @@ AppInstance::createNodeInternal(CreateNodeArgs& args)
         try {
             plugin = appPTR->getPluginBinaryFromOldID(argsPluginID, versionMajor, versionMinor);
         } catch (const std::exception& e2) {
-            if (!isSilentCreation) {
-                Dialogs::errorDialog(tr("Plugin error").toStdString(),
-                                 tr("Cannot load plug-in executable.").toStdString() + ": " + e2.what(), false );
-            } else {
-                std::cerr << tr("Cannot load plug-in executable.").toStdString() + ": " + e2.what() << std::endl;
-            }
+            reportCreateNodeFailure(argsPluginID, versionMajor, QString::fromUtf8(e2.what()));
             return node;
         }
     }
 
     if (!plugin) {
+        reportCreateNodeFailure(argsPluginID, versionMajor,
+                                tr("No registered plug-in matched this ID. The plug-in may be missing, may have failed to load during OpenFX scanning, or may only exist under a different legacy ID."));
         return node;
     }
 
@@ -1190,12 +1203,10 @@ AppInstance::createNodeInternal(CreateNodeArgs& args)
             try {
                 return createNodeFromPythonModule(plugin, args);
             } catch (const std::exception& e) {
-                if (!isSilentCreation) {
-                    Dialogs::errorDialog(tr("Plugin error").toStdString(),
-                                     tr("Cannot create PyPlug:").toStdString() + e.what(), false );
-                } else {
-                    std::cerr << tr("Cannot create PyPlug").toStdString() + ": " + e.what() << std::endl;
-                }
+                reportCreateNodeFailure(argsPluginID, versionMajor,
+                                        tr("Cannot create PyPlug from Python module `%1`: %2")
+                                        .arg(pythonModule)
+                                        .arg(QString::fromUtf8(e.what())));
                 return node;
             }
         } else {
@@ -1216,12 +1227,10 @@ AppInstance::createNodeInternal(CreateNodeArgs& args)
                 // ofxDesc = appPTR->getPluginContextAndDescribe(ofxPlugin, &ctx);
                 ofxDesc = appPTR->getPluginContextAndDescribe(ofxPlugin, &ctx);
             } catch (const std::exception& e) {
-                if (!isSilentCreation) {
-                    errorDialog(tr("Error while creating node").toStdString(), tr("Failed to create an instance of %1:").arg(argsPluginID).toStdString()
-                            + '\n' + e.what(), false);
-                } else {
-                    std::cerr << tr("Failed to create an instance of %1:").arg(argsPluginID).toStdString() + '\n' + e.what() << std::endl;
-                }
+                reportCreateNodeFailure(argsPluginID, versionMajor,
+                                        tr("Failed to describe OpenFX plug-in `%1`: %2")
+                                        .arg(plugin->getPluginID())
+                                        .arg(QString::fromUtf8(e.what())));
                 return NodePtr();
             }
 

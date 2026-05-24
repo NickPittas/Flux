@@ -178,9 +178,9 @@ DockablePanel::DockablePanel(Gui* gui,
         }
     }
 
-    const QSize mediumBSize( TO_DPIX(NATRON_MEDIUM_BUTTON_SIZE), TO_DPIY(NATRON_MEDIUM_BUTTON_SIZE) );
-    const QSize mediumIconSize( TO_DPIX(NATRON_MEDIUM_BUTTON_ICON_SIZE), TO_DPIY(NATRON_MEDIUM_BUTTON_ICON_SIZE) );
-    int iconSize = TO_DPIX(NATRON_MEDIUM_BUTTON_ICON_SIZE);
+    const QSize mediumBSize( TO_DPIX(NATRON_SMALL_BUTTON_SIZE), TO_DPIY(NATRON_SMALL_BUTTON_SIZE) );
+    const QSize mediumIconSize( TO_DPIX(NATRON_SMALL_BUTTON_ICON_SIZE), TO_DPIY(NATRON_SMALL_BUTTON_ICON_SIZE) );
+    int iconSize = TO_DPIX(NATRON_SMALL_BUTTON_ICON_SIZE);
     QColor currentColor;
     if (headerMode != eHeaderModeNoHeader) {
         _imp->_headerWidget = new QFrame(this);

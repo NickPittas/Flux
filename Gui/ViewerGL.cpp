@@ -3340,6 +3340,10 @@ ViewerGL::updatePersistentMessageToWidth(int w)
         return;
     }
 
+    if ( _imp->viewerTab->getGui()->getApp()->getProject()->isLoadingProject() ) {
+        return;
+    }
+
     const std::list<DockablePanel*>& openedPanels = _imp->viewerTab->getGui()->getVisiblePanels();
 
     _imp->persistentMessages.clear();

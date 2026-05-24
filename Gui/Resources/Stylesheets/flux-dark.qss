@@ -23,7 +23,7 @@ QWidget {
 }
 
 QFrame {
-    color: black;
+    color: %5;
 }
 
 QLabel {
@@ -859,4 +859,875 @@ QStatusBar {
 
 QStatusBar::item {
     border: none;
+}
+
+/* ── Flux Primary Button (Render) ────────────────────────────────── */
+
+QPushButton#fluxPrimaryButton {
+    background-color: #2d7d46;
+    color: white;
+    font-weight: bold;
+    font-size: 13px;
+    border-radius: 4px;
+    border: 1px solid #246b3a;
+    padding: 6px 16px;
+    min-height: 28px;
+}
+
+QPushButton#fluxPrimaryButton:hover {
+    background-color: #3a9957;
+    border: 1px solid #2d7d46;
+}
+
+QPushButton#fluxPrimaryButton:pressed {
+    background-color: #1f5e33;
+    border: 1px solid #1a4d29;
+}
+
+QPushButton#fluxPrimaryButton:!enabled {
+    background-color: #3a4a3f;
+    color: #888888;
+    border: 1px solid #333333;
+}
+
+/* ── Modern DCC Overrides ────────────────────────────────────────── */
+
+/* Flatter, more compact tabs */
+QTabBar::tab {
+    background: %4;
+    border: none;
+    border-bottom: 2px solid transparent;
+    min-width: 4em;
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    border-top-right-radius: 3px;
+    border-top-left-radius: 3px;
+    color: %5;
+    margin-right: 1px;
+}
+
+QTabBar::tab:selected {
+    background: %2;
+    border-bottom: 2px solid %1;
+    color: %5;
+}
+
+QTabBar::tab:hover:!selected {
+    background: %3;
+    border-bottom: 2px solid %3;
+}
+
+/* More compact, modern buttons */
+QPushButton {
+    background-color: %3;
+    color: %5;
+    border: 1px solid %4;
+    border-radius: 4px;
+    padding: 3px 10px;
+    min-height: 18px;
+}
+
+QPushButton:hover {
+    border: 1px solid %1;
+    background-color: %3;
+}
+
+QPushButton:pressed {
+    background-color: %1;
+    color: white;
+}
+
+QPushButton:focus {
+    border: 1px solid %1;
+}
+
+QPushButton:checked {
+    background-color: %1;
+    color: white;
+    border: 1px solid %1;
+}
+
+/* Modern line edits */
+QLineEdit {
+    border: 1px solid %4;
+    border-radius: 3px;
+    padding: 2px 6px;
+    color: %5;
+    background-color: %3;
+    selection-color: white;
+    selection-background-color: %1;
+    min-height: 18px;
+}
+
+QLineEdit:focus {
+    border: 1px solid %1;
+}
+
+/* Modern combo boxes */
+QComboBox {
+    color: %5;
+    background-color: %3;
+    selection-color: white;
+    selection-background-color: %1;
+    border: 1px solid %4;
+    border-radius: 3px;
+    padding: 2px 6px;
+    min-height: 18px;
+}
+
+QComboBox:hover {
+    border: 1px solid %1;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 18px;
+}
+
+QComboBox QAbstractItemView {
+    border-radius: 0px;
+    border: 1px solid %4;
+    color: %5;
+    background-color: %2;
+    selection-color: white;
+    selection-background-color: %1;
+    outline: none;
+}
+
+/* Modern group boxes */
+QGroupBox {
+    color: %5;
+    background-color: transparent;
+    border: 1px solid %4;
+    border-radius: 4px;
+    margin-top: 6px;
+    padding-top: 8px;
+    padding-bottom: 4px;
+    padding-left: 4px;
+    padding-right: 4px;
+    font-weight: bold;
+    font-size: 11px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 6px;
+    color: %5;
+    font-weight: bold;
+}
+
+/* Property panels / dockable panels */
+DockablePanel,
+Natron--DockablePanel {
+    background-color: %2;
+    color: %5;
+    border: 1px solid %4;
+    border-radius: 2px;
+}
+
+/* More modern scrollbars */
+QScrollBar:vertical {
+    border: none;
+    background: transparent;
+    width: 8px;
+    margin: 0px;
+}
+
+QScrollBar::handle:vertical {
+    background: %3;
+    min-height: 24px;
+    border-radius: 4px;
+    margin: 0 1px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: %1;
+}
+
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar:horizontal {
+    border: none;
+    background: transparent;
+    height: 8px;
+    margin: 0px;
+}
+
+QScrollBar::handle:horizontal {
+    background: %3;
+    min-width: 24px;
+    border-radius: 4px;
+    margin: 1px 0;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background: %1;
+}
+
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    background: none;
+}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
+/* Modern slider */
+QSlider::groove:horizontal {
+    background: %4;
+    height: 3px;
+    border-radius: 1px;
+}
+
+QSlider::handle:horizontal {
+    background: %1;
+    width: 12px;
+    height: 12px;
+    margin: -5px 0;
+    border-radius: 6px;
+    border: 2px solid %2;
+}
+
+QSlider::handle:horizontal:hover {
+    background: %11;
+    border: 2px solid %2;
+}
+
+QSlider::groove:vertical {
+    background: %4;
+    width: 3px;
+    border-radius: 1px;
+}
+
+QSlider::handle:vertical {
+    background: %1;
+    width: 12px;
+    height: 12px;
+    margin: 0 -5px;
+    border-radius: 6px;
+    border: 2px solid %2;
+}
+
+QSlider::handle:vertical:hover {
+    background: %11;
+    border: 2px solid %2;
+}
+
+/* Tree/List views */
+QTreeView, QListView {
+    color: %5;
+    background-color: %2;
+    selection-color: white;
+    selection-background-color: %1;
+    alternate-background-color: %4;
+    border: 1px solid %4;
+    border-radius: 3px;
+    outline: none;
+}
+
+QTreeView::item:selected, QListView::item:selected {
+    background: %1;
+    color: white;
+}
+
+QTreeView::item:hover, QListView::item:hover {
+    background: %3;
+}
+
+/* Spin boxes */
+QSpinBox, QDoubleSpinBox {
+    color: %5;
+    background-color: %3;
+    border: 1px solid %4;
+    border-radius: 3px;
+    padding: 2px 4px;
+    min-height: 18px;
+}
+
+QSpinBox:focus, QDoubleSpinBox:focus {
+    border: 1px solid %1;
+}
+
+QSpinBox::up-button, QDoubleSpinBox::up-button,
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    background: %4;
+    border: none;
+    width: 14px;
+}
+
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+    background: %1;
+}
+
+/* Splitter */
+QSplitter::handle:horizontal {
+    background-color: %4;
+    border: 0px;
+    width: 3px;
+}
+
+QSplitter::handle:vertical {
+    background-color: %4;
+    border: 0px;
+    height: 3px;
+}
+
+QSplitter::handle:hover {
+    background-color: %1;
+}
+
+/* ── Natron Custom Widget Polish (T067) ──────────────────────────── */
+
+/* AnimatedCheckBox — modern square with accent focus */
+AnimatedCheckBox,
+Natron--AnimatedCheckBox {
+    border: 1px solid %4;
+    border-radius: 4px;
+    background-color: %3;
+    min-width: 20px;
+    min-height: 20px;
+    max-width: 20px;
+    max-height: 20px;
+}
+
+AnimatedCheckBox:focus,
+Natron--AnimatedCheckBox:focus {
+    border: 1px solid %1;
+}
+
+/* ScaleSliderQWidget — ensure adequate height */
+ScaleSliderQWidget,
+Natron--ScaleSliderQWidget {
+    min-height: 28px;
+    background-color: transparent;
+}
+
+/* Natron Button (inherits QPushButton but may need explicit rules) */
+Button,
+Natron--Button {
+    background-color: %3;
+    color: %5;
+    border: 1px solid %4;
+    border-radius: 3px;
+    padding: 1px 6px;
+    min-height: 20px;
+}
+
+Button:hover,
+Natron--Button:hover {
+    border: 1px solid %1;
+}
+
+Button:pressed,
+Natron--Button:pressed {
+    background-color: %1;
+    color: white;
+}
+
+/* Property panels — internal breathing room */
+NodeSettingsPanel,
+Natron--NodeSettingsPanel {
+    padding: 4px;
+}
+
+/* Labels inside property panels — ensure legibility */
+KnobClickableLabel,
+Natron--KnobClickableLabel,
+ClickableLabel,
+Natron--ClickableLabel {
+    padding: 1px 2px;
+    color: %5;
+}
+
+/* Viewer tab spinboxes / small controls */
+ViewerTab QLineEdit,
+ViewerTab SpinBox,
+ViewerTab Natron--SpinBox {
+    min-height: 24px;
+    padding: 2px 4px;
+}
+
+/* Ensure all line edits inside property panels are readable */
+DockablePanel LineEdit,
+Natron--DockablePanel LineEdit,
+DockablePanel SpinBox,
+Natron--DockablePanel SpinBox {
+    min-height: 26px;
+    padding: 2px 6px;
+}
+
+/* ComboBox (Natron custom) polish */
+ComboBox,
+Natron--ComboBox {
+    min-height: 28px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid %4;
+}
+
+ComboBox:focus,
+Natron--ComboBox:focus {
+    border: 1px solid %1;
+}
+
+/* ── Flux final property-control overrides (T067) ───────────────────
+   Keep this block at EOF. It is deliberately scoped to property panels
+   so viewer/tool/tab buttons keep their native compact size. */
+
+/* Property controls: readable but compact; no global toolbar impact. */
+DockablePanel QLineEdit,
+Natron--DockablePanel QLineEdit,
+DockablePanel LineEdit,
+Natron--DockablePanel LineEdit,
+DockablePanel SpinBox,
+Natron--DockablePanel SpinBox,
+DockablePanel QSpinBox,
+Natron--DockablePanel QSpinBox,
+DockablePanel QDoubleSpinBox,
+Natron--DockablePanel QDoubleSpinBox,
+DockablePanel QComboBox,
+Natron--DockablePanel QComboBox,
+DockablePanel ComboBox,
+Natron--DockablePanel ComboBox,
+NodeSettingsPanel QLineEdit,
+Natron--NodeSettingsPanel QLineEdit,
+NodeSettingsPanel LineEdit,
+Natron--NodeSettingsPanel LineEdit,
+NodeSettingsPanel SpinBox,
+Natron--NodeSettingsPanel SpinBox,
+NodeSettingsPanel QSpinBox,
+Natron--NodeSettingsPanel QSpinBox,
+NodeSettingsPanel QDoubleSpinBox,
+Natron--NodeSettingsPanel QDoubleSpinBox,
+NodeSettingsPanel QComboBox,
+Natron--NodeSettingsPanel QComboBox,
+NodeSettingsPanel ComboBox,
+Natron--NodeSettingsPanel ComboBox {
+    min-height: 24px;
+    min-width: 52px;
+    padding: 2px 6px;
+    border: 1px solid #3f424c;
+    border-radius: 3px;
+    background-color: #2d3038;
+    color: #d8dbe2;
+    selection-background-color: %1;
+    selection-color: #ffffff;
+}
+
+DockablePanel QComboBox,
+Natron--DockablePanel QComboBox,
+DockablePanel ComboBox,
+Natron--DockablePanel ComboBox,
+NodeSettingsPanel QComboBox,
+Natron--NodeSettingsPanel QComboBox,
+NodeSettingsPanel ComboBox,
+Natron--NodeSettingsPanel ComboBox {
+    min-width: 88px;
+}
+
+DockablePanel SpinBox[animation="3"],
+Natron--DockablePanel SpinBox[animation="3"],
+NodeSettingsPanel SpinBox[animation="3"],
+Natron--NodeSettingsPanel SpinBox[animation="3"],
+DockablePanel LineEdit[animation="3"],
+Natron--DockablePanel LineEdit[animation="3"],
+NodeSettingsPanel LineEdit[animation="3"],
+Natron--NodeSettingsPanel LineEdit[animation="3"] {
+    color: %5;
+}
+
+DockablePanel QLineEdit:hover,
+Natron--DockablePanel QLineEdit:hover,
+DockablePanel LineEdit:hover,
+Natron--DockablePanel LineEdit:hover,
+DockablePanel SpinBox:hover,
+Natron--DockablePanel SpinBox:hover,
+DockablePanel QComboBox:hover,
+Natron--DockablePanel QComboBox:hover,
+DockablePanel ComboBox:hover,
+Natron--DockablePanel ComboBox:hover,
+NodeSettingsPanel QLineEdit:hover,
+Natron--NodeSettingsPanel QLineEdit:hover,
+NodeSettingsPanel LineEdit:hover,
+Natron--NodeSettingsPanel LineEdit:hover,
+NodeSettingsPanel SpinBox:hover,
+Natron--NodeSettingsPanel SpinBox:hover,
+NodeSettingsPanel QComboBox:hover,
+Natron--NodeSettingsPanel QComboBox:hover,
+NodeSettingsPanel ComboBox:hover,
+Natron--NodeSettingsPanel ComboBox:hover {
+    border-color: #5a6070;
+    background-color: #333741;
+}
+
+DockablePanel QLineEdit:focus,
+Natron--DockablePanel QLineEdit:focus,
+DockablePanel LineEdit:focus,
+Natron--DockablePanel LineEdit:focus,
+DockablePanel SpinBox:focus,
+Natron--DockablePanel SpinBox:focus,
+DockablePanel QComboBox:focus,
+Natron--DockablePanel QComboBox:focus,
+DockablePanel ComboBox:focus,
+Natron--DockablePanel ComboBox:focus,
+NodeSettingsPanel QLineEdit:focus,
+Natron--NodeSettingsPanel QLineEdit:focus,
+NodeSettingsPanel LineEdit:focus,
+Natron--NodeSettingsPanel LineEdit:focus,
+NodeSettingsPanel SpinBox:focus,
+Natron--NodeSettingsPanel SpinBox:focus,
+NodeSettingsPanel QComboBox:focus,
+Natron--NodeSettingsPanel QComboBox:focus,
+NodeSettingsPanel ComboBox:focus,
+Natron--NodeSettingsPanel ComboBox:focus {
+    border: 1px solid %1;
+    background-color: #353944;
+}
+
+DockablePanel QLineEdit:disabled,
+Natron--DockablePanel QLineEdit:disabled,
+DockablePanel LineEdit:disabled,
+Natron--DockablePanel LineEdit:disabled,
+DockablePanel SpinBox:disabled,
+Natron--DockablePanel SpinBox:disabled,
+DockablePanel QComboBox:disabled,
+Natron--DockablePanel QComboBox:disabled,
+DockablePanel ComboBox:disabled,
+Natron--DockablePanel ComboBox:disabled,
+NodeSettingsPanel QLineEdit:disabled,
+Natron--NodeSettingsPanel QLineEdit:disabled,
+NodeSettingsPanel LineEdit:disabled,
+Natron--NodeSettingsPanel LineEdit:disabled,
+NodeSettingsPanel SpinBox:disabled,
+Natron--NodeSettingsPanel SpinBox:disabled,
+NodeSettingsPanel QComboBox:disabled,
+Natron--NodeSettingsPanel QComboBox:disabled,
+NodeSettingsPanel ComboBox:disabled,
+Natron--NodeSettingsPanel ComboBox:disabled {
+    color: #747985;
+    background-color: #242730;
+    border-color: #333640;
+}
+
+/* Native combo boxes inside property panels: readable arrow without bloat. */
+DockablePanel QComboBox,
+Natron--DockablePanel QComboBox,
+NodeSettingsPanel QComboBox,
+Natron--NodeSettingsPanel QComboBox {
+    padding-right: 24px;
+}
+
+DockablePanel QComboBox::drop-down,
+Natron--DockablePanel QComboBox::drop-down,
+NodeSettingsPanel QComboBox::drop-down,
+Natron--NodeSettingsPanel QComboBox::drop-down {
+    width: 22px;
+    border-left: 1px solid #3f424c;
+    background-color: #343844;
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+}
+
+DockablePanel QComboBox::down-arrow,
+Natron--DockablePanel QComboBox::down-arrow,
+NodeSettingsPanel QComboBox::down-arrow,
+Natron--NodeSettingsPanel QComboBox::down-arrow {
+    image: none;
+    width: 0px;
+    height: 0px;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #cbd1dc;
+}
+
+QComboBox QAbstractItemView,
+ComboBoxMenu,
+Natron--Menu {
+    min-height: 22px;
+    padding: 2px;
+    border: 1px solid #4a5060;
+    background-color: #252832;
+    color: #d8dbe2;
+    selection-background-color: %1;
+    selection-color: #ffffff;
+}
+
+/* Buttons inside property panels only. Do not touch viewer/toolbars/tabs. */
+DockablePanel QPushButton,
+Natron--DockablePanel QPushButton,
+DockablePanel Button,
+Natron--DockablePanel Button,
+NodeSettingsPanel QPushButton,
+Natron--NodeSettingsPanel QPushButton,
+NodeSettingsPanel Button,
+Natron--NodeSettingsPanel Button {
+    min-height: 20px;
+    min-width: 20px;
+    padding: 1px 6px;
+    border: 1px solid #3f424c;
+    border-radius: 3px;
+    background-color: #30343e;
+    color: #d8dbe2;
+}
+
+DockablePanel QPushButton:hover,
+Natron--DockablePanel QPushButton:hover,
+DockablePanel Button:hover,
+Natron--DockablePanel Button:hover,
+NodeSettingsPanel QPushButton:hover,
+Natron--NodeSettingsPanel QPushButton:hover,
+NodeSettingsPanel Button:hover,
+Natron--NodeSettingsPanel Button:hover {
+    border-color: %1;
+    background-color: #3a3f4c;
+}
+
+DockablePanel QPushButton:pressed,
+Natron--DockablePanel QPushButton:pressed,
+DockablePanel Button:pressed,
+Natron--DockablePanel Button:pressed,
+DockablePanel QPushButton:checked,
+Natron--DockablePanel QPushButton:checked,
+DockablePanel Button:checked,
+Natron--DockablePanel Button:checked,
+NodeSettingsPanel QPushButton:pressed,
+Natron--NodeSettingsPanel QPushButton:pressed,
+NodeSettingsPanel Button:pressed,
+Natron--NodeSettingsPanel Button:pressed,
+NodeSettingsPanel QPushButton:checked,
+Natron--NodeSettingsPanel QPushButton:checked,
+NodeSettingsPanel Button:checked,
+Natron--NodeSettingsPanel Button:checked {
+    border-color: %1;
+    background-color: %1;
+    color: #ffffff;
+}
+
+/* Checkboxes: larger hit area and modern square indicator. */
+QCheckBox {
+    min-height: 22px;
+    spacing: 6px;
+    color: #d8dbe2;
+}
+
+QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+    border: 1px solid #5a6070;
+    border-radius: 2px;
+    background-color: #2d3038;
+}
+
+QCheckBox::indicator:hover {
+    border-color: %1;
+    background-color: #343844;
+}
+
+QCheckBox::indicator:checked {
+    border-color: %1;
+    background-color: %1;
+    image: none;
+}
+
+AnimatedCheckBox,
+Natron--AnimatedCheckBox {
+    min-width: 18px;
+    min-height: 18px;
+    max-width: 18px;
+    max-height: 18px;
+    border: 1px solid #5a6070;
+    border-radius: 3px;
+    background-color: #2d3038;
+}
+
+AnimatedCheckBox:focus,
+Natron--AnimatedCheckBox:focus {
+    border-color: %1;
+}
+
+/* Sliders: native Qt sliders plus Natron's custom ScaleSliderQWidget. */
+QSlider {
+    min-height: 22px;
+}
+
+QSlider::groove:horizontal {
+    height: 4px;
+    border-radius: 2px;
+    background: #3a3e49;
+}
+
+QSlider::sub-page:horizontal {
+    border-radius: 3px;
+    background: %1;
+}
+
+QSlider::handle:horizontal {
+    width: 10px;
+    height: 18px;
+    margin: -7px 0;
+    border-radius: 3px;
+    border: 1px solid #1e2028;
+    background: #8fa0b7;
+}
+
+QSlider::handle:horizontal:hover {
+    background: #b7c4d8;
+    border-color: %1;
+}
+
+ScaleSliderQWidget,
+Natron--ScaleSliderQWidget {
+    min-height: 28px;
+    padding-top: 0px;
+    padding-bottom: 0px;
+    background-color: transparent;
+}
+
+/* Property panels: clearer rhythm, less cramped rows. */
+DockablePanel,
+Natron--DockablePanel,
+NodeSettingsPanel,
+Natron--NodeSettingsPanel {
+    padding: 4px;
+}
+
+KnobClickableLabel,
+Natron--KnobClickableLabel,
+ClickableLabel,
+Natron--ClickableLabel,
+QLabel {
+    min-height: 20px;
+    padding: 1px 3px;
+    color: #cfd3dc;
+}
+
+/* Project Settings path tables and similar item views must stay readable. */
+QTableView,
+QTableWidget,
+QAbstractItemView {
+    color: #cfd3dc;
+    background-color: #1f2128;
+    alternate-background-color: #252832;
+    selection-color: #ffffff;
+    selection-background-color: %1;
+}
+
+QTableView::item,
+QTableWidget::item {
+    color: #cfd3dc;
+}
+
+/* ── Flux panel color accents (T069) ────────────────────────────────
+   Subtle gray-tinted color coding only. Node Graph intentionally stays neutral. */
+
+/* Project Bin — cyan/teal tint */
+#FluxProjectBin {
+    background-color: #1f2529;
+    border-left: 3px solid #357783;
+}
+
+#FluxProjectBin QLabel#fluxPanelHeader {
+    color: #a9dce4;
+}
+
+#FluxProjectBin QListWidget,
+#FluxProjectBin QListView {
+    background-color: #20282d;
+    alternate-background-color: #243039;
+    border: 1px solid #2e4249;
+}
+
+#FluxProjectBin QLineEdit {
+    background-color: #263038;
+    border-color: #365260;
+}
+
+#FluxProjectBin QPushButton,
+#FluxProjectBin QToolButton {
+    background-color: #29343b;
+    border-color: #3a5963;
+}
+
+#FluxProjectBin QPushButton:hover,
+#FluxProjectBin QToolButton:hover {
+    background-color: #31404a;
+    border-color: #55a6b5;
+}
+
+/* Properties — cool blue/indigo tint */
+#FluxPropertiesPanel,
+#Properties,
+#_propertiesContainer {
+    background-color: #20222b;
+}
+
+#FluxPropertiesPanel {
+    border-left: 3px solid #4b6fa7;
+}
+
+#FluxPropertiesPanel NodeSettingsPanel,
+#FluxPropertiesPanel Natron--NodeSettingsPanel,
+#FluxPropertiesPanel DockablePanel,
+#FluxPropertiesPanel Natron--DockablePanel {
+    background-color: #212430;
+    border-color: #2f3d57;
+}
+
+#FluxPropertiesPanel QGroupBox {
+    background-color: #20232d;
+    border-color: #2d3b54;
+}
+
+/* Export — muted amber tint */
+#FluxExportPanel,
+#FluxExportScrollArea,
+#FluxExportContent {
+    background-color: #25231f;
+}
+
+#FluxExportPanel {
+    border-left: 3px solid #a87832;
+}
+
+#FluxExportPanel QGroupBox {
+    background-color: #28251f;
+    border-color: #4b3a22;
+}
+
+#FluxExportPanel QLineEdit,
+#FluxExportPanel LineEdit,
+#FluxExportPanel SpinBox,
+#FluxExportPanel ComboBox,
+#FluxExportPanel Natron--ComboBox,
+#FluxExportPanel QComboBox {
+    background-color: #302a22;
+    border-color: #5b4528;
+}
+
+#FluxExportPanel QPushButton,
+#FluxExportPanel Button,
+#FluxExportPanel Natron--Button {
+    background-color: #332d23;
+    border-color: #5a4226;
+}
+
+#FluxExportPanel QPushButton:hover,
+#FluxExportPanel Button:hover,
+#FluxExportPanel Natron--Button:hover {
+    background-color: #3b3327;
+    border-color: #b8873b;
 }

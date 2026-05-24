@@ -355,29 +355,43 @@ Gui::loadFluxStyleSheet()
 
     // Load Natron's mainstyle.qss template with Flux colors
     QFile qss(QStringLiteral(":/Resources/Stylesheets/mainstyle.qss"));
+    QString content;
     if ( qss.open(QIODevice::ReadOnly | QIODevice::Text) ) {
         QTextStream in(&qss);
-        QString content = QString::fromUtf8("QWidget { font-family: \"%1\"; font-size: %2pt; }\n"
-                                            "QListView { font-family: \"%1\"; font-size: %2pt; }\n"
-                                            "QComboBox::drop-down { font-family: \"%1\"; font-size: %2pt; }\n"
-                                            "QInputDialog { font-family: \"%1\"; font-size: %2pt; }\n"
-                                            ).arg(appFont).arg(appFontSize);
+        content = QString::fromUtf8("QWidget { font-family: \"%1\"; font-size: %2pt; }\n"
+                                    "QListView { font-family: \"%1\"; font-size: %2pt; }\n"
+                                    "QComboBox::drop-down { font-family: \"%1\"; font-size: %2pt; }\n"
+                                    "QInputDialog { font-family: \"%1\"; font-size: %2pt; }\n"
+                                    ).arg(appFont).arg(appFontSize);
         content += in.readAll();
-        qApp->setStyleSheet( content
-                             .arg( qcolor_to_qstring(fluxSelection) )  // %1: selection-color
-                             .arg( qcolor_to_qstring(fluxBase) )       // %2: medium background
-                             .arg( qcolor_to_qstring(fluxRaised) )     // %3: soft background
-                             .arg( qcolor_to_qstring(fluxSunken) )     // %4: strong background
-                             .arg( qcolor_to_qstring(fluxText) )       // %5: text colour
-                             .arg( qcolor_to_qstring(fluxInterp) )     // %6: interpolated value color
-                             .arg( qcolor_to_qstring(fluxKeyframe) )   // %7: keyframe value color
-                             .arg( qcolor_to_qstring(fluxDisabled) )   // %8: disabled editable text
-                             .arg( qcolor_to_qstring(fluxExpr) )       // %9: expression background color
-                             .arg( qcolor_to_qstring(fluxAltText) )    // %10: altered text color
-                             .arg( qcolor_to_qstring(fluxHover) ) );   // %11: mouse over selection color
     } else {
         Dialogs::errorDialog( tr("Stylesheet").toStdString(), tr("Failure to load Flux stylesheet file ").toStdString() + qss.fileName().toStdString() );
     }
+
+    // Append Flux dark overrides after Natron's base stylesheet so Flux's
+    // modern DCC controls win without replacing the full Natron theme.
+    const bool appendFluxDarkOverrides = true;
+    if (appendFluxDarkOverrides) {
+        QFile fluxQss(QStringLiteral(":/Resources/Stylesheets/flux-dark.qss"));
+        if ( fluxQss.open(QIODevice::ReadOnly | QIODevice::Text) ) {
+            QTextStream fluxIn(&fluxQss);
+            content += QLatin1Char('\n');
+            content += fluxIn.readAll();
+        }
+    }
+
+    qApp->setStyleSheet( content
+                         .arg( qcolor_to_qstring(fluxSelection) )  // %1: selection-color
+                         .arg( qcolor_to_qstring(fluxBase) )       // %2: medium background
+                         .arg( qcolor_to_qstring(fluxRaised) )     // %3: soft background
+                         .arg( qcolor_to_qstring(fluxSunken) )     // %4: strong background
+                         .arg( qcolor_to_qstring(fluxText) )       // %5: text colour
+                         .arg( qcolor_to_qstring(fluxInterp) )     // %6: interpolated value color
+                         .arg( qcolor_to_qstring(fluxKeyframe) )   // %7: keyframe value color
+                         .arg( qcolor_to_qstring(fluxDisabled) )   // %8: disabled editable text
+                         .arg( qcolor_to_qstring(fluxExpr) )       // %9: expression background color
+                         .arg( qcolor_to_qstring(fluxAltText) )    // %10: altered text color
+                         .arg( qcolor_to_qstring(fluxHover) ) );   // %11: mouse over selection color
 } // Gui::loadFluxStyleSheet
 
 void
@@ -1564,4 +1578,3 @@ Gui::isAboutToClose() const
 }
 
 NATRON_NAMESPACE_EXIT
-

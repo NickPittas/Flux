@@ -25,6 +25,8 @@
 
 #include "RotoContext.h"
 
+#include "RotoReplaceChannels.h"
+
 #include <algorithm> // min, max
 #include <sstream>
 #include <locale>
@@ -139,6 +141,10 @@ RotoContext::setWhileCreatingPaintStrokeOnMergeNodes(bool b)
     for (NodesList::iterator it = _imp->globalMergeNodes.begin(); it != _imp->globalMergeNodes.end(); ++it) {
         (*it)->setWhileCreatingPaintStroke(b);
     }
+    NodePtr replaceNode = _imp->replaceChannelsNode.lock();
+    if (replaceNode) {
+        replaceNode->setWhileCreatingPaintStroke(b);
+    }
 }
 
 NodePtr
@@ -193,6 +199,10 @@ RotoContext::getRotoPaintTreeNodes(NodesList* nodes) const
     QMutexLocker k(&_imp->rotoContextMutex);
     for (NodesList::const_iterator it = _imp->globalMergeNodes.begin(); it != _imp->globalMergeNodes.end(); ++it) {
         nodes->push_back(*it);
+    }
+    NodePtr replaceNode = _imp->replaceChannelsNode.lock();
+    if (replaceNode) {
+        nodes->push_back(replaceNode);
     }
 }
 
@@ -4640,6 +4650,99 @@ RotoContext::removeItemAsPythonField(const RotoItemPtr& item)
 }
 
 NodePtr
+RotoContext::getOrCreateReplaceChannelsNode()
+{
+    {
+        QMutexLocker k(&_imp->rotoContextMutex);
+        NodePtr existing = _imp->replaceChannelsNode.lock();
+        if (existing) {
+            return existing;
+        }
+    }
+
+    NodePtr node = getNode();
+    QString fixedNamePrefix = QString::fromUtf8( node->getScriptName_mt_safe().c_str() );
+    fixedNamePrefix.append( QLatin1Char('_') );
+    fixedNamePrefix.append( QString::fromUtf8("replaceChannels") );
+
+    CreateNodeArgs args( PLUGINID_NATRON_ROTO_REPLACE_CHANNELS, NodeCollectionPtr() );
+    args.setProperty<bool>(kCreateNodeArgsPropOutOfProject, true);
+    args.setProperty<bool>(kCreateNodeArgsPropNoNodeGUI, true);
+    args.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+    args.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+    args.setProperty<bool>(kCreateNodeArgsPropSilent, true);
+    args.setProperty<bool>(kCreateNodeArgsPropTrustPluginID, true);
+    args.setProperty<bool>(kCreateNodeArgsPropAllowNonUserCreatablePlugins, true);
+    args.setProperty<std::string>(kCreateNodeArgsPropNodeInitialName, fixedNamePrefix.toStdString());
+
+    NodePtr replaceNode = node->getApp()->createNode(args);
+    if (!replaceNode) {
+        return replaceNode;
+    }
+    if ( node->isDuringPaintStrokeCreation() ) {
+        replaceNode->setWhileCreatingPaintStroke(true);
+    }
+
+    QMutexLocker k(&_imp->rotoContextMutex);
+    _imp->replaceChannelsNode = replaceNode;
+
+    return replaceNode;
+}
+
+void
+RotoContext::syncReplaceChannelsNodeKnobs()
+{
+    NodePtr replaceNode;
+    {
+        QMutexLocker k(&_imp->rotoContextMutex);
+        replaceNode = _imp->replaceChannelsNode.lock();
+    }
+    if (!replaceNode) {
+        return;
+    }
+
+    NodePtr parentNode = getNode();
+    EffectInstancePtr parentEffect = parentNode ? parentNode->getEffectInstance() : EffectInstancePtr();
+    if (!parentEffect) {
+        return;
+    }
+
+    KnobIPtr parentReplaceKnob = parentEffect->getKnobByName("replaceSelectedChannels");
+    KnobIPtr internalReplaceKnob = replaceNode->getKnobByName("replaceSelectedChannels");
+    if (parentReplaceKnob && internalReplaceKnob) {
+        KnobBool* src = dynamic_cast<KnobBool*>(parentReplaceKnob.get());
+        KnobBool* dst = dynamic_cast<KnobBool*>(internalReplaceKnob.get());
+        if (src && dst) {
+            dst->setValue(src->getValue(), ViewSpec::all(), 0, eValueChangedReasonNatronInternalEdited, nullptr);
+        }
+    }
+    std::string channelNames[4] = {"NatronOfxParamProcessR", "NatronOfxParamProcessG", "NatronOfxParamProcessB", "NatronOfxParamProcessA"};
+    std::string internalChannelNames[4] = {"processR", "processG", "processB", "processA"};
+    for (int i = 0; i < 4; ++i) {
+        KnobIPtr srcKnob = parentEffect->getKnobByName(channelNames[i]);
+        KnobIPtr dstKnob = replaceNode->getKnobByName(internalChannelNames[i]);
+        if (srcKnob && dstKnob) {
+            KnobBool* src = dynamic_cast<KnobBool*>(srcKnob.get());
+            KnobBool* dst = dynamic_cast<KnobBool*>(dstKnob.get());
+            if (src && dst) {
+                dst->setValue(src->getValue(), ViewSpec::all(), 0, eValueChangedReasonNatronInternalEdited, nullptr);
+            }
+        }
+    }
+}
+
+NodePtr
+RotoContext::getRotoPaintInputForInternalTree()
+{
+    QMutexLocker k(&_imp->rotoContextMutex);
+    NodePtr replaceNode = _imp->replaceChannelsNode.lock();
+    if (replaceNode) {
+        return replaceNode;
+    }
+    return getNode()->getInput(0);
+}
+
+NodePtr
 RotoContext::getOrCreateGlobalMergeNode(int *availableInputIndex)
 {
     {
@@ -4721,14 +4824,28 @@ RotoContext::refreshRotoPaintTree()
             (*it)->disconnectInput(i);
         }
     }
+
+    // Ensure the replace channels node exists and sync its knobs from parent
+    NodePtr replaceNode = getOrCreateReplaceChannelsNode();
+    syncReplaceChannelsNodeKnobs();
+
+    if (replaceNode) {
+        replaceNode->disconnectInput(0);
+        // Connect: parent input 0 -> replace node input 0
+        NodePtr rotopaintNodeInput = getNode()->getInput(0);
+        if (rotopaintNodeInput) {
+            replaceNode->connectInput(rotopaintNodeInput, 0);
+        }
+    }
+
     if (canConcatenate) {
         globalMerge = getOrCreateGlobalMergeNode(&globalMergeIndex);
     }
     if (globalMerge) {
-        NodePtr rotopaintNodeInput = getNode()->getInput(0);
-        //Connect the rotopaint node input to the B input of the Merge
-        if (rotopaintNodeInput) {
-            globalMerge->connectInput(rotopaintNodeInput, 0);
+        // Connect replace node (or raw input 0 if replace node couldn't be created) to globalMerge B
+        NodePtr effectiveInput = replaceNode ? replaceNode : getNode()->getInput(0);
+        if (effectiveInput) {
+            globalMerge->connectInput(effectiveInput, 0);
         }
     }
 

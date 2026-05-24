@@ -367,10 +367,9 @@ Gui::onDoDialog(int type,
     } else { // question dialog
         assert(type == 3);
         QMessageBox ques(QMessageBox::Question, title, msg, QtEnumConvert::toQtStandarButtons(buttons),
-                         this, Qt::Dialog | Qt::MSWindowsFixedSizeDialogHint | Qt::WindowStaysOnTopHint);
+                         this);
         setQMessageBoxAppropriateFont(&ques);
         ques.setDefaultButton( QtEnumConvert::toQtStandardButton( (StandardButtonEnum)defaultB ) );
-        ques.setWindowFlags(ques.windowFlags() | Qt::WindowStaysOnTopHint);
         if ( ques.exec() ) {
             _imp->_lastQuestionDialogAnswer = QtEnumConvert::fromQtStandardButton( ques.standardButton( ques.clickedButton() ) );
         }

@@ -792,6 +792,11 @@ Gui::addShortcut(BoundAction* action)
 void
 Gui::getNodesEntitledForOverlays(NodesList & nodes) const
 {
+    ProjectPtr project = getApp()->getProject();
+    if ( project && project->isLoadingProject() ) {
+        return;
+    }
+
     std::list<DockablePanel*> panels;
     {
         QMutexLocker k(&_imp->openedPanelsMutex);
@@ -800,13 +805,19 @@ Gui::getNodesEntitledForOverlays(NodesList & nodes) const
 
     for (std::list<DockablePanel*>::const_iterator it = panels.begin();
          it != panels.end(); ++it) {
+        if (!*it) {
+            continue;
+        }
         NodeSettingsPanel* panel = dynamic_cast<NodeSettingsPanel*>(*it);
         if (!panel) {
             continue;
         }
         NodeGuiPtr node = panel->getNode();
+        if (!node) {
+            continue;
+        }
         NodePtr internalNode = node->getNode();
-        if (node && internalNode) {
+        if (internalNode) {
             if ( internalNode->shouldDrawOverlay() ) {
                 nodes.push_back( node->getNode() );
             }

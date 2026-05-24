@@ -57,6 +57,39 @@ struct FluxEffectSerialization
     }
 };
 
+struct FluxMaskSerialization
+{
+    std::string name;
+    std::string type;
+    std::string pluginId;
+    bool enabled;
+    bool inverted;
+    int effectIndex;
+    std::string maskNodeScriptName;
+    std::string reformatNodeScriptName;
+
+    FluxMaskSerialization()
+        : type("layer")
+        , enabled(true)
+        , inverted(false)
+        , effectIndex(-1)
+    {}
+
+    friend class ::boost::serialization::access;
+    template<class Archive>
+    void serialize(Archive & ar, const unsigned int /*version*/)
+    {
+        ar & ::boost::serialization::make_nvp("Name", name);
+        ar & ::boost::serialization::make_nvp("Type", type);
+        ar & ::boost::serialization::make_nvp("PluginId", pluginId);
+        ar & ::boost::serialization::make_nvp("Enabled", enabled);
+        ar & ::boost::serialization::make_nvp("Inverted", inverted);
+        ar & ::boost::serialization::make_nvp("EffectIndex", effectIndex);
+        ar & ::boost::serialization::make_nvp("MaskNode", maskNodeScriptName);
+        ar & ::boost::serialization::make_nvp("ReformatNode", reformatNodeScriptName);
+    }
+};
+
 struct FluxLayerSerialization
 {
     // Identity
@@ -98,6 +131,11 @@ struct FluxLayerSerialization
     // Child effects
     std::vector<FluxEffectSerialization> effects;
 
+    // Masks
+    bool hasPrecompBranch;
+    std::string maskApplyNodeScriptName;
+    std::vector<FluxMaskSerialization> masks;
+
     FluxLayerSerialization()
         : name()
         , filePath()
@@ -126,11 +164,14 @@ struct FluxLayerSerialization
         , gizmoNodeScriptName()
         , mergeNodeScriptName()
         , effects()
+        , hasPrecompBranch(false)
+        , maskApplyNodeScriptName()
+        , masks()
     {}
 
     friend class ::boost::serialization::access;
     template<class Archive>
-    void serialize(Archive & ar, const unsigned int /*version*/)
+    void serialize(Archive & ar, const unsigned int version)
     {
         ar & ::boost::serialization::make_nvp("Name", name);
         ar & ::boost::serialization::make_nvp("FilePath", filePath);
@@ -167,6 +208,20 @@ struct FluxLayerSerialization
         for (int i = 0; i < numEffects; ++i) {
             ar & ::boost::serialization::make_nvp("Effect", effects[i]);
         }
+
+        if (version >= 1) {
+            ar & ::boost::serialization::make_nvp("HasPrecompBranch", hasPrecompBranch);
+            ar & ::boost::serialization::make_nvp("MaskApplyNodeScriptName", maskApplyNodeScriptName);
+
+            int numMasks = (int)masks.size();
+            ar & ::boost::serialization::make_nvp("NumMasks", numMasks);
+            if (Archive::is_loading::value) {
+                masks.resize(numMasks);
+            }
+            for (int i = 0; i < numMasks; ++i) {
+                ar & ::boost::serialization::make_nvp("Mask", masks[i]);
+            }
+        }
     }
 };
 
@@ -202,5 +257,7 @@ struct FluxTimelineSerialization
 NATRON_NAMESPACE_EXIT
 
 BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxTimelineSerialization, 1)
+BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxLayerSerialization, 1)
+BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxMaskSerialization, 1)
 
 #endif // FLUXTIMELINESERIALIZATION_H

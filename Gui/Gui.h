@@ -414,6 +414,7 @@ public:
 
     void addVisibleDockablePanel(DockablePanel* panel);
     void removeVisibleDockablePanel(DockablePanel* panel);
+    void clearVisibleDockablePanels();
 
     const std::list<DockablePanel*>& getVisiblePanels() const;
     std::list<DockablePanel*> getVisiblePanels_mt_safe() const;

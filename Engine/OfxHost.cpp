@@ -874,6 +874,11 @@ OfxHost::loadOFXPlugins(IOPluginsMap* readersMap,
     _imp->imageEffectPluginCache->registerInCache( *pluginCache );
 
     if (useStdOFXPluginsLocation) {
+#if defined(__linux__) || defined(__FreeBSD__)
+        const std::string userOFXPath = QDir::homePath().toStdString() + "/.OFX/Plugins";
+        qDebug() << "Load OFX Plugins: prepend user plugins dir" << userOFXPath.c_str();
+        pluginCache->prependFileToPath(userOFXPath);
+#endif
         pluginCache->setPluginHostPath(NATRON_APPLICATION_NAME);
         pluginCache->setPluginHostPath("Nuke"); // most Nuke OFX plugins are compatible
     }
@@ -931,6 +936,19 @@ OfxHost::loadOFXPlugins(IOPluginsMap* readersMap,
     qDebug() << "Load OFX Plugins: plugin path is" << pluginCache->getPluginPath();
     qDebug() << "Load OFX Plugins: scan plugins...";
     pluginCache->scanPluginFiles();
+    const std::list<OFX::Host::PluginBinary*>& ofxBinaries = pluginCache->getBinaries();
+    for (std::list<OFX::Host::PluginBinary*>::const_iterator it = ofxBinaries.begin(); it != ofxBinaries.end(); ++it) {
+        const OFX::Host::PluginBinary* binary = *it;
+        if (!binary || !binary->isInvalid()) {
+            continue;
+        }
+        QString message = tr("Failed to load OpenFX plug-in binary:\n%1\n\nReason:\n%2\n\nHelp: verify that the bundle is compatible with this Linux build, run `ldd` on the .ofx binary to find missing shared libraries, install the missing libraries or remove the broken bundle, then clear the scoped OpenFX cache and restart Flux.")
+                          .arg(QString::fromUtf8(binary->getFilePath().c_str()))
+                          .arg(QString::fromUtf8(binary->getLoadError().empty() ? "Unknown load error" : binary->getLoadError().c_str()));
+        appPTR->writeToErrorLog_mt_safe(QLatin1String("OpenFX"), QDateTime::currentDateTime(), message);
+        std::cerr << message.toStdString() << std::endl;
+        qWarning() << message;
+    }
     qDebug() << "Load OFX Plugins: scan plugins... done!";
     _imp->loadingPluginID.clear(); // finished loading plugins
 
@@ -1735,4 +1753,3 @@ OfxHost::flushOpenGLResources() const
 #endif
 
 NATRON_NAMESPACE_EXIT
-

@@ -396,6 +396,13 @@ Gui::removeVisibleDockablePanel(DockablePanel* panel)
     }
 }
 
+void
+Gui::clearVisibleDockablePanels()
+{
+    QMutexLocker k(&_imp->openedPanelsMutex);
+    _imp->openedPanels.clear();
+}
+
 const std::list<DockablePanel*>&
 Gui::getVisiblePanels() const
 {

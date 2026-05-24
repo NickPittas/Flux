@@ -43,6 +43,39 @@ CLANG_DIAG_ON(uninitialized)
 
 NATRON_NAMESPACE_ENTER
 
+enum FluxVisibleRowType {
+    eFluxVisibleRowLayer,
+    eFluxVisibleRowEffect,
+    eFluxVisibleRowMask
+};
+
+enum FluxSelectionType {
+    eFluxSelectionNone,
+    eFluxSelectionLayer,
+    eFluxSelectionEffect,
+    eFluxSelectionMask
+};
+
+struct FluxVisibleRow {
+    FluxVisibleRowType type;
+    int layerIndex;
+    int childIndex;
+    int effectIndex;
+    int maskIndex;
+    int y;
+    int height;
+
+    FluxVisibleRow()
+        : type(eFluxVisibleRowLayer)
+        , layerIndex(-1)
+        , childIndex(-1)
+        , effectIndex(-1)
+        , maskIndex(-1)
+        , y(0)
+        , height(0)
+    {}
+};
+
 struct FluxEffect {
     QString pluginId;
     QString label;
@@ -51,6 +84,25 @@ struct FluxEffect {
 
     FluxEffect()
         : enabled(true)
+    {}
+};
+
+struct FluxMask {
+    QString name;
+    QString type;        // "layer" for T057; future: "effect"
+    QString pluginId;    // Roto/RotoPaint plugin id, informational/persistence aid
+    bool enabled;
+    bool inverted;
+    int effectIndex;     // -1 = layer mask; >=0 future effect-mask owner
+
+    NodePtr maskNode;    // Roto/RotoPaint node
+    NodePtr reformatNode;// future mask branch source
+
+    FluxMask()
+        : type(QString::fromUtf8("layer"))
+        , enabled(true)
+        , inverted(false)
+        , effectIndex(-1)
     {}
 };
 
@@ -73,6 +125,7 @@ struct FluxLayer {
     bool nodeInitialized;// true after deferredInit has successfully set frameRange/timeOffset
     QColor solidColor;   // color for solid layers (used when creating Constant node)
     int parentLayerIndex;// index of parent layer (-1 = no parent), for null/parenting
+    bool expanded;       // true = child/effect rows visible below this layer
     QColor color;        // layer bar color
 
     QString readerNodeId; // Natron node ID for the reader (set after node creation)
@@ -82,6 +135,9 @@ struct FluxLayer {
     NodePtr gizmoNode;       // flux.layer gizmo (one per layer)
     NodePtr mergeNode;       // net.sf.openfx.MergePlugin (compositing, outside gizmo)
     QList<FluxEffect> effects; // ordered child effects; adjustment rows contain only effects
+    QList<FluxMask> masks;    // masks attached to this layer
+    NodePtr maskApplyNode;    // node that receives mask input (future use)
+    bool hasPrecompBranch;    // true if layer has a precomp branch (future use)
 
     FluxLayer()
         : type(QString::fromUtf8("footage"))
@@ -100,7 +156,9 @@ struct FluxLayer {
         , nodeInitialized(false)
         , solidColor(128, 128, 128)
         , parentLayerIndex(-1)
+        , expanded(false)
         , color(QColor(80, 130, 200))
+        , hasPrecompBranch(false)
     {}
 };
 
@@ -161,6 +219,24 @@ public:
     /** @brief Restore timeline state from project serialization. */
     void restoreFromProjectSerialization(const FluxTimelineSerialization& ser, Gui* gui);
 
+    /** @brief Rebuild visible rows cache, clamp scroll, and repaint. */
+    void refreshVisibleRows();
+
+    /** @brief Remove an effect from a layer. Returns true on success. */
+    bool removeEffectFromLayer(int layerIndex, int effectIndex);
+
+    /** @brief Move an effect within a layer's effect stack. Returns true on success. */
+    bool moveEffectInLayer(int layerIndex, int fromEffectIndex, int toEffectIndex);
+
+    /** @brief Add a layer-level mask model entry. Returns true on success. */
+    bool addLayerMask(int layerIndex);
+
+    /** @brief Add an effect-level mask model entry. Returns true on success. */
+    bool addEffectMask(int layerIndex, int effectIndex);
+
+    /** @brief Remove a mask from a layer. Returns true on success. */
+    bool removeMaskFromLayer(int layerIndex, int maskIndex);
+
 Q_SIGNALS:
 
     /** @brief Emitted when the playhead moves. */
@@ -181,10 +257,31 @@ Q_SIGNALS:
     /** @brief Emitted when the compositing graph needs rebuilding (layer added/removed/reordered/trimmed). */
     void compositingChanged();
 
+    /** @brief Emitted when an effect sub-row is selected. */
+    void effectSelected(int layerIndex, int effectIndex);
+
+    /** @brief Emitted when effects are added/removed/reordered on a layer. */
+    void effectsChanged(int layerIndex);
+
+    /** @brief Emitted when a mask sub-row is selected. */
+    void maskSelected(int layerIndex, int maskIndex);
+
+    /** @brief Emitted when masks are added/removed on a layer. */
+    void masksChanged(int layerIndex);
+
 public Q_SLOTS:
 
     /** @brief Responds to external TimeLine frame changes (from Viewer playback, etc.). */
     void onExternalFrameChanged(SequenceTime time, int reason);
+
+    /** @brief Menu/shortcut entry points for Flux layer operations. */
+    void addNullLayer();
+    void duplicateSelectedLayer();
+    void splitSelectedLayer();
+    void deleteSelectedLayer();
+    void addEffectToSelectedLayer();
+    void addMaskToSelectedRow();
+    void addAdjustmentEffectRow();
 
 protected:
 
@@ -241,6 +338,12 @@ private:
     void fitToView();
     void showNodeCreationDialog();
 
+    void rebuildVisibleRows();
+    const FluxVisibleRow* yToRow(int y) const;
+    int rowYForLayer(int layerIndex) const;
+    int insertionLayerIndexForY(int y) const;
+    int insertionYForLayerIndex(int index) const;
+
     /** @brief Row capability helpers for T046 */
     bool isAdjustmentRow(int index) const;
     bool isNullRow(int index) const;
@@ -254,11 +357,19 @@ private:
     enum HitZone { eHitNone, eHitBarBody, eHitTrimLeft, eHitTrimRight };
     HitZone hitTest(int x, int y, int* outLayerIndex = nullptr) const;
 
+    QString makeUniqueMaskName(int layerIndex, int effectIndex) const;
+    bool canAddEffectMask(int layerIndex, int effectIndex) const;
+
     QList<FluxLayer> _layers;
+    QList<FluxVisibleRow> _visibleRows;
+    int _totalContentHeight;
     int _firstFrame;
     int _lastFrame;
     int _currentFrame;
     int _selectedLayer;
+    FluxSelectionType _selectedType;
+    int _selectedEffectIndex;
+    int _selectedMaskIndex;
     double _zoom;         // pixels per frame
     int _scrollOffsetX;
     int _scrollOffsetY;
@@ -270,6 +381,10 @@ private:
     static const int kPlayheadWidth = 2;
 
     static const int kTrimHandleWidth = 6; // pixels for trim handles at bar edges
+    static const int kEffectRowHeight = 24;
+    static const int kMaskRowHeight = 22;
+    static const int kDisclosureSize = 12;
+    static const int kEffectIndent = 18;
 
     int _layerLabelWidth; // runtime total left-panel width (default 180)
 

@@ -130,6 +130,7 @@
 #include "Engine/ReadNode.h"
 #include "Engine/RotoPaint.h"
 #include "Engine/RotoSmear.h"
+#include "Engine/RotoReplaceChannels.h"
 #include "Engine/StandardPaths.h"
 #include "Engine/TrackerNode.h"
 #include "Engine/ThreadPool.h"
@@ -1545,6 +1546,7 @@ AppManager::loadBuiltinNodePlugins(IOPluginsMap* /*readersMap*/,
     registerBuiltInPlugin<RotoPaint>(QString::fromUtf8(NATRON_IMAGES_PATH "GroupingIcons/Set2/paint_grouping_2.png"), false, false);
     registerBuiltInPlugin<RotoNode>(QString::fromUtf8(NATRON_IMAGES_PATH "rotoNodeIcon.png"), false, false);
     registerBuiltInPlugin<RotoSmear>(QString::fromUtf8(""), false, true);
+    registerBuiltInPlugin<RotoReplaceChannels>(QString::fromUtf8(""), false, true);
     registerBuiltInPlugin<PrecompNode>(QString::fromUtf8(NATRON_IMAGES_PATH "precompNodeIcon.png"), false, false);
     registerBuiltInPlugin<TrackerNode>(QString::fromUtf8(NATRON_IMAGES_PATH "trackerNodeIcon.png"), false, false);
     registerBuiltInPlugin<JoinViewsNode>(QString::fromUtf8(NATRON_IMAGES_PATH "joinViewsNode.png"), false, false);

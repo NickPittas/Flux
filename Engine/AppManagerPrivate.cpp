@@ -270,7 +270,10 @@ AppManagerPrivate::AppManagerPrivate()
     runningThreadsCount = 0;
 
 #if defined(__NATRON_LINUX__)
-    onWayland = qEnvironmentVariableIsSet("WAYLAND_DISPLAY") && !qEnvironmentVariableIsSet("NATRON_DISABLE_WAYLAND");
+    const QByteArray qtPlatform = qgetenv("QT_QPA_PLATFORM");
+    onWayland = qEnvironmentVariableIsSet("WAYLAND_DISPLAY") &&
+                !qEnvironmentVariableIsSet("NATRON_DISABLE_WAYLAND") &&
+                qtPlatform != "xcb";
 #endif
 }
 

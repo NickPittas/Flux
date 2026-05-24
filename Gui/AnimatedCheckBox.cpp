@@ -29,6 +29,7 @@
 
 #include <QStyle>
 #include <QPainter>
+#include <QPainterPath>
 #include <QStyleOption>
 #include "Gui/GuiMacros.h"
 // clang-format off
@@ -77,13 +78,13 @@ AnimatedCheckBox::setDirty(bool b)
 QSize
 AnimatedCheckBox::minimumSizeHint() const
 {
-    return QSize( TO_DPIX(15), TO_DPIY(15) );
+    return QSize( TO_DPIX(18), TO_DPIY(18) );
 }
 
 QSize
 AnimatedCheckBox::sizeHint() const
 {
-    return QSize( TO_DPIX(15), TO_DPIY(15) );
+    return QSize( TO_DPIX(18), TO_DPIY(18) );
 }
 
 void
@@ -147,7 +148,6 @@ AnimatedCheckBox::paintEvent(QPaintEvent* e)
 
     ///Draw bg
     QRectF bgRect = bRect.adjusted(fw / 2., fw / 2., -fw, -fw);
-    //bRect.adjust(fw, fw, -fw, -fw);
     double bgR = 0., bgG = 0., bgB = 0.;
     if (animation == 0) {
         getBackgroundColor(&bgR, &bgG, &bgB);
@@ -161,11 +161,9 @@ AnimatedCheckBox::paintEvent(QPaintEvent* e)
     activeColor.setRgbF(bgR, bgG, bgB);
     pen.setColor(activeColor);
     p.setPen(pen);
-
     p.fillRect(bgRect, activeColor);
 
-
-    ///Draw tick
+    ///Draw tick (modern checkmark)
     if (checked) {
         if (animation == 3) {
             activeColor = Qt::black;
@@ -185,26 +183,46 @@ AnimatedCheckBox::paintEvent(QPaintEvent* e)
 
         pen.setColor(activeColor);
         p.setRenderHint(QPainter::Antialiasing);
+        pen.setWidthF( TO_DPIX(2.5) );
         p.setPen(pen);
-        p.drawLine( bRect.topLeft(), bRect.bottomRight() );
-        p.drawLine( bRect.bottomLeft(), bRect.topRight() );
+
+        // Modern checkmark drawn with a polyline
+        qreal margin = TO_DPIX(4.5);
+        qreal x1 = bgRect.left() + margin;
+        qreal y1 = bgRect.top() + bgRect.height() * 0.55;
+        qreal x2 = bgRect.left() + bgRect.width() * 0.42;
+        qreal y2 = bgRect.bottom() - margin;
+        qreal x3 = bgRect.right() - margin;
+        qreal y3 = bgRect.top() + margin;
+
+        QPainterPath path;
+        path.moveTo(x1, y1);
+        path.lineTo(x2, y2);
+        path.lineTo(x3, y3);
+        p.drawPath(path);
     }
 
-
-    ///Draw frame
-    pen.setColor(Qt::black);
+    ///Draw frame (subtle rounded border)
+    double frameR, frameG, frameB;
+    appPTR->getCurrentSettings()->getSunkenColor(&frameR, &frameG, &frameB);
+    QColor frameColor;
+    frameColor.setRgbF(frameR * 1.3, frameG * 1.3, frameB * 1.3);
+    pen.setColor(frameColor);
+    pen.setWidthF(1.0);
     p.setPen(pen);
-    p.drawRect(bRect);
+    p.setBrush(Qt::NoBrush);
+    p.drawRoundedRect(bgRect, TO_DPIX(3), TO_DPIX(3));
 
     ///Draw focus highlight
     if ( hasFocus() ) {
         double selR, selG, selB;
         appPTR->getCurrentSettings()->getSelectionColor(&selR, &selG, &selB);
-        QRectF focusRect = bRect.adjusted(fw, fw, -fw, -fw);
+        QRectF focusRect = bgRect.adjusted(TO_DPIX(1.5), TO_DPIX(1.5), -TO_DPIX(1.5), -TO_DPIX(1.5));
         activeColor.setRgbF(selR, selG, selB);
         pen.setColor(activeColor);
+        pen.setWidthF(1.5);
         p.setPen(pen);
-        p.drawRect(focusRect);
+        p.drawRoundedRect(focusRect, TO_DPIX(2), TO_DPIX(2));
     }
 } // AnimatedCheckBox::paintEvent
 

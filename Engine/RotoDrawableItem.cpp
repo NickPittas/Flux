@@ -696,7 +696,7 @@ void
 RotoDrawableItem::refreshNodesConnections()
 {
     RotoDrawableItem* previous = findPreviousInHierarchy();
-    NodePtr rotoPaintInput =  getContext()->getNode()->getInput(0);
+    NodePtr rotoPaintInput = getContext()->getRotoPaintInputForInternalTree();
     NodePtr upstreamNode = previous ? previous->getMergeNode() : rotoPaintInput;
     RotoStrokeItem* isStroke = dynamic_cast<RotoStrokeItem*>(this);
     RotoStrokeType type;

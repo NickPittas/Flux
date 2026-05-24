@@ -321,13 +321,13 @@ ComboBox::paintEvent(QPaintEvent* /*e*/)
         p.setPen(pen);
 
 
-        QRectF roundedRect = bRect.adjusted(fw / 2., fw / 2., -fw, -fw);
-        bRect.adjust(fw, fw, -fw, -fw);
-        p.fillRect(bRect, fillColor);
+        QRectF roundedRect = bRect.adjusted(fw / 2., fw / 2., -fw / 2., -fw / 2.);
         double roundPixels = 3;
         QPainterPath path;
         path.addRoundedRect(roundedRect, roundPixels, roundPixels);
+        p.fillPath(path, fillColor);
         p.drawPath(path);
+        bRect = roundedRect.adjusted(fw / 2., fw / 2., -fw / 2., -fw / 2.);
     }
     QColor textColor;
     if (_readOnly) {
@@ -337,7 +337,7 @@ ComboBox::paintEvent(QPaintEvent* /*e*/)
         appPTR->getCurrentSettings()->getAltTextColor(&aR, &aG, &aB);
         textColor.setRgbF(aR, aG, aB);
     } else if (!_enabled) {
-        textColor = Qt::black;
+        textColor.setRgb(120, 124, 132);
     } else {
         double r, g, b;
         appPTR->getCurrentSettings()->getTextColor(&r, &g, &b);

@@ -42,7 +42,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/GuiFwd.h"
 
 
-#define DROP_DOWN_ICON_SIZE 6
+#define DROP_DOWN_ICON_SIZE 8
 
 NATRON_NAMESPACE_ENTER
 

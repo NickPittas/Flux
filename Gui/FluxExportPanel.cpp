@@ -27,8 +27,8 @@ FluxExportPanel::FluxExportPanel(Gui* gui, QWidget* parent)
     , _writeNode()
     , _outputPathEdit(nullptr)
     , _browseButton(nullptr)
+    , _contentScrollArea(nullptr)
     , _writeSettingsContainer(nullptr)
-    , _writeScrollArea(nullptr)
     , _reformatGroup(nullptr)
     , _reformatToggle(nullptr)
     , _reformatSettingsContainer(nullptr)
@@ -38,8 +38,23 @@ FluxExportPanel::FluxExportPanel(Gui* gui, QWidget* parent)
     setMinimumWidth(200);
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(4, 4, 4, 4);
-    mainLayout->setSpacing(4);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setSpacing(0);
+
+    _contentScrollArea = new QScrollArea(this);
+    _contentScrollArea->setObjectName(QString::fromUtf8("FluxExportScrollArea"));
+    _contentScrollArea->setWidgetResizable(true);
+    _contentScrollArea->setFrameShape(QFrame::NoFrame);
+    _contentScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    mainLayout->addWidget(_contentScrollArea, 1);
+
+    QWidget* content = new QWidget(_contentScrollArea);
+    content->setObjectName(QString::fromUtf8("FluxExportContent"));
+    content->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+    QVBoxLayout* contentLayout = new QVBoxLayout(content);
+    contentLayout->setContentsMargins(4, 4, 4, 4);
+    contentLayout->setSpacing(8);
+    _contentScrollArea->setWidget(content);
 
     // --- Output File ---
     QGroupBox* outputGroup = new QGroupBox(QString::fromUtf8("Output File"));
@@ -52,19 +67,19 @@ FluxExportPanel::FluxExportPanel(Gui* gui, QWidget* parent)
     _browseButton = new QPushButton(QString::fromUtf8("Browse"));
     pathLayout->addWidget(_browseButton);
 
-    mainLayout->addWidget(outputGroup);
+    outputGroup->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+    contentLayout->addWidget(outputGroup);
 
     // --- Write Node Settings Container ---
-    // This will hold the NodeGui's existing settings panel, reparented here
-    _writeScrollArea = new QScrollArea();
-    _writeScrollArea->setWidgetResizable(true);
-    _writeScrollArea->setFrameShape(QFrame::NoFrame);
+    // This will hold the NodeGui's existing settings panel, reparented here.
+    // Do not put this section in its own scroll area: the entire export panel
+    // scrolls as one unit, so Write and Reformat sections remain usable.
     _writeSettingsContainer = new QWidget();
+    _writeSettingsContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
     QVBoxLayout* writeContainerLayout = new QVBoxLayout(_writeSettingsContainer);
     writeContainerLayout->setContentsMargins(0, 0, 0, 0);
     writeContainerLayout->setSpacing(0);
-    _writeScrollArea->setWidget(_writeSettingsContainer);
-    mainLayout->addWidget(_writeScrollArea);
+    contentLayout->addWidget(_writeSettingsContainer);
 
     // --- Format Override ---
     _reformatGroup = new QGroupBox(QString::fromUtf8("Format Override"));
@@ -75,21 +90,21 @@ FluxExportPanel::FluxExportPanel(Gui* gui, QWidget* parent)
 
     // Reformat settings container — holds the Reformat NodeGui's settings panel
     _reformatSettingsContainer = new QWidget();
+    _reformatSettingsContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
     QVBoxLayout* reformatContainerLayout = new QVBoxLayout(_reformatSettingsContainer);
     reformatContainerLayout->setContentsMargins(0, 0, 0, 0);
     reformatContainerLayout->setSpacing(0);
     reformatLayout->addWidget(_reformatSettingsContainer);
 
-    mainLayout->addWidget(_reformatGroup);
+    _reformatGroup->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+    contentLayout->addWidget(_reformatGroup);
 
     // --- Render Button ---
     _renderButton = new QPushButton(QString::fromUtf8("▶ Render"));
-    _renderButton->setMinimumHeight(40);
-    _renderButton->setStyleSheet(QString::fromUtf8(
-        "QPushButton { background-color: #2d7d46; color: white; font-weight: bold; font-size: 14px; border-radius: 4px; }"
-        "QPushButton:hover { background-color: #3a9957; }"
-        "QPushButton:pressed { background-color: #1f5e33; }"));
-    mainLayout->addWidget(_renderButton);
+    _renderButton->setObjectName(QString::fromUtf8("fluxPrimaryButton"));
+    _renderButton->setMinimumHeight(36);
+    contentLayout->addWidget(_renderButton);
+    contentLayout->addStretch(1);
 
     // --- Connections ---
     QObject::connect(_browseButton, &QPushButton::clicked, this, &FluxExportPanel::onBrowseClicked);
@@ -217,6 +232,8 @@ FluxExportPanel::setExportNodes(const NodePtr& reformatNode, const NodePtr& writ
                     // Reparent the panel into our container
                     QVBoxLayout* containerLayout = qobject_cast<QVBoxLayout*>(_writeSettingsContainer->layout());
                     if (containerLayout) {
+                        settingsPanel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+                        settingsPanel->setMaximumHeight(QWIDGETSIZE_MAX);
                         containerLayout->addWidget(settingsPanel);
                     }
                 }
@@ -270,6 +287,8 @@ FluxExportPanel::setExportNodes(const NodePtr& reformatNode, const NodePtr& writ
 
                     QVBoxLayout* containerLayout = qobject_cast<QVBoxLayout*>(_reformatSettingsContainer->layout());
                     if (containerLayout) {
+                        settingsPanel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+                        settingsPanel->setMaximumHeight(QWIDGETSIZE_MAX);
                         containerLayout->addWidget(settingsPanel);
                     }
                 }

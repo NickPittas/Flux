@@ -53,8 +53,14 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/GuiAppInstance.h"
 #include "Gui/GuiApplicationManager.h" // appPTR
 #include "Gui/GuiPrivate.h"
+#include "Gui/FluxProjectBin.h"
+#include "Gui/FluxExportPanel.h"
+#include "Gui/FluxTimeline.h"
 #include "Gui/Menu.h"
 #include "Gui/NodeGraph.h"
+#include "Gui/PanelWidget.h"
+#include "Gui/PropertiesBinWrapper.h"
+#include "Gui/TabWidget.h"
 #include "Gui/ProjectGui.h"
 #include "Gui/ToolButton.h"
 #include "Gui/RenderStatsDialog.h"
@@ -369,7 +375,7 @@ Gui::createViewerGui(NodePtr viewer)
     TabWidget* where = _imp->_nextViewerTabPlace;
 
     if (!where) {
-        where = getAnchor();
+        where = (sFluxMode && _imp->_fluxViewerPane) ? _imp->_fluxViewerPane : getAnchor();
     } else {
         _imp->_nextViewerTabPlace = NULL; // < resetting next viewer anchor to default
     }
@@ -635,6 +641,425 @@ Gui::createMenuActions()
     QObject::connect( _imp->actionNextTab, SIGNAL(triggered()), this, SLOT(onNextTabTriggered()) );
     _imp->actionCloseTab = new ActionWithShortcut(kShortcutGroupGlobal, kShortcutIDActionCloseTab, kShortcutDescActionCloseTab, this);
     QObject::connect( _imp->actionCloseTab, SIGNAL(triggered()), this, SLOT(onCloseTabTriggered()) );
+
+    if (sFluxMode) {
+        Menu* menuLayer = new Menu(tr("Layer"), _imp->menubar);
+        Menu* menuNewLayer = new Menu(tr("New"), menuLayer);
+        Menu* menuWindow = _imp->menuLayout;
+        Menu* menuComposition = _imp->menuRender;
+        Menu* menuView = _imp->menuDisplay;
+
+        menuWindow->setTitle(tr("Window"));
+        menuComposition->setTitle(tr("Composition"));
+        menuView->setTitle(tr("View"));
+        _imp->cacheMenu->setTitle(tr("Cache"));
+        _imp->viewersMenu->setTitle(tr("Viewer"));
+        _imp->actionProject_settings->setText(tr("Composition Settings..."));
+        _imp->actionShowAboutWindow->setText(tr("About Flux"));
+
+        QAction* actionImportFootage = new QAction(tr("Import Footage..."), this);
+        QObject::connect(actionImportFootage, &QAction::triggered, this, [this]() {
+            if (_imp->_fluxProjectBin) {
+                _imp->_fluxProjectBin->onImportButtonClicked();
+            }
+        });
+
+        QAction* actionNewSolid = new QAction(tr("Solid..."), this);
+        QObject::connect(actionNewSolid, &QAction::triggered, this, [this]() {
+            if (_imp->_fluxTimeline) {
+                _imp->_fluxTimeline->addSolidLayer();
+            }
+        });
+
+        QAction* actionNewNull = new QAction(tr("Null"), this);
+        QObject::connect(actionNewNull, &QAction::triggered, this, [this]() {
+            if (_imp->_fluxTimeline) {
+                _imp->_fluxTimeline->addNullLayer();
+            }
+        });
+
+        QAction* actionNewText = new QAction(tr("Text"), this);
+        actionNewText->setEnabled(false);
+        actionNewText->setToolTip(tr("Text layers are scheduled for P7."));
+
+        QAction* actionDuplicateLayer = new QAction(tr("Duplicate Layer"), this);
+        QObject::connect(actionDuplicateLayer, &QAction::triggered, this, [this]() {
+            if (_imp->_fluxTimeline) {
+                _imp->_fluxTimeline->duplicateSelectedLayer();
+            }
+        });
+
+        QAction* actionSplitLayer = new QAction(tr("Split Layer"), this);
+        QObject::connect(actionSplitLayer, &QAction::triggered, this, [this]() {
+            if (_imp->_fluxTimeline) {
+                _imp->_fluxTimeline->splitSelectedLayer();
+            }
+        });
+
+        QAction* actionDeleteLayer = new QAction(tr("Delete Selected Row"), this);
+        QObject::connect(actionDeleteLayer, &QAction::triggered, this, [this]() {
+            if (_imp->_fluxTimeline) {
+                _imp->_fluxTimeline->deleteSelectedLayer();
+            }
+        });
+
+        QAction* actionAddEffect = new QAction(tr("Add Effect..."), this);
+        QObject::connect(actionAddEffect, &QAction::triggered, this, [this]() {
+            if (_imp->_fluxTimeline) {
+                _imp->_fluxTimeline->addEffectToSelectedLayer();
+            }
+        });
+
+        QAction* actionAddAdjustmentEffect = new QAction(tr("Add Effect as Adjustment..."), this);
+        QObject::connect(actionAddAdjustmentEffect, &QAction::triggered, this, [this]() {
+            if (_imp->_fluxTimeline) {
+                _imp->_fluxTimeline->addAdjustmentEffectRow();
+            }
+        });
+
+        QAction* actionAddMask = new QAction(tr("Add Mask"), this);
+        QObject::connect(actionAddMask, &QAction::triggered, this, [this]() {
+            if (_imp->_fluxTimeline) {
+                _imp->_fluxTimeline->addMaskToSelectedRow();
+            }
+        });
+
+        const auto raisePanel = [this](PanelWidget* panel) {
+            if (!panel) {
+                return;
+            }
+            TabWidget* pane = panel->getParentPane();
+            if (pane) {
+                pane->setCurrentWidget(panel);
+            }
+        };
+
+        QAction* actionShowProjectBin = new QAction(tr("Project Bin"), this);
+        QObject::connect(actionShowProjectBin, &QAction::triggered, this, [this, raisePanel]() {
+            raisePanel(_imp->_fluxProjectBin);
+        });
+
+        QAction* actionShowNodeGraph = new QAction(tr("Node Graph"), this);
+        QObject::connect(actionShowNodeGraph, &QAction::triggered, this, [this, raisePanel]() {
+            raisePanel(_imp->_nodeGraphArea);
+        });
+
+        QAction* actionShowTimeline = new QAction(tr("Timeline"), this);
+        QObject::connect(actionShowTimeline, &QAction::triggered, this, [this, raisePanel]() {
+            raisePanel(_imp->_fluxTimeline);
+        });
+
+        QAction* actionShowProperties = new QAction(tr("Properties"), this);
+        QObject::connect(actionShowProperties, &QAction::triggered, this, [this, raisePanel]() {
+            raisePanel(_imp->_propertiesBin);
+        });
+
+        QAction* actionShowExport = new QAction(tr("Export"), this);
+        QObject::connect(actionShowExport, &QAction::triggered, this, [this, raisePanel]() {
+            raisePanel(_imp->_fluxExportPanel);
+        });
+
+        QAction* actionShowDopeSheet = new QAction(tr("Dope Sheet"), this);
+        QObject::connect(actionShowDopeSheet, &QAction::triggered, this, [this, raisePanel]() {
+            raisePanel(_imp->_dopeSheetEditor);
+        });
+
+        QAction* actionShowCurveEditor = new QAction(tr("Curve Editor"), this);
+        QObject::connect(actionShowCurveEditor, &QAction::triggered, this, [this, raisePanel]() {
+            raisePanel(_imp->_curveEditor);
+        });
+
+        QAction* actionGraphCopy = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphCopy,
+                                                          kShortcutDescActionGraphCopy, _imp->menuEdit);
+        const auto graphForEdit = [this]() -> NodeGraph* {
+            NodeGraph* graph = getLastSelectedGraph();
+            return graph ? graph : _imp->_nodeGraphArea;
+        };
+        QObject::connect(actionGraphCopy, &QAction::triggered, this, [this]() {
+            NodeGraph* graph = getLastSelectedGraph();
+            if (!graph) {
+                graph = _imp->_nodeGraphArea;
+            }
+            if (graph) {
+                graph->copySelectedNodes();
+            }
+        });
+
+        QAction* actionGraphCut = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphCut,
+                                                         kShortcutDescActionGraphCut, _imp->menuEdit);
+        QObject::connect(actionGraphCut, &QAction::triggered, this, [graphForEdit]() {
+            NodeGraph* graph = graphForEdit();
+            if (graph) {
+                graph->cutSelectedNodes();
+            }
+        });
+
+        QAction* actionGraphPaste = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphPaste,
+                                                           kShortcutDescActionGraphPaste, _imp->menuEdit);
+        QObject::connect(actionGraphPaste, &QAction::triggered, this, [graphForEdit]() {
+            NodeGraph* graph = graphForEdit();
+            if (graph) {
+                graph->pasteNodeClipBoards();
+            }
+        });
+
+        QAction* actionGraphDelete = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphRemoveNodes,
+                                                            kShortcutDescActionGraphRemoveNodes, _imp->menuEdit);
+        QObject::connect(actionGraphDelete, &QAction::triggered, this, [graphForEdit]() {
+            NodeGraph* graph = graphForEdit();
+            if (graph) {
+                graph->deleteSelection();
+            }
+        });
+
+        QAction* actionGraphSelectAll = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphSelectAll,
+                                                               kShortcutDescActionGraphSelectAll, _imp->menuEdit);
+        QObject::connect(actionGraphSelectAll, &QAction::triggered, this, [graphForEdit]() {
+            NodeGraph* graph = graphForEdit();
+            if (graph) {
+                graph->selectAllNodes(false);
+            }
+        });
+
+        QAction* actionGraphRename = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphRenameNode,
+                                                            kShortcutDescActionGraphRenameNode, _imp->menuEdit);
+        QObject::connect(actionGraphRename, &QAction::triggered, this, [graphForEdit]() {
+            NodeGraph* graph = graphForEdit();
+            if (graph) {
+                graph->renameNode();
+            }
+        });
+
+        QAction* actionGraphDuplicate = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphDuplicate,
+                                                               kShortcutDescActionGraphDuplicate, _imp->menuEdit);
+        QObject::connect(actionGraphDuplicate, &QAction::triggered, this, [graphForEdit]() {
+            NodeGraph* graph = graphForEdit();
+            if (graph) {
+                graph->duplicateSelectedNodes();
+            }
+        });
+
+        QAction* actionGraphClone = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphClone,
+                                                           kShortcutDescActionGraphClone, _imp->menuEdit);
+        QObject::connect(actionGraphClone, &QAction::triggered, this, [graphForEdit]() {
+            NodeGraph* graph = graphForEdit();
+            if (graph) {
+                graph->cloneSelectedNodes();
+            }
+        });
+
+        QAction* actionGraphDeclone = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphDeclone,
+                                                             kShortcutDescActionGraphDeclone, _imp->menuEdit);
+        QObject::connect(actionGraphDeclone, &QAction::triggered, this, [graphForEdit]() {
+            NodeGraph* graph = graphForEdit();
+            if (graph) {
+                graph->decloneSelectedNodes();
+            }
+        });
+
+        QAction* actionGraphExtract = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphExtractNode,
+                                                             kShortcutDescActionGraphExtractNode, _imp->menuEdit);
+        QObject::connect(actionGraphExtract, &QAction::triggered, this, [graphForEdit]() {
+            NodeGraph* graph = graphForEdit();
+            if (graph) {
+                graph->extractSelectedNode();
+            }
+        });
+
+        QAction* actionGraphSwitchInputs = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphSwitchInputs,
+                                                                  kShortcutDescActionGraphSwitchInputs, _imp->menuEdit);
+        QObject::connect(actionGraphSwitchInputs, &QAction::triggered, this, [graphForEdit]() {
+            NodeGraph* graph = graphForEdit();
+            if (graph) {
+                graph->switchInputs1and2ForSelectedNodes();
+            }
+        });
+
+        QAction* actionGraphDisable = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphDisableNodes,
+                                                             kShortcutDescActionGraphDisableNodes, _imp->menuEdit);
+        QObject::connect(actionGraphDisable, &QAction::triggered, this, [graphForEdit]() {
+            NodeGraph* graph = graphForEdit();
+            if (graph) {
+                graph->toggleSelectedNodesEnabled();
+            }
+        });
+
+        QAction* actionGraphMakeGroup = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphMakeGroup,
+                                                               kShortcutDescActionGraphMakeGroup, _imp->menuEdit);
+        QObject::connect(actionGraphMakeGroup, &QAction::triggered, this, [graphForEdit]() {
+            NodeGraph* graph = graphForEdit();
+            if (graph) {
+                graph->createGroupFromSelection();
+            }
+        });
+
+        QAction* actionGraphExpandGroup = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphExpandGroup,
+                                                                 kShortcutDescActionGraphExpandGroup, _imp->menuEdit);
+        QObject::connect(actionGraphExpandGroup, &QAction::triggered, this, [graphForEdit]() {
+            NodeGraph* graph = graphForEdit();
+            if (graph) {
+                graph->expandSelectedGroups();
+            }
+        });
+
+        QAction* actionGraphFind = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphFindNode,
+                                                          kShortcutDescActionGraphFindNode, _imp->menuEdit);
+        QObject::connect(actionGraphFind, &QAction::triggered, this, [graphForEdit]() {
+            NodeGraph* graph = graphForEdit();
+            if (graph) {
+                graph->popFindDialog();
+            }
+        });
+
+        QAction* graphEditActions[] = {
+            actionGraphCopy, actionGraphCut, actionGraphPaste, actionGraphDelete, actionGraphSelectAll,
+            actionGraphRename, actionGraphDuplicate, actionGraphClone, actionGraphDeclone, actionGraphExtract,
+            actionGraphSwitchInputs, actionGraphDisable, actionGraphMakeGroup, actionGraphExpandGroup, actionGraphFind
+        };
+        for (QAction* action : graphEditActions) {
+            action->setShortcutContext(Qt::WidgetShortcut);
+        }
+
+        _imp->menubar->addAction( _imp->menuFile->menuAction() );
+        _imp->menubar->addAction( _imp->menuEdit->menuAction() );
+        _imp->menubar->addAction( menuLayer->menuAction() );
+        _imp->menubar->addAction( menuComposition->menuAction() );
+        _imp->menubar->addAction( menuView->menuAction() );
+        _imp->menubar->addAction( menuWindow->menuAction() );
+        _imp->menubar->addAction( _imp->menuHelp->menuAction() );
+
+#ifdef __APPLE__
+        _imp->menuFile->addAction(_imp->actionShowAboutWindow);
+#endif
+
+        _imp->menuFile->addAction(_imp->actionNew_project);
+        _imp->menuFile->addAction(_imp->actionOpen_project);
+        _imp->menuFile->addAction( _imp->menuRecentFiles->menuAction() );
+        updateRecentFileActions();
+        for (int c = 0; c < NATRON_MAX_RECENT_FILES; ++c) {
+            _imp->menuRecentFiles->addAction(_imp->actionsOpenRecentFile[c]);
+        }
+        _imp->menuFile->addAction(actionImportFootage);
+        _imp->menuFile->addSeparator();
+        _imp->menuFile->addAction(_imp->actionClose_project);
+        _imp->menuFile->addAction(_imp->actionSave_project);
+        _imp->menuFile->addAction(_imp->actionSaveAs_project);
+        _imp->menuFile->addAction(_imp->actionSaveAndIncrementVersion);
+        _imp->menuFile->addSeparator();
+        _imp->menuFile->addAction(actionShowExport);
+        _imp->menuFile->addSeparator();
+        _imp->menuFile->addAction(_imp->actionExit);
+
+        _imp->menuEdit->addAction(actionGraphCopy);
+        _imp->menuEdit->addAction(actionGraphCut);
+        _imp->menuEdit->addAction(actionGraphPaste);
+        _imp->menuEdit->addAction(actionGraphDelete);
+        _imp->menuEdit->addAction(actionGraphSelectAll);
+        _imp->menuEdit->addSeparator();
+        _imp->menuEdit->addAction(actionGraphRename);
+        _imp->menuEdit->addAction(actionGraphDuplicate);
+        _imp->menuEdit->addAction(actionGraphClone);
+        _imp->menuEdit->addAction(actionGraphDeclone);
+        _imp->menuEdit->addAction(actionGraphExtract);
+        _imp->menuEdit->addAction(actionGraphSwitchInputs);
+        _imp->menuEdit->addAction(actionGraphDisable);
+        _imp->menuEdit->addSeparator();
+        _imp->menuEdit->addAction(actionGraphMakeGroup);
+        _imp->menuEdit->addAction(actionGraphExpandGroup);
+        _imp->menuEdit->addAction(actionGraphFind);
+        _imp->menuEdit->addSeparator();
+        _imp->menuEdit->addAction(_imp->actionPreferences);
+
+        menuLayer->addAction(menuNewLayer->menuAction());
+        menuNewLayer->addAction(actionNewSolid);
+        menuNewLayer->addAction(actionNewNull);
+        menuNewLayer->addAction(actionNewText);
+        menuLayer->addSeparator();
+        menuLayer->addAction(actionDuplicateLayer);
+        menuLayer->addAction(actionSplitLayer);
+        menuLayer->addAction(actionDeleteLayer);
+        menuLayer->addSeparator();
+        menuLayer->addAction(actionAddEffect);
+        menuLayer->addAction(actionAddAdjustmentEffect);
+        menuLayer->addAction(actionAddMask);
+
+        menuComposition->addAction(_imp->actionProject_settings);
+        menuComposition->addSeparator();
+        menuComposition->addAction(_imp->renderAllWriters);
+        menuComposition->addAction(_imp->renderSelectedNode);
+        menuComposition->addAction(_imp->enableRenderStats);
+
+        menuView->addAction(_imp->actionNewViewer);
+        menuView->addAction(_imp->viewersMenu->menuAction());
+        _imp->viewersMenu->addAction(_imp->viewerInputsMenu->menuAction());
+        _imp->viewersMenu->addAction(_imp->viewerInputsBMenu->menuAction());
+        _imp->viewersMenu->addAction(_imp->viewersViewMenu->menuAction());
+        for (int i = 0; i < NATRON_CONNECT_INPUT_NB; ++i) {
+            if ( i < (NATRON_CONNECT_INPUT_NB / 2) ) {
+                _imp->viewerInputsMenu->addAction(_imp->actionConnectInput[i]);
+            } else {
+                _imp->viewerInputsBMenu->addAction(_imp->actionConnectInput[i]);
+            }
+        }
+        menuView->addSeparator();
+        menuView->addAction(_imp->actionShowErrorLog);
+#ifdef __NATRON_WIN32__
+        menuView->addAction(_imp->actionShowWindowsConsole);
+#endif
+        menuView->addSeparator();
+        menuView->addAction(_imp->actionFullScreen);
+
+        menuWindow->addAction(actionShowProjectBin);
+        menuWindow->addAction(actionShowTimeline);
+        menuWindow->addAction(actionShowNodeGraph);
+        menuWindow->addAction(actionShowProperties);
+        menuWindow->addAction(actionShowExport);
+        menuWindow->addAction(actionShowDopeSheet);
+        menuWindow->addAction(actionShowCurveEditor);
+        menuWindow->addSeparator();
+        menuWindow->addAction(_imp->actionImportLayout);
+        menuWindow->addAction(_imp->actionExportLayout);
+        menuWindow->addAction(_imp->actionRestoreDefaultLayout);
+        menuWindow->addSeparator();
+        menuWindow->addAction(_imp->actionPrevTab);
+        menuWindow->addAction(_imp->actionNextTab);
+        menuWindow->addAction(_imp->actionCloseTab);
+        menuWindow->addSeparator();
+        menuWindow->addAction(_imp->cacheMenu->menuAction());
+
+        _imp->cacheMenu->addAction(_imp->actionClearDiskCache);
+        _imp->cacheMenu->addAction(_imp->actionClearPlayBackCache);
+        _imp->cacheMenu->addAction(_imp->actionClearNodeCache);
+        _imp->cacheMenu->addAction(_imp->actionClearAllCaches);
+        _imp->cacheMenu->addSeparator();
+        _imp->cacheMenu->addAction(_imp->actionClearPluginsLoadingCache);
+
+        _imp->actionHelpDocumentation = new QAction(this);
+        _imp->actionHelpDocumentation->setText( tr("Documentation") );
+        _imp->menuHelp->addAction(_imp->actionHelpDocumentation);
+        QObject::connect( _imp->actionHelpDocumentation, SIGNAL(triggered()), this, SLOT(openHelpDocumentation()) );
+
+        _imp->actionHelpWebsite = new QAction(this);
+        _imp->actionHelpWebsite->setText( tr("Website") );
+        _imp->menuHelp->addAction(_imp->actionHelpWebsite);
+        QObject::connect( _imp->actionHelpWebsite, SIGNAL(triggered()), this, SLOT(openHelpWebsite()) );
+
+        _imp->actionHelpIssues = new QAction(this);
+        _imp->actionHelpIssues->setText( tr("Issues") );
+        _imp->menuHelp->addAction(_imp->actionHelpIssues);
+        QObject::connect( _imp->actionHelpIssues, SIGNAL(triggered()), this, SLOT(openHelpIssues()) );
+
+#ifndef __APPLE__
+        _imp->menuHelp->addSeparator();
+        _imp->menuHelp->addAction(_imp->actionShowAboutWindow);
+#endif
+
+        const std::list<PythonUserCommand> & commands = appPTR->getUserPythonCommands();
+        for (std::list<PythonUserCommand>::const_iterator it = commands.begin(); it != commands.end(); ++it) {
+            addMenuEntry(it->grouping, it->pythonFunction, it->key, it->modifiers);
+        }
+        return;
+    }
 
     _imp->menubar->addAction( _imp->menuFile->menuAction() );
     _imp->menubar->addAction( _imp->menuEdit->menuAction() );

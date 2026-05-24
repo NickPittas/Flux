@@ -266,6 +266,12 @@ public:
         }
     }
 
+    void reattach()
+    {
+        dettach();
+        attach();
+    }
+
     void dettach()
     {
 

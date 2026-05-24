@@ -32,6 +32,7 @@
 #include <QSettings>
 #include <QMutex>
 #include <QCoreApplication>
+#include <QTimer>
 
 #include "Engine/CLArgs.h"
 #include "Engine/Project.h"
@@ -434,6 +435,40 @@ GuiAppInstance::findAndTryLoadUntitledAutoSave()
         foundAutosaves << entry;
     }
     if ( foundAutosaves.empty() ) {
+        return false;
+    }
+
+    if (Gui::sFluxMode) {
+        const QString savesPath = savesDir.path();
+        const QStringList autosavesToRestore = foundAutosaves;
+        QTimer::singleShot(1000, this, [this, savesPath, autosavesToRestore]() {
+            QString text = tr("An auto-saved project was found with no associated project file.\n"
+                              "Would you like to restore it?\n"
+                              "Clicking No will remove this auto-save.");
+
+            StandardButtonEnum ret = questionDialog(tr("Auto-save").toStdString(),
+                                                    text.toStdString(), false,
+                                                    StandardButtons(eStandardButtonYes | eStandardButtonNo),
+                                                    eStandardButtonYes);
+            if ( (ret == eStandardButtonNo) || (ret == eStandardButtonEscape) ) {
+                Project::clearAutoSavesDir();
+                return;
+            }
+
+            for (int i = 0; i < autosavesToRestore.size(); ++i) {
+                const QString& autoSaveFileName = autosavesToRestore[i];
+                if (i == 0) {
+                    getProject()->loadProject(savesPath + QLatin1Char('/'), autoSaveFileName, true);
+                } else {
+                    CLArgs cl;
+                    AppInstancePtr newApp = appPTR->newAppInstance(cl, false);
+                    if (newApp) {
+                        newApp->getProject()->loadProject(savesPath + QLatin1Char('/'), autoSaveFileName, true);
+                    }
+                }
+            }
+        });
+
         return false;
     }
 

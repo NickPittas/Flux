@@ -2708,6 +2708,10 @@ exportGroupInternal(int indentLevel,
         WRITE_INDENT(indentLevel); WRITE_STRING( QString::fromUtf8("lastNode = app.createNode(") + ESC(nodeName) + QString::fromUtf8(", ") +
                                                  NUM_INT( (*it)->getPlugin()->getMajorVersion() ) + QString::fromUtf8(", ") + groupName +
                                                  QString::fromUtf8(")") );
+        WRITE_INDENT(indentLevel); WRITE_STRING( QString::fromUtf8("if lastNode is None:") );
+        ++indentLevel;
+        WRITE_INDENT(indentLevel); WRITE_STRING( QString::fromUtf8("raise RuntimeError(") + ESC(QString::fromUtf8("Failed to create required node with plug-in ID %1. Check that the corresponding OpenFX/PyPlug provider is installed and that its shared-library dependencies load correctly.").arg(nodeName)) + QString::fromUtf8(")") );
+        --indentLevel;
         if ( !dynamic_cast<GroupOutput*>( (*it)->getEffectInstance().get() ) ) {
             // Do not set script name of Output nodes:
             // it triggers an exception in Node::setScriptName()

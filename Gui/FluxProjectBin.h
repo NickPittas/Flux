@@ -104,9 +104,6 @@ public:
     /** @brief Returns the list of file paths currently in the bin. */
     QStringList getFiles() const;
 
-    /** @brief Clears all files from the bin. */
-    void clearBin();
-
 Q_SIGNALS:
 
     /** @brief Emitted when the user double-clicks or drags a file to create a layer. */
@@ -116,6 +113,9 @@ Q_SIGNALS:
     void filesDropped(const QStringList& filePaths);
 
 public Q_SLOTS:
+
+    /** @brief Clears all files from the bin. */
+    void clearBin();
 
     void onImportButtonClicked();
     void onItemDoubleClicked(QListWidgetItem* item);

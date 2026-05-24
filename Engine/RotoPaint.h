@@ -138,6 +138,8 @@ public Q_SLOTS:
 
     void onBreakMultiStrokeTriggered();
 
+    void onReplaceChannelsKnobChanged(ViewSpec view, int dimension, int reason);
+
 private:
 
     virtual bool shouldPreferPluginOverlayOverHostOverlay() const OVERRIDE FINAL;

@@ -26,6 +26,8 @@
 #include "Gui.h"
 
 #include <cassert>
+#include <algorithm>
+#include <cctype>
 
 #include <stdexcept>
 #include <limits>
@@ -73,6 +75,7 @@
 #include "Gui/FluxTimeline.h"
 #include "Gui/FluxEffectsPanel.h"
 #include "Gui/FluxExportPanel.h"
+#include "Gui/FluxMaskUtils.h"
 #include "Gui/DopeSheetEditor.h"
 #include "Gui/PropertiesBinWrapper.h"
 
@@ -429,49 +432,83 @@ Gui::setupFluxUi()
 {
     // ====================================================================
     // Flux Layout:
-    //   Top row:    Project Bin (20%) | Viewport (50%) | Effects+Properties (30%)
-    //   Bottom row: Timeline (with Node Graph / Curve Editor / Dope Sheet as tabs)
+    //   Top row:    Project Bin/NodeGraph (22%) | Viewer (53%) | Properties/Export (25%)
+    //   Bottom row: Timeline/Dope Sheet/Curve Editor (full width, ~33% height)
     // ====================================================================
 
     // ====================================================================
-    // TOP-CENTER: Main pane (will hold viewers)
+    // 1. Create top-left pane as the initial root TabWidget
     // ====================================================================
-    TabWidget* mainPane = new TabWidget(this, _imp->_leftRightSplitter);
+    TabWidget* topLeftPane = new TabWidget(this, _imp->_leftRightSplitter);
     {
         QMutexLocker l(&_imp->_panesMutex);
-        _imp->_panes.push_back(mainPane);
+        _imp->_panes.push_back(topLeftPane);
     }
-    mainPane->setObjectName_mt_safe( QString::fromUtf8("fluxMainPane") );
-    mainPane->setAsAnchor(true);
+    topLeftPane->setObjectName_mt_safe( QString::fromUtf8("fluxTopLeftPane") );
+    topLeftPane->setAsAnchor(true);
 
     // ====================================================================
-    // TOP-RIGHT: Properties pane (split horizontally from main)
+    // 2. Split vertically to create full-width bottom workshop pane
     // ====================================================================
-    TabWidget* propertiesPane = mainPane->splitHorizontally(false);
-    propertiesPane->setObjectName_mt_safe( QString::fromUtf8("fluxPropertiesPane") );
-
-    // ====================================================================
-    // BOTTOM: Workshop pane (split vertically from main)
-    // ====================================================================
-    TabWidget* workshopPane = mainPane->splitVertically(false);
+    TabWidget* workshopPane = topLeftPane->splitVertically(false);
     workshopPane->setObjectName_mt_safe( QString::fromUtf8("fluxWorkshopPane") );
 
     // ====================================================================
-    // TOP-LEFT: Project Bin (split horizontally from main, left side)
+    // 3. Split top-left horizontally to create top-center pane
     // ====================================================================
-    TabWidget* projectBinPane = mainPane->splitHorizontally(false);
-    projectBinPane->setObjectName_mt_safe( QString::fromUtf8("fluxProjectBinPane") );
+    TabWidget* topCenterPane = topLeftPane->splitHorizontally(false);
+    topCenterPane->setObjectName_mt_safe( QString::fromUtf8("fluxTopCenterPane") );
+    _imp->_fluxViewerPane = topCenterPane;
 
-    // Create and add FluxProjectBin widget
+    // ====================================================================
+    // 4. Split top-center horizontally to create top-right pane
+    // ====================================================================
+    TabWidget* topRightPane = topCenterPane->splitHorizontally(false);
+    topRightPane->setObjectName_mt_safe( QString::fromUtf8("fluxTopRightPane") );
+
+    // ====================================================================
+    // Populate top-left pane: Project Bin + Node Graph (tabs)
+    // ====================================================================
     FluxProjectBin* projectBin = new FluxProjectBin(this);
     projectBin->setScriptName("fluxProjectBin");
     projectBin->setLabel( tr("Project Bin").toStdString() );
-    TabWidget::moveTab(projectBin, projectBin, projectBinPane);
+    TabWidget::moveTab(projectBin, projectBin, topLeftPane);
+
+    if (_imp->_nodeGraphArea) {
+        TabWidget::moveTab(_imp->_nodeGraphArea, _imp->_nodeGraphArea, topLeftPane);
+    }
 
     // ====================================================================
-    // Populate workshop pane (bottom)
+    // Populate top-center pane: Viewers + Histograms
     // ====================================================================
-    // Flux Timeline as the primary tab
+    {
+        QMutexLocker l(&_imp->_viewerTabsMutex);
+        for (std::list<ViewerTab*>::iterator it2 = _imp->_viewerTabs.begin(); it2 != _imp->_viewerTabs.end(); ++it2) {
+            TabWidget::moveTab(*it2, *it2, topCenterPane);
+        }
+    }
+    {
+        QMutexLocker l(&_imp->_histogramsMutex);
+        for (std::list<Histogram*>::iterator it2 = _imp->_histograms.begin(); it2 != _imp->_histograms.end(); ++it2) {
+            TabWidget::moveTab(*it2, *it2, topCenterPane);
+        }
+    }
+
+    // ====================================================================
+    // Populate top-right pane: Properties + Export (tabs)
+    // ====================================================================
+    if (_imp->_propertiesBin) {
+        TabWidget::moveTab(_imp->_propertiesBin, _imp->_propertiesBin, topRightPane);
+    }
+
+    FluxExportPanel* exportPanel = new FluxExportPanel(this);
+    exportPanel->setScriptName("fluxExportPanel");
+    exportPanel->setLabel( tr("Export").toStdString() );
+    TabWidget::moveTab(exportPanel, exportPanel, topRightPane);
+
+    // ====================================================================
+    // Populate workshop pane (bottom): Timeline + Dope Sheet + Curve Editor
+    // ====================================================================
     FluxTimeline* timeline = new FluxTimeline(this);
     timeline->setScriptName("fluxTimeline");
     timeline->setLabel( tr("Timeline").toStdString() );
@@ -488,74 +525,62 @@ Gui::setupFluxUi()
                          timeline, &FluxTimeline::setFrameRange);
     }
 
-    // Node Graph, Curve Editor, Dope Sheet as additional tabs (power users)
-    if (_imp->_nodeGraphArea) {
-        TabWidget::moveTab(_imp->_nodeGraphArea, _imp->_nodeGraphArea, workshopPane);
+    if (_imp->_dopeSheetEditor) {
+        TabWidget::moveTab(_imp->_dopeSheetEditor, _imp->_dopeSheetEditor, workshopPane);
     }
     if (_imp->_curveEditor) {
         TabWidget::moveTab(_imp->_curveEditor, _imp->_curveEditor, workshopPane);
     }
-    if (_imp->_dopeSheetEditor) {
-        TabWidget::moveTab(_imp->_dopeSheetEditor, _imp->_dopeSheetEditor, workshopPane);
-    }
 
     // ====================================================================
-    // Populate properties pane (top-right)
+    // Effects panel: keep internal for signal wiring, not visible in right pane
     // ====================================================================
-    // Flux Effects Stack
     FluxEffectsPanel* effectsPanel = new FluxEffectsPanel(this);
     effectsPanel->setScriptName("fluxEffectsPanel");
     effectsPanel->setLabel( tr("Effects").toStdString() );
-    TabWidget::moveTab(effectsPanel, effectsPanel, propertiesPane);
-
-    // Flux Export/Render panel
-    FluxExportPanel* exportPanel = new FluxExportPanel(this);
-    exportPanel->setScriptName("fluxExportPanel");
-    exportPanel->setLabel( tr("Export").toStdString() );
-    TabWidget::moveTab(exportPanel, exportPanel, propertiesPane);
-
-    // Natron's properties bin
-    if (_imp->_propertiesBin) {
-        TabWidget::moveTab(_imp->_propertiesBin, _imp->_propertiesBin, propertiesPane);
-    }
-
-    // ====================================================================
-    // Move viewers and histograms to main pane (top-center)
-    // ====================================================================
-    {
-        QMutexLocker l(&_imp->_viewerTabsMutex);
-        for (std::list<ViewerTab*>::iterator it2 = _imp->_viewerTabs.begin(); it2 != _imp->_viewerTabs.end(); ++it2) {
-            TabWidget::moveTab(*it2, *it2, mainPane);
-        }
-    }
-    {
-        QMutexLocker l(&_imp->_histogramsMutex);
-        for (std::list<Histogram*>::iterator it2 = _imp->_histograms.begin(); it2 != _imp->_histograms.end(); ++it2) {
-            TabWidget::moveTab(*it2, *it2, mainPane);
-        }
-    }
+    effectsPanel->hide(); // not tabbed — timeline now owns effect UX
 
     // ====================================================================
     // Set pane sizes
     // ====================================================================
-    // Top row: Project Bin (20%) | Main/Viewport (50%) | Properties (30%)
-    Splitter* topSplitter = dynamic_cast<Splitter*>(mainPane->parentWidget());
+    // Top row: Left (22%) | Center (53%) | Right (25%)
+    // Nested splitters: topLeftPane parent controls left vs (center+right)
+    //                   topCenterPane parent controls center vs right
+    const int totalW = width();
+    const int leftW = static_cast<int>(totalW * 0.22);
+    const int centerW = static_cast<int>(totalW * 0.53);
+    const int rightW = static_cast<int>(totalW * 0.25);
+
+    Splitter* topSplitter = dynamic_cast<Splitter*>(topLeftPane->parentWidget());
     if (topSplitter) {
         QList<int> topSizes;
-        topSizes << (width() * 0.20) << (width() * 0.50) << (width() * 0.30);
+        topSizes << leftW << (centerW + rightW);
         topSplitter->setSizes_mt_safe(topSizes);
     }
 
-    // Top/bottom: 70% / 30%
+    Splitter* topCenterSplitter = dynamic_cast<Splitter*>(topCenterPane->parentWidget());
+    if (topCenterSplitter) {
+        QList<int> centerSizes;
+        centerSizes << centerW << rightW;
+        topCenterSplitter->setSizes_mt_safe(centerSizes);
+    }
+
+    // Top/bottom: ~67% / ~33%
+    const int totalH = height();
+    const int topH = static_cast<int>(totalH * 0.67);
+    const int bottomH = static_cast<int>(totalH * 0.33);
+
     Splitter* vertSplitter = dynamic_cast<Splitter*>(workshopPane->parentWidget());
     if (vertSplitter) {
         QList<int> vertSizes;
-        vertSizes << (height() * 0.70) << (height() * 0.30);
+        vertSizes << topH << bottomH;
         vertSplitter->setSizes_mt_safe(vertSizes);
     }
 
-    // Default to Timeline displayed in workshop pane
-    workshopPane->makeCurrentTab(0);
+    // Default current tabs
+    topLeftPane->makeCurrentTab(0);      // Project Bin
+    topRightPane->makeCurrentTab(0);     // Properties (or Export if no properties)
+    workshopPane->makeCurrentTab(0);     // Timeline
 
     // ====================================================================
     // Signal wiring for Flux widgets
@@ -657,32 +682,120 @@ Gui::setupFluxUi()
     QObject::connect(effectsPanel, &FluxEffectsPanel::effectRemoved, this,
                      [this, timeline, effectsPanel](int effectIndex) {
                          int layerIndex = timeline->getSelectedLayerIndex();
-                         const QList<FluxLayer>& constLayers = timeline->getLayers();
-                         if (layerIndex < 0 || layerIndex >= constLayers.size()) {
+                         if (layerIndex < 0 || layerIndex >= timeline->getLayers().size()) {
                              return;
                          }
-                         QList<FluxLayer>& layers = const_cast<QList<FluxLayer>&>(constLayers);
-                         if (effectIndex < 0 || effectIndex >= layers[layerIndex].effects.size() || layers[layerIndex].locked) {
-                             return;
-                         }
-                         FluxEffect effect = layers[layerIndex].effects.takeAt(effectIndex);
-                         if (effect.node && effect.node->isActivated()) {
-                             effect.node->deactivate(std::list<NodePtr>(), false, true);
-                         }
-                         rebuildCompositingGraph(timeline);
-                         effectsPanel->setActiveLayer(layerIndex, layers[layerIndex].name);
-                         for (int e = 0; e < layers[layerIndex].effects.size(); ++e) {
-                             const FluxEffect& remaining = layers[layerIndex].effects[e];
-                             if (remaining.node && remaining.node->isActivated()) {
-                                 effectsPanel->addEffect(remaining.pluginId, remaining.label);
-                             }
-                         }
+                         timeline->removeEffectFromLayer(layerIndex, effectIndex);
                      });
 
     // 5. Timeline: compositingChanged → rebuild Merge node chain + connect viewer
     QObject::connect(timeline, &FluxTimeline::compositingChanged, this,
                      [this, timeline]() {
                          rebuildCompositingGraph(timeline);
+                     });
+
+    // 6. Timeline: effectSelected → open effect node properties panel
+    QObject::connect(timeline, &FluxTimeline::effectSelected, this,
+                     [this, timeline](int layerIndex, int effectIndex) {
+                         const QList<FluxLayer>& layers = timeline->getLayers();
+                         if (layerIndex < 0 || layerIndex >= layers.size()) {
+                             return;
+                         }
+                         const FluxLayer& layer = layers[layerIndex];
+                         if (effectIndex < 0 || effectIndex >= layer.effects.size()) {
+                             return;
+                         }
+                         NodePtr node = layer.effects[effectIndex].node;
+                         if (!node || !node->isActivated()) {
+                             return;
+                         }
+
+                          // Close all layer gizmo panels before opening effect panel
+                          const QList<FluxLayer>& allLayers = timeline->getLayers();
+                          for (const FluxLayer& l : allLayers) {
+                              if (!l.gizmoNode) continue;
+                              NodeGuiIPtr gizmoGuiI = l.gizmoNode->getNodeGui();
+                              if (!gizmoGuiI) continue;
+                              NodeGuiPtr gizmoGui = std::dynamic_pointer_cast<NodeGui>(gizmoGuiI);
+                              if (gizmoGui) {
+                                  gizmoGui->setVisibleSettingsPanel(false);
+                              }
+                          }
+
+                         NodeGuiIPtr nodeGuiI = node->getNodeGui();
+                         if (nodeGuiI) {
+                             NodeGuiPtr nodeGui = std::dynamic_pointer_cast<NodeGui>(nodeGuiI);
+                             if (nodeGui) {
+                                 nodeGui->setVisibleSettingsPanel(true);
+                                 NodeSettingsPanel* settingsPanel = nodeGui->getSettingPanel();
+                                 if (settingsPanel) {
+                                     DockablePanel* dockPanel = static_cast<DockablePanel*>(settingsPanel);
+                                     putSettingsPanelFirst(dockPanel);
+                                 }
+                             }
+                         }
+                     });
+
+    // 7. Timeline: effectsChanged → sync effects panel with model
+    QObject::connect(timeline, &FluxTimeline::effectsChanged, this,
+                     [effectsPanel, timeline](int layerIndex) {
+                         if (!effectsPanel || !timeline) {
+                             return;
+                         }
+                         const QList<FluxLayer>& layers = timeline->getLayers();
+                         if (layerIndex >= 0 && layerIndex < layers.size()) {
+                             effectsPanel->setActiveLayer(layerIndex, layers[layerIndex].name);
+                             for (int e = 0; e < layers[layerIndex].effects.size(); ++e) {
+                                 const FluxEffect& fx = layers[layerIndex].effects[e];
+                                 if (fx.node && fx.node->isActivated()) {
+                                     effectsPanel->addEffect(fx.pluginId, fx.label);
+                                 }
+                             }
+                         } else {
+                             effectsPanel->setActiveLayer(-1, QString());
+                         }
+                     });
+
+    // 8. Timeline: maskSelected → open mask node properties panel (if backing node exists)
+    QObject::connect(timeline, &FluxTimeline::maskSelected, this,
+                     [this, timeline](int layerIndex, int maskIndex) {
+                         const QList<FluxLayer>& layers = timeline->getLayers();
+                         if (layerIndex < 0 || layerIndex >= layers.size()) {
+                             return;
+                         }
+                         const FluxLayer& layer = layers[layerIndex];
+                         if (maskIndex < 0 || maskIndex >= layer.masks.size()) {
+                             return;
+                         }
+                         const FluxMask& mask = layer.masks[maskIndex];
+
+                         // Close all layer gizmo panels
+                         for (const FluxLayer& l : layers) {
+                             if (!l.gizmoNode) continue;
+                             NodeGuiIPtr gizmoGuiI = l.gizmoNode->getNodeGui();
+                             if (!gizmoGuiI) continue;
+                             NodeGuiPtr gizmoGui = std::dynamic_pointer_cast<NodeGui>(gizmoGuiI);
+                             if (gizmoGui) {
+                                 gizmoGui->setVisibleSettingsPanel(false);
+                             }
+                         }
+
+                         if (!mask.maskNode) {
+                             return;
+                         }
+
+                         NodeGuiIPtr nodeGuiI = mask.maskNode->getNodeGui();
+                         if (nodeGuiI) {
+                             NodeGuiPtr nodeGui = std::dynamic_pointer_cast<NodeGui>(nodeGuiI);
+                             if (nodeGui) {
+                                 nodeGui->setVisibleSettingsPanel(true);
+                                 NodeSettingsPanel* settingsPanel = nodeGui->getSettingPanel();
+                                 if (settingsPanel) {
+                                     DockablePanel* dockPanel = static_cast<DockablePanel*>(settingsPanel);
+                                     putSettingsPanelFirst(dockPanel);
+                                 }
+                             }
+                         }
                      });
 
     // Store references to Flux widgets for later access
@@ -772,6 +885,376 @@ Gui::setupFluxUi()
     fprintf(stderr, "FLUX: Layout created successfully\n");
 } // Gui::setupFluxUi
 
+// ====================================================================
+// Mask graph helpers (T060/T061)
+// ====================================================================
+
+static const char* kFluxLayerMaskApplyLabel = "Flux Layer Mask Apply";
+static const char* kFluxMaskReformatLabel = "Flux Mask Reformat";
+static const char* kFluxMaskRotoLabel = "Flux Mask";
+static const char* kFluxLayerMaskPremultLabel = "Flux Layer Mask Premult";
+static const char* kFluxLayerMaskUnpremultLabel = "Flux Layer Mask Unpremult";
+
+// Layout offsets for effect-mask nodes (relative to their anchor).
+// Reformat sits above Roto in the mask side column, both at the same X.
+// This keeps the mask subtree between the layer branch and the main pipe
+// without crossing the main tree.
+static const double kMaskColumnOffsetX = 325.0;  // X offset from branch anchor to mask side column
+static const double kMaskReformatOffsetY = -120.0; // Reformat sits one row above Roto
+
+// Forward declarations for mask helpers
+
+// Return the first enabled layer-level mask (effectIndex < 0), or nullptr.
+static FluxMask*
+firstEnabledLayerMask(FluxLayer& layer)
+{
+    for (int m = 0; m < layer.masks.size(); ++m) {
+        if (layer.masks[m].enabled && layer.masks[m].effectIndex < 0) {
+            return &layer.masks[m];
+        }
+    }
+    return nullptr;
+}
+
+// Return the first enabled mask for the given effect index, or nullptr.
+static FluxMask*
+firstEnabledEffectMask(FluxLayer& layer, int effectIndex)
+{
+    for (int m = 0; m < layer.masks.size(); ++m) {
+        if (layer.masks[m].enabled && layer.masks[m].effectIndex == effectIndex) {
+            return &layer.masks[m];
+        }
+    }
+    return nullptr;
+}
+
+// Ensure Reformat + Roto nodes exist for the given mask. Creates them if needed.
+// x,y = position anchor (typically the target effect/apply node position).
+static bool
+ensureMaskSourceNodes(Gui* gui, FluxMask& mask, const NodeCollectionPtr& collection,
+                      double anchorX, double anchorY)
+{
+    if (!gui || !collection) {
+        return false;
+    }
+
+    // -- Reformat node (feeds Roto so the mask matches the project format) --
+    if (!mask.reformatNode || !mask.reformatNode->isActivated()) {
+        CreateNodeArgs rfArgs("net.sf.openfx.Reformat", collection);
+        rfArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+        rfArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+        rfArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+        mask.reformatNode = gui->getApp()->createNode(rfArgs);
+        if (mask.reformatNode) {
+            mask.reformatNode->setLabel(kFluxMaskReformatLabel);
+            // Set type to "To Project Format" (index 3)
+            KnobIPtr typeKnob = mask.reformatNode->getKnobByName("reformatType");
+            if (typeKnob) {
+                KnobChoicePtr choice = std::dynamic_pointer_cast<KnobChoice>(typeKnob);
+                if (choice) {
+                    choice->setValue(3, ViewSpec::all(), 0);
+                }
+            }
+        } else {
+            fprintf(stderr, "FLUX WARNING: Failed to create mask Reformat node\n");
+            return false;
+        }
+    }
+    mask.reformatNode->setPosition(anchorX + kMaskColumnOffsetX, anchorY + kMaskReformatOffsetY);
+
+    // -- Roto node (the actual mask shape source) --
+    if (!mask.maskNode || !mask.maskNode->isActivated()) {
+        CreateNodeArgs rotoArgs(PLUGINID_NATRON_ROTO, collection);
+        rotoArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+        rotoArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+        rotoArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+        mask.maskNode = gui->getApp()->createNode(rotoArgs);
+        if (mask.maskNode) {
+            mask.maskNode->setLabel(kFluxMaskRotoLabel);
+            mask.pluginId = QString::fromUtf8(PLUGINID_NATRON_ROTO);
+        } else {
+            fprintf(stderr, "FLUX WARNING: Failed to create mask Roto node\n");
+            return false;
+        }
+    }
+    mask.maskNode->setPosition(anchorX + kMaskColumnOffsetX, anchorY);
+
+    // Wire: Reformat → Roto input 0
+    mask.maskNode->disconnectInput(0);
+    if (!mask.maskNode->connectInput(mask.reformatNode, 0)) {
+        fprintf(stderr, "FLUX WARNING: Reformat → Roto connect failed\n");
+    }
+
+    return mask.reformatNode && mask.maskNode;
+}
+
+// Ensure the inline Premult node for layer masks exists. Creates if needed.
+// Stored in layer.maskApplyNode (repurposed from old Merge(in) to inline Premult).
+static NodePtr
+ensureInlineLayerMaskPremultNode(Gui* gui, FluxLayer& layer, const NodeCollectionPtr& collection,
+                                  double x, double y)
+{
+    if (!gui || !collection) {
+        return nullptr;
+    }
+
+    // Migrate old Merge(in) maskApplyNode if it exists
+    if (layer.maskApplyNode && layer.maskApplyNode->isActivated()) {
+        std::string label = layer.maskApplyNode->getLabel();
+        if (label == kFluxLayerMaskApplyLabel) {
+            // Old Flux-owned Merge(in) — deactivate and clear
+            layer.maskApplyNode->deactivate(std::list<NodePtr>(), false, true);
+            layer.maskApplyNode.reset();
+        }
+    }
+
+    if (!layer.maskApplyNode || !layer.maskApplyNode->isActivated()) {
+        CreateNodeArgs pmArgs("net.sf.openfx.Premult", collection);
+        pmArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+        pmArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+        pmArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+        layer.maskApplyNode = gui->getApp()->createNode(pmArgs);
+        if (!layer.maskApplyNode) {
+            fprintf(stderr, "FLUX WARNING: Failed to create inline layer mask Premult node\n");
+            return nullptr;
+        }
+        layer.maskApplyNode->setLabel(kFluxLayerMaskPremultLabel);
+    }
+
+    layer.maskApplyNode->setPosition(x, y);
+    return layer.maskApplyNode;
+}
+
+// Ensure the inline Unpremult node for layer masks exists. Creates if needed.
+// Discovers existing Flux-owned Unpremult from Roto input 0 to avoid duplicates.
+// Returns nullptr if unpremult is not needed (caller decides).
+static NodePtr
+ensureInlineLayerMaskUnpremultNode(Gui* gui, FluxMask& lmask, const NodeCollectionPtr& collection,
+                                    double x, double y)
+{
+    if (!gui || !collection || !lmask.maskNode) {
+        return nullptr;
+    }
+
+    // Try to discover an existing Unpremult feeding Roto input 0
+    if (lmask.maskNode->isActivated()) {
+        NodePtr rotoInput = lmask.maskNode->getInput(0);
+        if (rotoInput && isUnpremultNode(rotoInput) && rotoInput->isActivated()) {
+            // Reuse existing Unpremult (may or may not be Flux-owned)
+            rotoInput->setPosition(x, y);
+            return rotoInput;
+        }
+    }
+
+    // Create new Unpremult
+    CreateNodeArgs upArgs("net.sf.openfx.Unpremult", collection);
+    upArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+    upArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+    upArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+    NodePtr unpremultNode = gui->getApp()->createNode(upArgs);
+    if (!unpremultNode) {
+        fprintf(stderr, "FLUX WARNING: Failed to create inline layer mask Unpremult node\n");
+        return nullptr;
+    }
+    unpremultNode->setLabel(kFluxLayerMaskUnpremultLabel);
+    unpremultNode->setPosition(x, y);
+    return unpremultNode;
+}
+
+// Deactivate old Flux-owned layer-mask artifacts (Merge(in) and Reformat).
+// Narrow: only matches exact Flux-owned labels.
+static void
+cleanupOldLayerMaskArtifacts(FluxLayer& layer, FluxMask& lmask)
+{
+    // Old Merge(in) maskApplyNode
+    if (layer.maskApplyNode && layer.maskApplyNode->isActivated()) {
+        if (layer.maskApplyNode->getLabel() == kFluxLayerMaskApplyLabel) {
+            layer.maskApplyNode->deactivate(std::list<NodePtr>(), false, true);
+            layer.maskApplyNode.reset();
+        }
+    }
+    // Old layer-mask Reformat
+    if (lmask.reformatNode && lmask.reformatNode->isActivated()) {
+        if (lmask.reformatNode->getLabel() == kFluxMaskReformatLabel) {
+            lmask.reformatNode->deactivate(std::list<NodePtr>(), false, true);
+            lmask.reformatNode.reset();
+        }
+    }
+}
+
+// Forward declaration — defined later in this file (inline chain preservation section)
+static bool upstreamContainsNode(const NodePtr& start, const NodePtr& target, const QSet<Node*>* stop);
+
+// Discover and deactivate a stale Flux-owned inline layer-mask chain feeding
+// mergeNode input 1, provided the chain reaches expectedSource upstream.
+// Used when no enabled layer mask exists but old Flux-owned nodes may still
+// be connected. Cleanup is narrow: only deactivates nodes with Flux-owned labels.
+// Returns true if a stale chain was found and cleaned.
+static bool
+cleanupStaleInlineLayerMaskChain(FluxLayer& layer, const NodePtr& mergeNode, const NodePtr& expectedSource)
+{
+    if (!mergeNode || !expectedSource) {
+        return false;
+    }
+
+    NodePtr mergeA = mergeNode->getInput(1);
+    if (!mergeA || mergeA == expectedSource) {
+        return false;
+    }
+
+    // Walk upstream from Merge A looking for Flux-owned layer-mask nodes
+    // that trace back to expectedSource.
+    // Chain: expectedSource -> [Unpremult] -> Roto -> Premult -> ... -> mergeA
+    // Detect Flux-owned nodes by label.
+    NodePtr stalePremult;
+    NodePtr staleRoto;
+    NodePtr staleUnpremult;
+
+    // Walk from mergeA upstream, collecting Flux-owned mask chain nodes
+    QSet<Node*> visited;
+    QList<NodePtr> queue;
+    queue.push_back(mergeA);
+    while (!queue.isEmpty()) {
+        NodePtr cur = queue.takeLast();
+        if (!cur) continue;
+        Node* raw = cur.get();
+        if (visited.contains(raw)) continue;
+        visited.insert(raw);
+
+        std::string lbl = cur->getLabel();
+        if (lbl == kFluxLayerMaskPremultLabel) {
+            stalePremult = cur;
+        } else if (lbl == kFluxMaskRotoLabel) {
+            staleRoto = cur;
+        } else if (lbl == kFluxLayerMaskUnpremultLabel) {
+            staleUnpremult = cur;
+        }
+
+        int nInputs = cur->getNInputs();
+        for (int i = 0; i < nInputs; ++i) {
+            NodePtr inp = cur->getInput(i);
+            if (inp) {
+                queue.push_back(inp);
+            }
+        }
+    }
+
+    // Only clean up if we found at least a Premult or Roto that is Flux-owned
+    // AND the chain reaches expectedSource (not some unrelated user subgraph)
+    if (!stalePremult && !staleRoto) {
+        return false;
+    }
+
+    // Verify the chain traces back to expectedSource
+    NodePtr chainRoot = stalePremult ? stalePremult : staleRoto;
+    if (!upstreamContainsNode(chainRoot, expectedSource, nullptr)) {
+        return false;
+    }
+
+    // Found a stale Flux-owned inline layer-mask chain — clean it up
+    mergeNode->disconnectInput(1);
+    mergeNode->connectInput(expectedSource, 1);
+
+    // Discover Unpremult from Roto input 0 if not already found
+    if (staleRoto && staleRoto->isActivated() && !staleUnpremult) {
+        NodePtr rotoIn0 = staleRoto->getInput(0);
+        if (rotoIn0 && rotoIn0->isActivated() && rotoIn0->getLabel() == kFluxLayerMaskUnpremultLabel) {
+            staleUnpremult = rotoIn0;
+        }
+    }
+
+    if (stalePremult && stalePremult->isActivated()) {
+        stalePremult->deactivate(std::list<NodePtr>(), false, true);
+    }
+    if (staleRoto && staleRoto->isActivated()) {
+        staleRoto->deactivate(std::list<NodePtr>(), false, true);
+    }
+    if (staleUnpremult && staleUnpremult->isActivated()) {
+        staleUnpremult->deactivate(std::list<NodePtr>(), false, true);
+    }
+
+    // Clear model refs if they point to the deactivated nodes
+    if (layer.maskApplyNode && !layer.maskApplyNode->isActivated()) {
+        layer.maskApplyNode.reset();
+    }
+    for (int m = 0; m < layer.masks.size(); ++m) {
+        if (layer.masks[m].effectIndex < 0) {
+            if (layer.masks[m].maskNode && !layer.masks[m].maskNode->isActivated()) {
+                layer.masks[m].maskNode.reset();
+            }
+        }
+    }
+
+    return true;
+}
+
+// ====================================================================
+// Inline chain preservation helpers (T062)
+//
+// When the user manually inserts nodes between Flux-owned nodes
+// (e.g. Gizmo -> manualBlur -> FluxEffect), we want to preserve that
+// chain during rebuild rather than overwriting it.
+// ====================================================================
+
+// Walk upstream from `start`, return true if `target` is found (directly or
+// transitively). Optional `stop` set prevents traversal past known boundaries.
+static bool
+upstreamContainsNode(const NodePtr& start,
+                      const NodePtr& target,
+                      const QSet<Node*>* stop = nullptr)
+{
+    if (!start || !target) {
+        return false;
+    }
+    QSet<Node*> visited;
+    QList<NodePtr> queue;
+    queue.push_back(start);
+    while (!queue.isEmpty()) {
+        NodePtr current = queue.takeLast();
+        if (!current) continue;
+        Node* raw = current.get();
+        if (visited.contains(raw)) continue;
+        if (stop && stop->contains(raw)) continue;
+        visited.insert(raw);
+        if (raw == target.get()) {
+            return true;
+        }
+        int nInputs = current->getNInputs();
+        for (int i = 0; i < nInputs; ++i) {
+            NodePtr inp = current->getInput(i);
+            if (inp) {
+                queue.push_back(inp);
+            }
+        }
+    }
+    return false;
+}
+
+// Determine the correct input to connect to `target`'s `inputIndex`.
+// If the current input is a manual chain that eventually reaches
+// `expectedSource`, return the current input (preserving the chain).
+// Otherwise return `expectedSource`.
+static NodePtr
+preserveInlineChainInput(const NodePtr& target,
+                          int inputIndex,
+                          const NodePtr& expectedSource)
+{
+    if (!target) {
+        return expectedSource;
+    }
+    NodePtr currentInput = target->getInput(inputIndex);
+    if (!currentInput || currentInput == expectedSource) {
+        return expectedSource;
+    }
+    // If the current input eventually reaches expectedSource upstream,
+    // the user inserted manual nodes in between — preserve them.
+    if (upstreamContainsNode(currentInput, expectedSource)) {
+        return currentInput;
+    }
+    // No connection to expected source — use the default.
+    return expectedSource;
+}
+
 void
 Gui::rebuildCompositingGraph(FluxTimeline* timeline)
 {
@@ -807,28 +1290,34 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
     // ====================================================================
     // Node Graph Layout — Per-Layer Vertical Branch Stack
     //
-    //   X:  centerX (main pipe)    branchX = centerX + kGizmoOffsetX
+    //   Three-column layout (left to right):
+    //     branchX  = centerX + kGizmoOffsetX   (far left)
+    //     maskColX = branchX + kMaskColumnOffsetX (middle corridor)
+    //     centerX  = 0.0                        (right — main pipe)
     //
-    //        ┌──────────┐
-    //        │ Reformat │  ← top anchor, project format canvas
-    //        └────┬─────┘
-    //             │  (vertical main pipe, all B inputs)
-    //     branchX│            centerX
-    //     ┌──────┴──┐    ┌────────────┐
-    //     │ Read 0  │    │            │  ← branch top
-    //     ├─────────┤    │            │
-    //     │ Gizmo 0 │    │            │  ← branch middle
-    //     ├─────────┤    │            │  ← (future effect stack here)
-    //     │         ├───>│  Merge 0   │  ← branch bottom, on main pipe
-    //     └─────────┘    └─────┬──────┘
-    //                           │
-    //     ┌──────┴──┐    ┌────────────┐
-    //     │ Read N  │    │            │
-    //     ├─────────┤    │            │
-    //     │ Gizmo N │    │            │
-    //     ├─────────┤    │            │  ← (future effect stack here)
-    //     │         ├───>│  Merge N   │  → Viewer
-    //     └─────────┘    └────────────┘
+    //   branchX         maskColX       centerX
+    //     │                 │              │
+    //     │                 │         ┌────┴─────┐
+    //     │                 │         │ Reformat │  ← project format canvas
+    //     │                 │         └────┬─────┘
+    //     │                 │              │  (vertical main pipe, all B inputs)
+    //     │                 │              │
+    //   ┌──┴──────┐    ┌────┴────┐   ┌────┴───────┐
+    //   │ Read 0  │    │  Refmt  │   │            │  ← branch top
+    //   ├─────────┤    │  (mask) │   │            │
+    //   │ Gizmo 0 │    ├────┬────┤   │            │
+    //   │         │    │ Roto│    │   │            │
+    //   ├─────────┤    │(mask)│    │   │            │
+    //   │ Efx...  │    └─────┘    │   │            │  ← effect stack
+    //   │         ├───────────────┘   │  Merge 0   │
+    //   └─────────┘                   └─────┬──────┘
+    //                                        │
+    //   ┌──┴──────┐    ┌────┴────┐   ┌──────┴─────┐
+    //   │ Read N  │    │  Refmt  │   │            │
+    //   ├─────────┤    │  (mask) │   │            │
+    //   │ Gizmo N │    ├────┬────┤   │            │
+    //   │ Efx...  │    │ Roto│    │   │  Merge N   │  → Viewer
+    //   └─────────┘    └─────┘    │   └────────────┘
     //
     //   Rules:
     //   - Reformat at top center (anchor point)
@@ -836,8 +1325,9 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
     //       Row 0: Read node (footage) or Solid gizmo (solid)
     //       Row 1: FluxLayer gizmo (footage) — empty for solid
     //       Row 2: Merge on main pipe (room for future effects between gizmo & merge)
-    //   - Merge nodes stacked at centerX (main pipe)
-    //   - Read + Gizmo at branchX (LEFT of main pipe)
+    //   - Merge nodes stacked at centerX (main pipe, right column)
+    //   - Read + Gizmo at branchX (far left column)
+    //   - Effect-mask Reformat/Roto at maskColX (middle column, vertically stacked)
     //   - No overlaps, uniform vertical spacing
     //   - Chain built bottom-to-top so top timeline layer = foreground
     //   - NEVER destroy existing nodes. Only create missing ones.
@@ -846,7 +1336,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
 
     // Layout constants
     const double kCenterX = 0.0;         // X position for Reformat + all Merge nodes (main pipe)
-    const double kGizmoOffsetX = -200.0; // branch column: Read + Gizmo go LEFT of main pipe
+    const double kGizmoOffsetX = -650.0; // branch column: Read + Gizmo go far LEFT of main pipe
     const double kYStart = 0.0;          // Reformat Y position (top of tree)
     const double kYSpacing = 120.0;      // vertical gap between each node row
     const int kNodesPerLayer = 3;        // minimum rows per layer: [Read|Solid] / Gizmo / Merge
@@ -1179,15 +1669,153 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                 FluxEffect& effect = layer.effects[e];
                 effect.node->setPosition(kCenterX + kGizmoOffsetX, effectY + e * kYSpacing);
                 if (effect.node->getNInputs() > 0) {
+                    // Preserve any manual inline chain the user inserted
+                    NodePtr sourceInput = preserveInlineChainInput(effect.node, 0, layerOutput);
                     effect.node->disconnectInput(0);
-                    if (layerOutput && !effect.node->connectInput(layerOutput, 0)) {
+                    if (sourceInput && !effect.node->connectInput(sourceInput, 0)) {
                         fprintf(stderr, "FLUX ERROR: effect connectInput(%s <- %s) failed for layer %d\n",
-                                effect.node->getLabel().c_str(), layerOutput->getLabel().c_str(), i);
+                                effect.node->getLabel().c_str(), sourceInput->getLabel().c_str(), i);
                     }
                 }
                 effect.node->setNodeDisabled(!effect.enabled);
+
+                // -- Effect mask wiring (T061) --
+                int maskInputIdx = discoverMaskInput(effect.node);
+                if (maskInputIdx >= 0) {
+                    FluxMask* emask = firstEnabledEffectMask(layer, e);
+                    if (emask) {
+                        double effectPosX, effectPosY;
+                        effect.node->getPosition(&effectPosX, &effectPosY);
+                        if (ensureMaskSourceNodes(this, *emask, collection,
+                                                  effectPosX, effectPosY)) {
+                            effect.node->disconnectInput(maskInputIdx);
+                            if (!effect.node->connectInput(emask->maskNode, maskInputIdx)) {
+                                fprintf(stderr, "FLUX WARNING: effect mask connectInput(%s mask %d) failed for layer %d effect %d\n",
+                                        effect.node->getLabel().c_str(), maskInputIdx, i, e);
+                            }
+                        }
+                    } else {
+                        // No mask for this effect — clear the mask input if it was previously connected
+                        effect.node->disconnectInput(maskInputIdx);
+                    }
+                }
+
+                // V1: warn about multiple enabled masks for the same effect
+                if (maskInputIdx >= 0) {
+                    int effectMaskCount = 0;
+                    for (int m = 0; m < layer.masks.size(); ++m) {
+                        if (layer.masks[m].enabled && layer.masks[m].effectIndex == e) {
+                            ++effectMaskCount;
+                        }
+                    }
+                    if (effectMaskCount > 1) {
+                        fprintf(stderr, "FLUX: Multiple enabled effect masks on effect %s; V1 uses first only\n",
+                                effect.node->getLabel().c_str());
+                    }
+                }
+
                 _imp->_fluxMergeNodes.push_back(effect.node);
                 layerOutput = effect.node;
+            }
+        }
+
+        // -- Layer mask wiring (T064) --
+        // V1: single enabled layer mask per layer, inline in the source pipe.
+        // Chain: source -> [Unpremult] -> Roto -> Premult -> Merge A
+        // No Merge(in), no side branch. maskApplyNode = inline Premult.
+        FluxMask* lmask = firstEnabledLayerMask(layer);
+        if (lmask) {
+            // Clean up old Merge(in)/Reformat artifacts from pre-T064
+            cleanupOldLayerMaskArtifacts(layer, *lmask);
+
+            // Determine if Unpremult is needed (conservative V1 rule):
+            // - Footage layers: assume alpha may exist
+            // - Layers with effects before mask: assume alpha may exist
+            // - Pure solid with no prior effects: skip
+            bool needsUnpremult = false;
+            if (layer.type == QString::fromUtf8("footage")) {
+                needsUnpremult = true;
+            }
+            if (!layer.effects.isEmpty()) {
+                needsUnpremult = true;
+            }
+
+            // Compute positions for inline mask nodes
+            int sourceRows = (layer.type == QString::fromUtf8("footage") && layer.readerNode) ? 2 : 1;
+            double maskBaseY = kYStart + (graphRow + sourceRows + layer.effects.size()) * kYSpacing;
+
+            // Ensure Roto node exists
+            if (!lmask->maskNode || !lmask->maskNode->isActivated()) {
+                CreateNodeArgs rotoArgs(PLUGINID_NATRON_ROTO, collection);
+                rotoArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+                rotoArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+                rotoArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+                lmask->maskNode = getApp()->createNode(rotoArgs);
+                if (lmask->maskNode) {
+                    lmask->maskNode->setLabel(kFluxMaskRotoLabel);
+                    lmask->pluginId = QString::fromUtf8(PLUGINID_NATRON_ROTO);
+                }
+            }
+            // Position Roto in branch column
+            if (lmask->maskNode) {
+                double rotoY = needsUnpremult ? maskBaseY + kYSpacing : maskBaseY;
+                lmask->maskNode->setPosition(kCenterX + kGizmoOffsetX, rotoY);
+            }
+
+            // Ensure inline Premult (stored in maskApplyNode)
+            double premultY = needsUnpremult ? maskBaseY + 2 * kYSpacing : maskBaseY + kYSpacing;
+            NodePtr premultNode = ensureInlineLayerMaskPremultNode(this, layer, collection,
+                                                                     kCenterX + kGizmoOffsetX, premultY);
+
+            // Optional Unpremult
+            NodePtr unpremultNode;
+            if (needsUnpremult) {
+                unpremultNode = ensureInlineLayerMaskUnpremultNode(this, *lmask, collection,
+                                                                    kCenterX + kGizmoOffsetX, maskBaseY);
+            }
+
+            if (lmask->maskNode && premultNode) {
+                // Wire inline chain preserving manual nodes at each boundary
+                // source -> [Unpremult input 0] -> Roto input 0 -> Premult input 0
+                NodePtr rotoExpectedSource = layerOutput;
+                if (unpremultNode) {
+                    // Wire: layerOutput -> Unpremult input 0
+                    NodePtr unpremultInput = preserveInlineChainInput(unpremultNode, 0, layerOutput);
+                    unpremultNode->disconnectInput(0);
+                    unpremultNode->connectInput(unpremultInput, 0);
+                    rotoExpectedSource = unpremultNode;
+                }
+
+                // Wire: [unpremult or layerOutput] -> Roto input 0
+                NodePtr rotoInput = preserveInlineChainInput(lmask->maskNode, 0, rotoExpectedSource);
+                lmask->maskNode->disconnectInput(0);
+                lmask->maskNode->connectInput(rotoInput, 0);
+
+                // Wire: Roto -> Premult input 0
+                NodePtr premultInput = preserveInlineChainInput(premultNode, 0, lmask->maskNode);
+                premultNode->disconnectInput(0);
+                premultNode->connectInput(premultInput, 0);
+
+                // layerOutput is now the Premult
+                layerOutput = premultNode;
+
+                _imp->_fluxMergeNodes.push_back(lmask->maskNode);
+                _imp->_fluxMergeNodes.push_back(premultNode);
+                if (unpremultNode) {
+                    _imp->_fluxMergeNodes.push_back(unpremultNode);
+                }
+            }
+
+            // Log V1: warn about additional enabled layer masks
+            int layerMaskCount = 0;
+            for (int m = 0; m < layer.masks.size(); ++m) {
+                if (layer.masks[m].enabled && layer.masks[m].effectIndex < 0) {
+                    ++layerMaskCount;
+                }
+            }
+            if (layerMaskCount > 1) {
+                fprintf(stderr, "FLUX NOTE: Layer %d has %d enabled layer masks; V1 uses first only\n",
+                        i, layerMaskCount);
             }
         }
 
@@ -1239,29 +1867,51 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             layer.mergeNode = mergeNode;
         }
 
+        // -- Stale inline layer-mask chain cleanup --
+        // When no enabled layer mask exists, prevent preserveInlineChainInput from
+        // keeping a stale Flux-owned mask chain alive on Merge A input.
+        // This must work even if layer.maskApplyNode was already reset by
+        // removeMaskFromLayer — detection is purely topology-based from Merge A.
+        {
+            if (!lmask && layer.mergeNode && layer.mergeNode->isActivated()) {
+                cleanupStaleInlineLayerMaskChain(layer, layer.mergeNode, layerOutput);
+            }
+        }
+
         // -- Always reconnect + reposition (layer order may have changed) --
         {
             // Merge sits at the bottom of this layer's branch, on the main pipe.
-            // Y = branchTopY + (kNodesPerLayer - 1) * kYSpacing
             int sourceRows = (layer.type == QString::fromUtf8("footage") && layer.readerNode) ? 2 : 1;
-            double mergeY = kYStart + (graphRow + sourceRows + layer.effects.size()) * kYSpacing;
+            // Inline layer mask rows: Roto + Premult + optional Unpremult
+            int inlineMaskRows = 0;
+            if (lmask) {
+                inlineMaskRows = 2; // Roto + Premult
+                // Check if Unpremult is needed (same logic as above)
+                if (layer.type == QString::fromUtf8("footage") || !layer.effects.isEmpty()) {
+                    inlineMaskRows = 3; // Unpremult + Roto + Premult
+                }
+            }
+            double mergeY = kYStart + (graphRow + sourceRows + layer.effects.size() + inlineMaskRows) * kYSpacing;
             layer.mergeNode->setPosition(kCenterX, mergeY);
 
             // Disconnect stale inputs before reconnecting (handles layer deletion/reorder)
+            // But first capture the preserved inline chain before disconnecting
+            NodePtr mergeAInput = preserveInlineChainInput(layer.mergeNode, 1, layerOutput);
             layer.mergeNode->disconnectInput(0);
             layer.mergeNode->disconnectInput(1);
 
             // Connect: input 0 (B) = previous output / background
-            //          input 1 (A) = this layer's gizmo (foreground)
+            //          input 1 (A) = this layer's output
             if (lastOutput) {
                 if (!layer.mergeNode->connectInput(lastOutput, 0)) {
                     fprintf(stderr, "FLUX ERROR: Merge connectInput(%d,B=%s) failed for layer %d\n",
                             0, lastOutput->getLabel().c_str(), i);
                 }
             }
-            if (!layer.mergeNode->connectInput(layerOutput, 1)) {
+            // input 1 (A) = preserved inline chain or layerOutput
+            if (!layer.mergeNode->connectInput(mergeAInput, 1)) {
                 fprintf(stderr, "FLUX ERROR: Merge connectInput(%d,A=%s) failed for layer %d\n",
-                        1, layerOutput->getLabel().c_str(), i);
+                        1, mergeAInput ? mergeAInput->getLabel().c_str() : "null", i);
             }
 
             // Set merge disabled state based on mute/solo
@@ -1272,7 +1922,20 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
         lastOutput = layer.mergeNode;
         {
             int sourceRows = (layer.type == QString::fromUtf8("footage") && layer.readerNode) ? 2 : 1;
-            graphRow += qMax(kNodesPerLayer, sourceRows + layer.effects.size() + 1);
+            int inlineMaskRows = 0;
+            if (lmask) {
+                inlineMaskRows = 2;
+                if (layer.type == QString::fromUtf8("footage") || !layer.effects.isEmpty()) {
+                    inlineMaskRows = 3;
+                }
+            }
+            graphRow += qMax(kNodesPerLayer, sourceRows + layer.effects.size() + inlineMaskRows + 1);
+        }
+
+        // Classify branches to detect precomp — derived UI state, not serialized
+        {
+            FluxLayerBranchClassification cls = classifyLayerBranches(layer);
+            layer.hasPrecompBranch = cls.hasPrecompBranch;
         }
     }
 
@@ -1313,6 +1976,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                 }
             }
         }
+        timeline->refreshVisibleRows();
     }
 
     fprintf(stderr, "FLUX: Compositing graph rebuilt with %d layers, %d nodes (gizmos + merges)\n",
