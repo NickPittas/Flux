@@ -1662,7 +1662,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             KnobDoublePtr skewYDbl = std::dynamic_pointer_cast<KnobDouble>(skewYKnob);
             KnobChoicePtr skewOrderChoice = std::dynamic_pointer_cast<KnobChoice>(skewOrderKnob);
 
-            if (translateDbl && scaleDbl && rotateDbl && centerDbl) {
+            if (layer.type != QString::fromUtf8("text") && translateDbl && scaleDbl && rotateDbl && centerDbl) {
                 layer.gizmoNode->addTransformInteract(
                     translateDbl,
                     scaleDbl,

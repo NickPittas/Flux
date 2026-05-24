@@ -777,26 +777,8 @@ FluxTimeline::splitLayer(int index, int frame)
         updateAdjustmentTrimKeyframes(index);      // duplicate (top half)
         updateAdjustmentTrimKeyframes(index + 1);  // original (bottom half)
     } else {
-        // Footage/solid rows: update FrameRange knobs
-        if (orig.gizmoNode) {
-            KnobIPtr frameRangeKnob = orig.gizmoNode->getKnobByName(std::string("frameRange"));
-            if (frameRangeKnob) {
-                KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(frameRangeKnob);
-                if (int2D) {
-                    int2D->setValue(orig.outPoint, ViewSpec::all(), 1); // only change last frame
-                }
-            }
-        }
-
-        if (dup.gizmoNode) {
-            KnobIPtr frameRangeKnob = dup.gizmoNode->getKnobByName(std::string("frameRange"));
-            if (frameRangeKnob) {
-                KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(frameRangeKnob);
-                if (int2D) {
-                    int2D->setValue(dup.inPoint, ViewSpec::all(), 0); // only change first frame
-                }
-            }
-        }
+        updateLayerTrimKnobs(index);      // duplicate (top half)
+        updateLayerTrimKnobs(index + 1);  // original (bottom half)
     }
 
     fprintf(stderr, "FLUX SPLIT: at frame %d (source=%d)\n  original[%d]: inPoint=%d outPoint=%d\n  duplicate[%d]: inPoint=%d outPoint=%d timeOffset=%d\n",
@@ -2874,15 +2856,8 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                 if (isAdjustmentRow(layerIdx)) {
                     // Adjustment rows: update disable-knob keyframes (respects mute/enabled)
                     updateAdjustmentTrimKeyframes(layerIdx);
-                } else if (layer.gizmoNode) {
-                    KnobIPtr frameRangeKnob = layer.gizmoNode->getKnobByName(std::string("frameRange"));
-                    if (frameRangeKnob) {
-                        KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(frameRangeKnob);
-                        if (int2D) {
-                            int2D->setValue(layer.inPoint, ViewSpec::all(), 0);
-                            int2D->setValue(layer.outPoint, ViewSpec::all(), 1);
-                        }
-                    }
+                } else {
+                    updateLayerTrimKnobs(layerIdx);
                 }
                 update();
             });

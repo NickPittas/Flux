@@ -4,8 +4,8 @@
 #
 # Important contract with C++:
 #   frameRange is aliased directly to the native Text node frameRange knob.
-#   translate/rotate/scale/center/skew/interactive are aliases to the native
-#   Text transform* knobs, not to an extra Transform node.
+#   Text controls are aliases to the actual native Text node knobs dumped from
+#   net.fxarena.openfx.Text. They are required unless explicitly internal.
 
 import NatronEngine
 
@@ -40,6 +40,25 @@ def _add_double(group, page, name, label, default=None):
     if default is not None:
         param.setDefaultValue(default, 0)
         param.restoreDefaultValue(0)
+    param.setAnimationEnabled(True)
+    page.addParam(param)
+
+def _add_int(group, page, name, label, default=None):
+    param = group.createIntParam(name, label)
+    if default is not None:
+        param.setDefaultValue(default, 0)
+        param.restoreDefaultValue(0)
+    param.setAnimationEnabled(True)
+    page.addParam(param)
+
+def _add_int2d(group, page, name, label, default_x=None, default_y=None):
+    param = group.createInt2DParam(name, label)
+    if default_x is not None:
+        param.setDefaultValue(default_x, 0)
+        param.restoreDefaultValue(0)
+    if default_y is not None:
+        param.setDefaultValue(default_y, 1)
+        param.restoreDefaultValue(1)
     param.setAnimationEnabled(True)
     page.addParam(param)
 
@@ -93,9 +112,15 @@ def createInstance(app, group):
     page = group.createPageParam("TextSettings", "Text Settings")
 
     # Native Text OFX content/style knobs. Keep these first: text work lives here.
+    _add_bool(group, page, "autoSize", "Auto Size", True)
+    _add_bool(group, page, "centerInteract", "Center Interact", False)
+    _add_int2d(group, page, "canvas", "Canvas Size", 0, 0)
     _add_string(group, page, "text", "Text", "Text")
+    _add_double(group, page, "fps", "Frame Rate", 24)
     _add_string(group, page, "font", "Font", "D/DejaVu Sans")
-    _add_double(group, page, "size", "Size", 72)
+    _add_choice(group, page, "name", "Select Font", ["Default"], 0)
+    _add_int(group, page, "size", "Size", 64)
+    _add_color(group, page, "color", "Font Color", (1, 1, 1, 1))
     _add_choice(group, page, "weight", "Weight", [
         "Thin", "Ultralight", "Light", "Book", "Normal", "Medium",
         "Semibold", "Bold", "Ultrabold", "Heavy", "Ultraheavy"
@@ -104,34 +129,36 @@ def createInstance(app, group):
         "UltraCondensed", "ExtraCondensed", "Condensed", "SemiCondensed",
         "Normal", "SemiExpanded", "Expanded", "ExtraExpanded", "UltraExpanded"
     ], 4)
-    _add_bool(group, page, "italic", "Italic", False)
+    _add_choice(group, page, "style", "Style", ["Normal", "Italic", "Oblique"], 0)
     _add_bool(group, page, "markup", "Pango Markup", True)
     _add_bool(group, page, "justify", "Justify", False)
     _add_choice(group, page, "wrap", "Wrap", ["None", "Word", "Char", "WordChar"], 0)
-    _add_bool(group, page, "autoSize", "Auto Size", True)
+    _add_choice(group, page, "align", "Horizontal Align", ["Left", "Center", "Right"], 0)
+    _add_choice(group, page, "valign", "Vertical Align", ["Top", "Center", "Bottom"], 0)
     _add_double2d(group, page, "textCenter", "Text Position")
-    _add_bool(group, page, "centeredH", "Center Horizontally", False)
     _add_string(group, page, "custom", "Custom Font")
     _add_string(group, page, "file", "Text File")
-    _add_double(group, page, "letterSpace", "Letter Spacing", 0)
+    _add_string(group, page, "subtitle", "Subtitle File")
+    _add_int(group, page, "letterSpace", "Letter Spacing", 0)
     _add_double(group, page, "scrollX", "Scroll X", 0)
     _add_double(group, page, "scrollY", "Scroll Y", 0)
     _add_color(group, page, "backgroundColor", "Background Color", (0, 0, 0, 0))
     _add_color(group, page, "strokeColor", "Stroke Color", (1, 1, 1, 1))
     _add_double(group, page, "strokeSize", "Stroke Size", 0)
-    _add_bool(group, page, "strokeDash", "Stroke Dash", False)
-    _add_string(group, page, "strokeDashPattern", "Stroke Dash Pattern")
-    _add_bool(group, page, "subtitle", "Subtitle", False)
-    _add_choice(group, page, "valign", "Vertical Align", ["Top", "Center", "Bottom"], 0)
+    _add_int(group, page, "strokeDash", "Stroke Dash Length", 0)
+    _add_double(group, page, "strokeDashPattern", "Stroke Dash Pattern", 1)
+    _add_choice(group, page, "hintStyle", "Hint Style", ["Default"], 0)
+    _add_choice(group, page, "hintMetrics", "Hint Metrics", ["Default"], 0)
     _add_choice(group, page, "antialiasing", "Antialiasing", ["None", "Gray", "Subpixel", "Default"], 3)
+    _add_choice(group, page, "subpixel", "Subpixel", ["Default"], 0)
     _add_double(group, page, "circleRadius", "Circle Radius", 0)
-    _add_bool(group, page, "circleWords", "Circle Words", False)
+    _add_int(group, page, "circleWords", "Circle Words", 10)
     _add_double(group, page, "arcAngle", "Arc Angle", 0)
-    _add_double(group, page, "arcRadius", "Arc Radius", 0)
-    _add_double(group, page, "directionalBlur", "Directional Blur", 0)
+    _add_double(group, page, "arcRadius", "Arc Radius", 100)
 
     # Native Text transform knobs, aliased to Flux's stable transform names.
     _add_bool(group, page, "transform", "Enable Text Transform", True)
+    _add_double(group, page, "transformAmount", "Transform Amount", 1)
     _add_double2d(group, page, "translate", "Translate")
     _add_double(group, page, "rotate", "Rotate", 0)
     _add_double2d(group, page, "scale", "Scale", 1, 1)
@@ -140,7 +167,10 @@ def createInstance(app, group):
     _add_double(group, page, "skewY", "Skew Y", 0)
     _add_choice(group, page, "skewOrder", "Skew Order", ["XY", "YX"], 0)
     _add_double2d(group, page, "center", "Transform Center")
+    _add_bool(group, page, "transformCenterChanged", "Transform Center Changed", False)
+    _add_bool(group, page, "transformInteractOpen", "Show Interact", False)
     _add_bool(group, page, "interactive", "Interactive Update", True)
+    _add_bool(group, page, "hidpi", "HiDPI", False)
 
     # Flux timeline/compositing contract.
     frameRangeParam = group.createInt2DParam("frameRange", "Frame Range")
@@ -195,7 +225,7 @@ def createInstance(app, group):
         param.setValue("D/DejaVu Sans")
     param = textNode.getParam("size")
     if param is not None:
-        param.setValue(72, 0)
+        param.setValue(64, 0)
 
     timeOffsetNode = app.createNode("net.sf.openfx.timeOffset", 1, group)
     timeOffsetNode.setScriptName("TimeOffset1")
@@ -222,16 +252,17 @@ def createInstance(app, group):
     multiplyNode.connectInput(0, timeOffsetNode)
     outputNode.connectInput(0, multiplyNode)
 
-    for name in ["text", "font", "size", "markup", "autoSize", "transform", "frameRange", "enableNodeLifeTime", "nodeLifeTime"]:
-        _alias(group, name, textNode, name)
-
     for name in [
-        "weight", "stretch", "italic", "justify", "wrap", "centeredH", "custom", "file",
-        "letterSpace", "scrollX", "scrollY", "backgroundColor", "strokeColor", "strokeSize",
-        "strokeDash", "strokeDashPattern", "subtitle", "valign", "antialiasing", "circleRadius",
-        "circleWords", "arcAngle", "arcRadius", "directionalBlur"
+        "rotate", "scale", "uniform", "skewX", "skewY", "skewOrder", "transformAmount",
+        "transformCenterChanged", "transformInteractOpen", "interactive", "hidpi", "transform",
+        "autoSize", "centerInteract", "canvas", "markup", "file", "subtitle", "fps", "text",
+        "justify", "wrap", "align", "valign", "name", "custom", "font", "size", "color",
+        "backgroundColor", "letterSpace", "hintStyle", "hintMetrics", "antialiasing",
+        "subpixel", "style", "weight", "stretch", "strokeSize", "strokeColor", "strokeDash",
+        "strokeDashPattern", "circleRadius", "circleWords", "arcRadius", "arcAngle", "scrollX",
+        "scrollY", "frameRange", "enableNodeLifeTime", "nodeLifeTime"
     ]:
-        _alias(group, name, textNode, name, required=False)
+        _alias(group, name, textNode, name)
 
     _alias(group, "textCenter", textNode, "center")
     # The FxArena Text node exposes its transform knobs unprefixed.

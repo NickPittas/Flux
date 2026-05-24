@@ -249,7 +249,7 @@
 - T069: ✅ Restore missing OFX provider coverage for bundled PyPlugs before implementing text/shape features that may depend on legacy native OpenFX providers. SeExpr/Text/Tile/Magick/ResolveMath providers are installed and validated; dependency audit reports 0 missing IDs; `lp_roughenEdges`, `lp_SimpleKeyer`, `Luma_to_Normals`, and `Vectors_Normalize` creation passes. Missing-plugin/library diagnostics Oracle-reviewed and validated with cold/warm cache broken-binary tests.
 
 **Tasks**:
-- T071: 🧪 Text layer v1 — FluxText PyPlug and UI actions implemented. Current architecture uses native Text OFX knobs directly: no extra Transform or FrameRange node; Flux `frameRange` aliases to Text `frameRange`, trim also syncs Text/host `enableNodeLifeTime` + `nodeLifeTime`, and C++ no longer sets Text center. Build passed and background PyPlug smoke reached `FLUX_TEXT_SMOKE_OK`; still needs live GUI validation for create/edit/animate/trim/duplicate/split/save-reopen/export before DONE.
+- T071: 🧪 Text layer v1 — FluxText PyPlug and UI actions implemented. Current architecture uses native Text OFX knobs directly: no extra Transform or FrameRange node; live Text provider knobs are exposed as required aliases, Flux `frameRange` aliases to Text `frameRange`, trim/split/reset sync Text/host `enableNodeLifeTime` + `nodeLifeTime`, and C++ no longer sets Text center. Build passed and full alias smoke reached `FLUX_TEXT_ALL_ALIAS_SMOKE_OK`; still needs live GUI validation for create/edit/animate/trim/duplicate/split/save-reopen/export before DONE.
 
 ---
 
