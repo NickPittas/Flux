@@ -124,7 +124,7 @@
 |---|---|---|
 | **Footage** | Video or image sequence layer | External Read node → FluxLayer gizmo (Input node) |
 | **Shape** | Vector shape with fill/stroke | Roto node + Constant node |
-| **Text** | Text layer with font/size/alignment | Text rendering node (new) |
+| **Text** | Text layer with font/size/alignment | FluxText PyPlug: Text → FrameRange → TimeOffset → Grade → Output |
 | **Solid** | Solid color fill | Constant node |
 | **Adjustment** | Applies effects to all layers below | Effects chain passthrough |
 | **Null** | Invisible transform container | Transform node (no source) |
@@ -158,7 +158,7 @@ Layer 1: "BG" (Footage.mov)   ->   Read1 → FluxLayer gizmo #1 ──┘
 ```
 
 Each **FluxLayer gizmo** contains: Input → FrameRange → TimeOffset → Transform → Multiply → Output.
-Footage layers have an external **Read** node connected to the gizmo input. Solid layers use **FluxSolid** with an internal Constant source.
+Footage layers have an external **Read** node connected to the gizmo input. Solid layers use **FluxSolid** with an internal Constant source. Text layers use **FluxText** with an internal native Text source followed by FrameRange, TimeOffset, and Grade opacity.
 
 - Each **layer** = one FluxLayer PyPlug gizmo node
 - **Effects** on a layer = additional nodes inserted in the chain (future)
@@ -167,6 +167,9 @@ Footage layers have an external **Read** node connected to the gizmo input. Soli
 - **Trim** = FrameRange knob on gizmo (trimStart/trimEnd state tracked in FluxLayer struct)
 - **Move** = TimeOffset knob on gizmo (never touches FrameRange)
 - **Transform** = translate, scale, rotate, center knobs on gizmo (aliased to internal Transform node)
+- **Text layer controls** = promoted group knobs named after the internal Text node (`Text1...`) and linked with `setAsAlias()`, matching Natron's PyPlug exporter style. Text properties are shown first; the native Text `center` remains the Text node's own position/transform knob.
+- **Text font selection** = promoted `Text1name` choice is synchronized to native `Text1font` in `Gui/Gui05.cpp` because the Text renderer reads the font-family string.
+- **Viewer overlay keyframes** = `Gui/HostOverlay.cpp` passes a `KeyFrame` object for 2D overlay writes so animated translate/center/scale edits author curve keys instead of only changing the current value.
 - **Precomps** = Natron Group nodes
 - **External Read** = footage layers own a Read node outside the gizmo; metadata/range probing uses this node.
 - **Background canvas** = persistent Reformat node labelled "Flux Background"; all its inputs are forcibly disconnected each rebuild so it remains a pure source.
@@ -219,8 +222,8 @@ The FluxLayer PyPlug is in `plugins/FluxLayer.py` (installed to `~/.Natron/PyPlu
 | **Layer Types** | Solid, adjustment, null layers | P3 | Pending |
 | **Solo/Mute/Lock** | Per-layer visibility controls | P3 | Pending |
 | **Split/Duplicate** | Duplicate via Natron clipboard; Split = duplicate + trim | P3 | Done |
-| **Shape Layers** | Rect, ellipse, star, bezier | P6 | Planned |
-| **Text Layers** | Text rendering with animation | P6 | Planned |
+| **Shape Layers** | Rect, ellipse, star, bezier | P7 | Planned |
+| **Text Layers** | FluxText PyPlug with native Text controls, trim, opacity, viewer overlay animation | P7 | Done |
 | **Export Templates** | Saveable export configurations | P5 | Planned |
 | **Improved Cache** | Persistent disk cache, background rendering | P7 | Planned |
 
@@ -296,8 +299,9 @@ flux/                              <- Forked from NatronGitHub/Natron (gui-sbk6 
 | **P3: Timeline** | Playback controls, keyboard shortcuts, layer types | 2-3 weeks | NEXT | Full timeline interaction |
 | **P4: Effects + Properties** | Effects stack, property inspector | 1-2 weeks | PENDING | Effects applied per-layer |
 | **P5: Import/Export** | File browser, export dialog | 1 week | PENDING | All formats work end-to-end |
-| **P6: Shapes + Text** | Shape/text layer types | 2-3 weeks | PENDING | Shapes and text render |
-| **P7: Polish + Cache** | Improved cache, undo/redo, performance | 2-3 weeks | PENDING | 1080p 5-layer real-time target |
+| **P6: Timeline Tree + Masks** | Timeline hierarchy and native Roto/RotoPaint masks | 1 day | DONE | Layer/effect masks render and persist |
+| **P7: Shapes + Text** | Shape/text layer types | 2-3 weeks | IN_PROGRESS | Shapes and text render |
+| **P8: Polish + Cache** | Improved cache, undo/redo, performance | 2-3 weeks | PENDING | 1080p 5-layer real-time target |
 
 ---
 
@@ -439,6 +443,7 @@ The compositing graph is reconciled on every structural timeline change (add, re
 - **No .aep support:** Clean break from After Effects.
 - **Qt dependency:** Accepted. Qt6 Core + Widgets + OpenGL + Wayland is required.
 - **Testing:** Every feature validated with real-world artifacts (images, videos). No feature is "done" until tested.
+- **Known Text follow-ups:** Native Text justification/alignment is currently a standalone Text OFX behavior issue, not a FluxText blocker. Dope Sheet/keyframe readability remains separate polish work.
 - **Task tracking:** All tasks in `tasks/TASKS.md`. All phases in `plans/PHASES.md`.
 - **Code review:** Every implementation reviewed before marking complete.
 - **500-line max per file:** Carry this forward for new code.

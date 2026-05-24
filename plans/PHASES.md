@@ -11,7 +11,7 @@
 | P4 | Effects + Properties | DONE | 2026-05-22 | 2026-05-22 | 100% |
 | P5 | Import/Export | DONE | 2026-05-22 | 2026-05-23 | 100% |
 | P6 | Timeline Tree + Masks | DONE | 2026-05-23 | 2026-05-23 | 100% |
-| P7 | Shapes + Text | IN_PROGRESS | 2026-05-24 | — | 10% |
+| P7 | Shapes + Text | IN_PROGRESS | 2026-05-24 | — | 25% |
 | P8 | Polish + Cache | PENDING | — | — | 0% |
 
 ---
@@ -249,7 +249,11 @@
 - T069: ✅ Restore missing OFX provider coverage for bundled PyPlugs before implementing text/shape features that may depend on legacy native OpenFX providers. SeExpr/Text/Tile/Magick/ResolveMath providers are installed and validated; dependency audit reports 0 missing IDs; `lp_roughenEdges`, `lp_SimpleKeyer`, `Luma_to_Normals`, and `Vectors_Normalize` creation passes. Missing-plugin/library diagnostics Oracle-reviewed and validated with cold/warm cache broken-binary tests.
 
 **Tasks**:
-- T071: 🧪 Text layer v1 — FluxText PyPlug and UI actions implemented. Current architecture uses native Text OFX knobs directly: no extra Transform or FrameRange node; live Text provider knobs are exposed as required aliases, Flux `frameRange` aliases to Text `frameRange`, trim/split/reset sync Text/host `enableNodeLifeTime` + `nodeLifeTime`, and C++ no longer sets Text center. Build passed and full alias smoke reached `FLUX_TEXT_ALL_ALIAS_SMOKE_OK`; still needs live GUI validation for create/edit/animate/trim/duplicate/split/save-reopen/export before DONE.
+- T071: ✅ Text layer v1 — FluxText PyPlug and UI actions implemented. Current architecture is native Text → FrameRange → TimeOffset → Grade → Output, with Text controls promoted as group knobs in Natron PyPlug-exporter style and linked via `setAsAlias()`. Text controls appear first in properties, timeline trim uses FrameRange, opacity uses Grade multiply, and the viewer transform overlay registers against promoted Text knobs. Font selector changes sync `Text1name` to `Text1font`; promoted cascading choice metadata is preserved; 2D viewer overlay writes now create keyframes correctly. Build passed, `plugins/FluxText.py` compiles, deployed extras passed, Oracle reviewed overlay-keyframe fix, and live GUI validation passed for Text v1.
+
+**Known follow-ups**:
+- Native Text justification/alignment is broken in standalone Text too; track as a native Text OFX issue, not a FluxText v1 blocker.
+- Dope Sheet/keyframe readability and stability need separate polish work.
 
 ---
 

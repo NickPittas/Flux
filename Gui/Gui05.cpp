@@ -88,6 +88,76 @@
 
 NATRON_NAMESPACE_ENTER
 
+namespace {
+
+std::string
+fluxTextFontFamilyFromChoice(const ChoiceOption& entry)
+{
+    std::string family = entry.label.empty() ? entry.id : entry.label;
+    std::string::size_type slash = family.rfind('/');
+    if (slash != std::string::npos && slash + 1 < family.size()) {
+        family = family.substr(slash + 1);
+    }
+    return family;
+}
+
+void
+syncFluxTextFontChoiceToFont(const NodePtr& gizmoNode)
+{
+    if (!gizmoNode) {
+        return;
+    }
+
+    KnobChoicePtr fontChoice = std::dynamic_pointer_cast<KnobChoice>(gizmoNode->getKnobByName("Text1name"));
+    KnobStringBasePtr fontString = std::dynamic_pointer_cast<KnobStringBase>(gizmoNode->getKnobByName("Text1font"));
+    if (!fontChoice || !fontString) {
+        return;
+    }
+
+    std::string family = fluxTextFontFamilyFromChoice(fontChoice->getActiveEntry());
+    if (family.empty()) {
+        return;
+    }
+
+    if (fontString->getValue(0, ViewSpec::current()) == family) {
+        return;
+    }
+
+    fontString->setValue(family, ViewSpec::all(), 0);
+}
+
+void
+installFluxTextFontSync(const NodePtr& gizmoNode, QObject* receiver)
+{
+    if (!gizmoNode || !receiver) {
+        return;
+    }
+
+    KnobChoicePtr fontChoice = std::dynamic_pointer_cast<KnobChoice>(gizmoNode->getKnobByName("Text1name"));
+    if (!fontChoice) {
+        return;
+    }
+
+    KnobSignalSlotHandler* handler = fontChoice->getSignalSlotHandler().get();
+    if (!handler) {
+        return;
+    }
+
+    QObject::disconnect(handler, &KnobSignalSlotHandler::valueChanged, receiver, nullptr);
+    QObject::connect(
+        handler,
+        &KnobSignalSlotHandler::valueChanged,
+        receiver,
+        [gizmoNode](ViewSpec, int, int) {
+            syncFluxTextFontChoiceToFont(gizmoNode);
+        }
+    );
+
+    syncFluxTextFontChoiceToFont(gizmoNode);
+}
+
+} // namespace
+
 
 void
 Gui::setupUi()
@@ -625,7 +695,7 @@ Gui::setupFluxUi()
                               }
                           }
 
-                          // Open newly selected layer's properties panel
+                          // Open newly selected layer's properties panel.
                           const QList<FluxLayer>& layers = timeline->getLayers();
                           if (index >= 0 && index < layers.size()) {
                               effectsPanel->setActiveLayer(index, layers[index].name);
@@ -1608,22 +1678,6 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                     }
                 }
 
-                KnobIPtr enableLifeKnob = gizmoNode->getKnobByName("enableNodeLifeTime");
-                if (enableLifeKnob) {
-                    KnobBoolPtr boolKnob = std::dynamic_pointer_cast<KnobBool>(enableLifeKnob);
-                    if (boolKnob) {
-                        boolKnob->setValue(true, ViewSpec::all(), 0);
-                    }
-                }
-                KnobIPtr lifeRangeKnob = gizmoNode->getKnobByName("nodeLifeTime");
-                if (lifeRangeKnob) {
-                    KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(lifeRangeKnob);
-                    if (int2D) {
-                        int2D->setValue(projectFirst, ViewSpec::all(), 0);
-                        int2D->setValue(projectLast, ViewSpec::all(), 1);
-                    }
-                }
-
                 layer.originalFirstFrame = projectFirst;
                 layer.originalLastFrame = projectLast;
                 layer.inPoint = projectFirst;
@@ -1640,18 +1694,26 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             layer.gizmoNode = gizmoNode;
         }
 
+        if (layer.type == QString::fromUtf8("text")) {
+            installFluxTextFontSync(layer.gizmoNode, this);
+        }
+
         // -- Register transform overlay handles (runs every rebuild for every gizmo) --
         // This makes translate/rotate/scale/center/skew handles appear in the viewer.
         // Must run for duplicated/pasted gizmos too, not just newly created ones.
         {
-            KnobIPtr translateKnob = layer.gizmoNode->getKnobByName("translate");
-            KnobIPtr scaleKnob = layer.gizmoNode->getKnobByName("scale");
-            KnobIPtr rotateKnob = layer.gizmoNode->getKnobByName("rotate");
-            KnobIPtr centerKnob = layer.gizmoNode->getKnobByName("center");
-            KnobIPtr uniformKnob = layer.gizmoNode->getKnobByName("uniform");
-            KnobIPtr skewXKnob = layer.gizmoNode->getKnobByName("skewX");
-            KnobIPtr skewYKnob = layer.gizmoNode->getKnobByName("skewY");
-            KnobIPtr skewOrderKnob = layer.gizmoNode->getKnobByName("skewOrder");
+            NodePtr transformNode = layer.gizmoNode;
+            const bool isTextLayer = (layer.type == QString::fromUtf8("text"));
+
+            KnobIPtr translateKnob = transformNode->getKnobByName(isTextLayer ? "Text1center" : "translate");
+            KnobIPtr scaleKnob = transformNode->getKnobByName(isTextLayer ? "Text1scale" : "scale");
+            KnobIPtr rotateKnob = transformNode->getKnobByName(isTextLayer ? "Text1rotate" : "rotate");
+            KnobIPtr centerKnob = transformNode->getKnobByName(isTextLayer ? "textOverlayCenter" : "center");
+            KnobIPtr uniformKnob = transformNode->getKnobByName(isTextLayer ? "Text1uniform" : "uniform");
+            KnobIPtr skewXKnob = transformNode->getKnobByName(isTextLayer ? "Text1skewX" : "skewX");
+            KnobIPtr skewYKnob = transformNode->getKnobByName(isTextLayer ? "Text1skewY" : "skewY");
+            KnobIPtr skewOrderKnob = transformNode->getKnobByName(isTextLayer ? "Text1skewOrder" : "skewOrder");
+            KnobIPtr interactiveKnob = transformNode->getKnobByName(isTextLayer ? "Text1interactive" : "interactive");
 
             KnobDoublePtr translateDbl = std::dynamic_pointer_cast<KnobDouble>(translateKnob);
             KnobDoublePtr scaleDbl = std::dynamic_pointer_cast<KnobDouble>(scaleKnob);
@@ -1661,9 +1723,10 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             KnobDoublePtr skewXDbl = std::dynamic_pointer_cast<KnobDouble>(skewXKnob);
             KnobDoublePtr skewYDbl = std::dynamic_pointer_cast<KnobDouble>(skewYKnob);
             KnobChoicePtr skewOrderChoice = std::dynamic_pointer_cast<KnobChoice>(skewOrderKnob);
+            KnobBoolPtr interactiveBool = std::dynamic_pointer_cast<KnobBool>(interactiveKnob);
 
-            if (layer.type != QString::fromUtf8("text") && translateDbl && scaleDbl && rotateDbl && centerDbl) {
-                layer.gizmoNode->addTransformInteract(
+            if (translateDbl && scaleDbl && rotateDbl && centerDbl) {
+                transformNode->addTransformInteract(
                     translateDbl,
                     scaleDbl,
                     uniformBool,
@@ -1673,7 +1736,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                     skewOrderChoice,
                     centerDbl,
                     KnobBoolPtr(),  // invert (null)
-                    KnobBoolPtr()   // interactive (null — let overlay use default)
+                    interactiveBool
                 );
                 fprintf(stderr, "FLUX: Registered transform overlay on gizmo for layer %d\n", i);
             } else {

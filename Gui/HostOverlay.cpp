@@ -79,13 +79,13 @@ NATRON_NAMESPACE_ENTER
 // OpenFX plugins are not affected, because instanceChanged does not pass the dimension information.
 namespace {
 
-void nonBlockingSetValues(Natron::KnobDoublePtr& knob, const double x, const double y, const ValueChangedReasonEnum reason) {
-    knob->setValue(x, ViewSpec::all(), 0, reason, nullptr);
-    knob->setValue(y, ViewSpec::all(), 1, reason, nullptr);
+void nonBlockingSetValues(Natron::KnobDoublePtr& knob, const double x, const double y, const ValueChangedReasonEnum reason, KeyFrame* key) {
+    knob->setValue(x, ViewSpec::all(), 0, reason, key);
+    knob->setValue(y, ViewSpec::all(), 1, reason, key);
 }
 
-inline void nonBlockingSetValues(Natron::KnobDoublePtr& knob, const OfxPointD& point, const ValueChangedReasonEnum reason) {
-    nonBlockingSetValues(knob, point.x, point.y, reason);
+inline void nonBlockingSetValues(Natron::KnobDoublePtr& knob, const OfxPointD& point, const ValueChangedReasonEnum reason, KeyFrame* key) {
+    nonBlockingSetValues(knob, point.x, point.y, reason, key);
 }
 
 }  // namespace
@@ -1727,7 +1727,8 @@ PositionInteract::penMotion(double time,
         EffectInstancePtr holder = _overlay->getNode()->getNode()->getEffectInstance();
         holder->setMultipleParamsEditLevel(KnobHolder::eMultipleParamsEditOnCreateNewCommand);
         // Do not use setValues(x,y) (see note at the top of this file).
-        nonBlockingSetValues(knob, p[0], p[1], eValueChangedReasonNatronGuiEdited);
+        KeyFrame k;
+        nonBlockingSetValues(knob, p[0], p[1], eValueChangedReasonNatronGuiEdited, &k);
         holder->setMultipleParamsEditLevel(KnobHolder::eMultipleParamsEditOff);
     }
 
@@ -2172,17 +2173,17 @@ TransformInteract::penMotion(double time,
         if (centerChanged) {
             KnobDoublePtr knob = _center.lock();
             // Do not use setValues(x,y) (see note at the top of this file).
-            nonBlockingSetValues(knob, center, eValueChangedReasonNatronGuiEdited);
+            nonBlockingSetValues(knob, center, eValueChangedReasonNatronGuiEdited, &k);
         }
         if (translateChanged) {
             KnobDoublePtr knob = _translate.lock();
             // Do not use setValues(x,y) (see note at the top of this file).
-            nonBlockingSetValues(knob, translate, eValueChangedReasonNatronGuiEdited);
+            nonBlockingSetValues(knob, translate, eValueChangedReasonNatronGuiEdited, &k);
         }
         if (scaleChanged) {
             KnobDoublePtr knob = _scale.lock();
             // Do not use setValues(x,y) (see note at the top of this file).
-            nonBlockingSetValues(knob, scale, eValueChangedReasonNatronGuiEdited);
+            nonBlockingSetValues(knob, scale, eValueChangedReasonNatronGuiEdited, &k);
         }
         if (rotateChanged) {
             KnobDoublePtr knob = _rotate.lock();
@@ -2303,12 +2304,14 @@ CornerPinInteract::penMotion(double time,
             KnobDoublePtr knob = _from[_dragging].lock();
             assert(knob);
             // Do not use setValues(x,y) (see note at the top of this file).
-            nonBlockingSetValues(knob, from[_dragging], eValueChangedReasonPluginEdited);
+            KeyFrame k;
+            nonBlockingSetValues(knob, from[_dragging], eValueChangedReasonPluginEdited, &k);
         } else {
             KnobDoublePtr knob = _to[_dragging].lock();
             assert(knob);
             // Do not use setValues(x,y) (see note at the top of this file).
-            nonBlockingSetValues(knob, to[_dragging], eValueChangedReasonPluginEdited);
+            KeyFrame k;
+            nonBlockingSetValues(knob, to[_dragging], eValueChangedReasonPluginEdited, &k);
         }
         holder->setMultipleParamsEditLevel(KnobHolder::eMultipleParamsEditOff);
     }
@@ -2374,7 +2377,8 @@ PositionInteract::penUp(double time,
             EffectInstancePtr holder = _overlay->getNode()->getNode()->getEffectInstance();
             holder->setMultipleParamsEditLevel(KnobHolder::eMultipleParamsEditOnCreateNewCommand);
             // Do not use setValues(x,y) (see note at the top of this file).
-            nonBlockingSetValues(knob, p[0], p[1], eValueChangedReasonNatronGuiEdited);
+            KeyFrame k;
+            nonBlockingSetValues(knob, p[0], p[1], eValueChangedReasonNatronGuiEdited, &k);
             holder->setMultipleParamsEditLevel(KnobHolder::eMultipleParamsEditOff);
         }
 
@@ -2411,17 +2415,20 @@ TransformInteract::penUp(double /*time*/,
         {
             KnobDoublePtr knob = _center.lock();
             // Do not use setValues(x,y) (see note at the top of this file).
-            nonBlockingSetValues(knob, _centerDrag, eValueChangedReasonPluginEdited);
+            KeyFrame k;
+            nonBlockingSetValues(knob, _centerDrag, eValueChangedReasonPluginEdited, &k);
         }
         {
             KnobDoublePtr knob = _translate.lock();
             // Do not use setValues(x,y) (see note at the top of this file).
-            nonBlockingSetValues(knob, _translateDrag, eValueChangedReasonPluginEdited);
+            KeyFrame k;
+            nonBlockingSetValues(knob, _translateDrag, eValueChangedReasonPluginEdited, &k);
         }
         {
             KnobDoublePtr knob = _scale.lock();
             // Do not use setValues(x,y) (see note at the top of this file).
-            nonBlockingSetValues(knob, _scaleParamDrag, eValueChangedReasonPluginEdited);
+            KeyFrame k;
+            nonBlockingSetValues(knob, _scaleParamDrag, eValueChangedReasonPluginEdited, &k);
         }
         {
             KnobDoublePtr knob = _rotate.lock();
@@ -2476,12 +2483,14 @@ CornerPinInteract::penUp(double /*time*/,
             KnobDoublePtr knob = _from[_dragging].lock();
             assert(knob);
             // Do not use setValues(x,y) (see note at the top of this file).
-            nonBlockingSetValues(knob, _fromDrag[_dragging], eValueChangedReasonPluginEdited);
+            KeyFrame k;
+            nonBlockingSetValues(knob, _fromDrag[_dragging], eValueChangedReasonPluginEdited, &k);
         } else {
             KnobDoublePtr knob = _to[_dragging].lock();
             assert(knob);
             // Do not use setValues(x,y) (see note at the top of this file).
-            nonBlockingSetValues(knob, _toDrag[_dragging], eValueChangedReasonPluginEdited);
+            KeyFrame k;
+            nonBlockingSetValues(knob, _toDrag[_dragging], eValueChangedReasonPluginEdited, &k);
         }
         holder->setMultipleParamsEditLevel(KnobHolder::eMultipleParamsEditOff);
     }

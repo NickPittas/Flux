@@ -4,12 +4,48 @@ This file governs all Forge agent behavior within the Flux workspace.
 
 ## Rule 0: Read First
 
-Every agent working in this workspace MUST read:
+Every agent working in this workspace MUST read this `AGENTS.md` file on **every single user request** before taking any action. Do not rely on memory of prior reads; re-read it every turn/request.
+
+Every agent working in this workspace MUST also read:
 1. `/home/npittas/forge/COLLABORATION.md` — Who Nick is, how to work with him
 2. `/home/npittas/forge/AGENTS.md` — Global Forge rules
 3. `ARCHITECTURE.md` — Current project architecture (this file IS the source of truth for tech decisions)
 4. `plans/PHASES.md` — Current phase status and breakdown
 5. `tasks/TASKS.md` — Active task list with status
+
+## Rule 1: Nick Owns High-Level Decisions
+
+The agent MUST NOT make high-level product, UX, architecture, workflow, or repository-policy decisions without Nick's explicit approval.
+
+Before any non-trivial change, the agent MUST:
+1. Present a concrete plan.
+2. State expected user-visible behavior and risks.
+3. Wait for Nick's explicit approval of that plan.
+4. Implement only the approved scope.
+
+If new information invalidates the approved plan, STOP and ask Nick before changing direction.
+
+## Rule 2: Git Requires Explicit Approval
+
+NEVER commit, amend, revert, reset, push, stage broad changes, or otherwise alter git history/state unless Nick explicitly asks for that exact git action.
+
+- Do not commit because a task seems complete.
+- Do not commit because validation passed.
+- Do not revert commits or working-tree files as a recovery strategy without approval.
+- If git state matters, inspect and report it; then wait for instructions.
+
+## Rule 3: Scrutinize Is Not Git Diff Review
+
+When asked to scrutinize/review/debug, do not rely only on `git diff`.
+
+Required review behavior:
+1. Read the underlying source files and relevant surrounding code.
+2. Trace the actual runtime path end-to-end.
+3. Infer and state the intent before judging the code.
+4. Verify behavior against real code paths, not snippets.
+5. Report findings with file/line evidence and concrete suggested changes.
+
+`git diff` may be used only as an entry point, never as the full scope of review.
 
 ## Project Identity
 

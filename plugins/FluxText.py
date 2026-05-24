@@ -1,11 +1,6 @@
 # -*- coding: utf-8 -*-
-# FluxText PyPlug — wraps native Text OFX knobs front-and-center.
-# Pipeline: Text → TimeOffset → Multiply → Output
-#
-# Important contract with C++:
-#   frameRange is aliased directly to the native Text node frameRange knob.
-#   Text controls are aliases to the actual native Text node knobs dumped from
-#   net.fxarena.openfx.Text. They are required unless explicitly internal.
+# FluxText PyPlug — Text -> FrameRange -> TimeOffset -> Grade -> Output
+# Text controls are promoted group knobs, matching Natron's PyPlug exporter style.
 
 import NatronEngine
 
@@ -25,258 +20,257 @@ def getGrouping():
     return "Flux"
 
 def getDescription():
-    return "Flux text layer: native Text -> TimeOffset -> Multiply -> Output"
+    return "Flux text layer: Text -> FrameRange -> TimeOffset -> Grade -> Output"
 
-def _add_string(group, page, name, label, default=""):
-    param = group.createStringParam(name, label)
-    if default:
-        param.setDefaultValue(default)
-        param.restoreDefaultValue()
-    param.setAnimationEnabled(True)
+def _set_default(param, values):
+    for dim, value in enumerate(values):
+        param.setDefaultValue(value, dim)
+        param.restoreDefaultValue(dim)
+
+def _set_range(param, ranges):
+    for dim, values in enumerate(ranges):
+        if "min" in values:
+            param.setMinimum(values["min"], dim)
+        if "max" in values:
+            param.setMaximum(values["max"], dim)
+        if "displayMin" in values:
+            param.setDisplayMinimum(values["displayMin"], dim)
+        if "displayMax" in values:
+            param.setDisplayMaximum(values["displayMax"], dim)
+
+def _finalize(page, owner, param, attr_name, add_new_line=True, anim=None, eval_on_change=None, value=None):
     page.addParam(param)
+    param.setAddNewLine(add_new_line)
+    if eval_on_change is not None:
+        param.setEvaluateOnChange(eval_on_change)
+    if anim is not None:
+        param.setAnimationEnabled(anim)
+    if value is not None:
+        if isinstance(value, (tuple, list)):
+            for dim, v in enumerate(value):
+                param.setValue(v, dim)
+        else:
+            param.setValue(value)
+    setattr(owner, attr_name, param)
 
-def _add_double(group, page, name, label, default=None):
-    param = group.createDoubleParam(name, label)
-    if default is not None:
-        param.setDefaultValue(default, 0)
-        param.restoreDefaultValue(0)
-    param.setAnimationEnabled(True)
-    page.addParam(param)
+def _create_text_promoted_param(group, page, spec):
+    name = "Text1" + spec["name"]
+    kind = spec["kind"]
+    label = spec["label"]
+    if kind == "double":
+        param = group.createDoubleParam(name, label)
+    elif kind == "double2d":
+        param = group.createDouble2DParam(name, label)
+    elif kind == "double3d":
+        param = group.createDouble3DParam(name, label)
+    elif kind == "int":
+        param = group.createIntParam(name, label)
+    elif kind == "int2d":
+        param = group.createInt2DParam(name, label)
+    elif kind == "bool":
+        param = group.createBooleanParam(name, label)
+    elif kind == "choice":
+        param = group.createChoiceParam(name, label)
+    elif kind == "file":
+        param = group.createFileParam(name, label)
+        param.setSequenceEnabled(False)
+    elif kind == "string":
+        param = group.createStringParam(name, label)
+        string_type = spec.get("stringType")
+        if string_type == "multiline":
+            param.setType(NatronEngine.StringParam.TypeEnum.eStringTypeMultiLine)
+        elif string_type == "default":
+            param.setType(NatronEngine.StringParam.TypeEnum.eStringTypeDefault)
+    elif kind == "color":
+        param = group.createColorParam(name, label, True)
+    else:
+        raise RuntimeError("Unsupported FluxText promoted kind: %s" % kind)
 
-def _add_int(group, page, name, label, default=None):
-    param = group.createIntParam(name, label)
-    if default is not None:
-        param.setDefaultValue(default, 0)
-        param.restoreDefaultValue(0)
-    param.setAnimationEnabled(True)
-    page.addParam(param)
+    if "range" in spec:
+        _set_range(param, spec["range"])
+    if "default" in spec:
+        default = spec["default"]
+        if isinstance(default, (tuple, list)):
+            _set_default(param, default)
+        else:
+            param.setDefaultValue(default)
+            param.restoreDefaultValue()
+    _finalize(page, group, param, name,
+              anim=spec.get("anim", False),
+              eval_on_change=spec.get("eval"),
+              value=spec.get("value"))
 
-def _add_int2d(group, page, name, label, default_x=None, default_y=None):
-    param = group.createInt2DParam(name, label)
-    if default_x is not None:
-        param.setDefaultValue(default_x, 0)
-        param.restoreDefaultValue(0)
-    if default_y is not None:
-        param.setDefaultValue(default_y, 1)
-        param.restoreDefaultValue(1)
-    param.setAnimationEnabled(True)
-    page.addParam(param)
-
-def _add_double2d(group, page, name, label, default_x=None, default_y=None):
-    param = group.createDouble2DParam(name, label)
-    if default_x is not None:
-        param.setDefaultValue(default_x, 0)
-        param.restoreDefaultValue(0)
-    if default_y is not None:
-        param.setDefaultValue(default_y, 1)
-        param.restoreDefaultValue(1)
-    param.setAnimationEnabled(True)
-    page.addParam(param)
-
-def _add_bool(group, page, name, label, default=False):
-    param = group.createBooleanParam(name, label)
-    param.setDefaultValue(default)
-    param.restoreDefaultValue()
-    param.setAnimationEnabled(True)
-    page.addParam(param)
-
-def _add_color(group, page, name, label, default=(0, 0, 0, 0)):
-    param = group.createColorParam(name, label, True)
-    for i, value in enumerate(default):
-        param.setDisplayMinimum(0, i)
-        param.setDisplayMaximum(1, i)
-        param.setDefaultValue(value, i)
-        param.restoreDefaultValue(i)
-    param.setAnimationEnabled(True)
-    page.addParam(param)
-
-def _add_choice(group, page, name, label, options, default=0):
-    param = group.createChoiceParam(name, label)
-    for option in options:
-        param.addOption(option, "")
-    param.setDefaultValue(default)
-    param.restoreDefaultValue()
-    param.setAnimationEnabled(True)
-    page.addParam(param)
-
-def _alias(group, group_name, node, node_name, required=True):
-    source = group.getParam(group_name)
-    target = node.getParam(node_name) if node else None
-    if source is None or target is None:
-        if required:
-            raise RuntimeError("FluxText alias failed: %s -> %s" % (group_name, node_name))
-        return
-    source.setAsAlias(target)
-
-def createInstance(app, group):
-    page = group.createPageParam("TextSettings", "Text Settings")
-
-    # Native Text OFX content/style knobs. Keep these first: text work lives here.
-    _add_bool(group, page, "autoSize", "Auto Size", True)
-    _add_bool(group, page, "centerInteract", "Center Interact", False)
-    _add_int2d(group, page, "canvas", "Canvas Size", 0, 0)
-    _add_string(group, page, "text", "Text", "Text")
-    _add_double(group, page, "fps", "Frame Rate", 24)
-    _add_string(group, page, "font", "Font", "D/DejaVu Sans")
-    _add_choice(group, page, "name", "Select Font", ["Default"], 0)
-    _add_int(group, page, "size", "Size", 64)
-    _add_color(group, page, "color", "Font Color", (1, 1, 1, 1))
-    _add_choice(group, page, "weight", "Weight", [
-        "Thin", "Ultralight", "Light", "Book", "Normal", "Medium",
-        "Semibold", "Bold", "Ultrabold", "Heavy", "Ultraheavy"
-    ], 4)
-    _add_choice(group, page, "stretch", "Stretch", [
-        "UltraCondensed", "ExtraCondensed", "Condensed", "SemiCondensed",
-        "Normal", "SemiExpanded", "Expanded", "ExtraExpanded", "UltraExpanded"
-    ], 4)
-    _add_choice(group, page, "style", "Style", ["Normal", "Italic", "Oblique"], 0)
-    _add_bool(group, page, "markup", "Pango Markup", True)
-    _add_bool(group, page, "justify", "Justify", False)
-    _add_choice(group, page, "wrap", "Wrap", ["None", "Word", "Char", "WordChar"], 0)
-    _add_choice(group, page, "align", "Horizontal Align", ["Left", "Center", "Right"], 0)
-    _add_choice(group, page, "valign", "Vertical Align", ["Top", "Center", "Bottom"], 0)
-    _add_double2d(group, page, "textCenter", "Text Position")
-    _add_string(group, page, "custom", "Custom Font")
-    _add_string(group, page, "file", "Text File")
-    _add_string(group, page, "subtitle", "Subtitle File")
-    _add_int(group, page, "letterSpace", "Letter Spacing", 0)
-    _add_double(group, page, "scrollX", "Scroll X", 0)
-    _add_double(group, page, "scrollY", "Scroll Y", 0)
-    _add_color(group, page, "backgroundColor", "Background Color", (0, 0, 0, 0))
-    _add_color(group, page, "strokeColor", "Stroke Color", (1, 1, 1, 1))
-    _add_double(group, page, "strokeSize", "Stroke Size", 0)
-    _add_int(group, page, "strokeDash", "Stroke Dash Length", 0)
-    _add_double(group, page, "strokeDashPattern", "Stroke Dash Pattern", 1)
-    _add_choice(group, page, "hintStyle", "Hint Style", ["Default"], 0)
-    _add_choice(group, page, "hintMetrics", "Hint Metrics", ["Default"], 0)
-    _add_choice(group, page, "antialiasing", "Antialiasing", ["None", "Gray", "Subpixel", "Default"], 3)
-    _add_choice(group, page, "subpixel", "Subpixel", ["Default"], 0)
-    _add_double(group, page, "circleRadius", "Circle Radius", 0)
-    _add_int(group, page, "circleWords", "Circle Words", 10)
-    _add_double(group, page, "arcAngle", "Arc Angle", 0)
-    _add_double(group, page, "arcRadius", "Arc Radius", 100)
-
-    # Native Text transform knobs, aliased to Flux's stable transform names.
-    _add_bool(group, page, "transform", "Enable Text Transform", True)
-    _add_double(group, page, "transformAmount", "Transform Amount", 1)
-    _add_double2d(group, page, "translate", "Translate")
-    _add_double(group, page, "rotate", "Rotate", 0)
-    _add_double2d(group, page, "scale", "Scale", 1, 1)
-    _add_bool(group, page, "uniform", "Uniform Scale", False)
-    _add_double(group, page, "skewX", "Skew X", 0)
-    _add_double(group, page, "skewY", "Skew Y", 0)
-    _add_choice(group, page, "skewOrder", "Skew Order", ["XY", "YX"], 0)
-    _add_double2d(group, page, "center", "Transform Center")
-    _add_bool(group, page, "transformCenterChanged", "Transform Center Changed", False)
-    _add_bool(group, page, "transformInteractOpen", "Show Interact", False)
-    _add_bool(group, page, "interactive", "Interactive Update", True)
-    _add_bool(group, page, "hidpi", "HiDPI", False)
-
-    # Flux timeline/compositing contract.
+def _add_flux_contract_params(group, page):
     frameRangeParam = group.createInt2DParam("frameRange", "Frame Range")
     frameRangeParam.setDefaultValue(1, 0)
     frameRangeParam.setDefaultValue(100, 1)
-    page.addParam(frameRangeParam)
-    enableNodeLifeTimeParam = group.createBooleanParam("enableNodeLifeTime", "Enable Lifetime")
-    enableNodeLifeTimeParam.setDefaultValue(True)
-    enableNodeLifeTimeParam.restoreDefaultValue()
-    page.addParam(enableNodeLifeTimeParam)
-    nodeLifeTimeParam = group.createInt2DParam("nodeLifeTime", "Lifetime Range")
-    nodeLifeTimeParam.setDefaultValue(1, 0)
-    nodeLifeTimeParam.setDefaultValue(100, 1)
-    page.addParam(nodeLifeTimeParam)
+    _finalize(page, group, frameRangeParam, "frameRange")
+
     timeOffsetParam = group.createIntParam("timeOffset", "Time Offset (Frames)")
     timeOffsetParam.setDefaultValue(0, 0)
-    page.addParam(timeOffsetParam)
-    _add_color(group, page, "opacity", "Opacity", (1, 1, 1, 1))
-    _add_choice(group, page, "blendingMode", "Blending Mode", [
+    _finalize(page, group, timeOffsetParam, "timeOffset")
+
+    beforeParam = group.createChoiceParam("before", "Before Behavior")
+    for option in ["original", "hold", "black", "loop", "bounce"]:
+        beforeParam.addOption(option, "")
+    beforeParam.setDefaultValue(2)
+    beforeParam.restoreDefaultValue()
+    _finalize(page, group, beforeParam, "before", anim=True)
+
+    afterParam = group.createChoiceParam("after", "After Behavior")
+    for option in ["original", "hold", "black", "loop", "bounce"]:
+        afterParam.addOption(option, "")
+    afterParam.setDefaultValue(2)
+    afterParam.restoreDefaultValue()
+    _finalize(page, group, afterParam, "after", anim=True)
+
+    opacityParam = group.createColorParam("opacity", "Opacity", True)
+    _set_range(opacityParam, [{"displayMin": 0, "displayMax": 1}] * 4)
+    _set_default(opacityParam, (1, 1, 1, 1))
+    _finalize(page, group, opacityParam, "opacity", anim=True)
+
+    blendingModeParam = group.createChoiceParam("blendingMode", "Blending Mode")
+    for option in [
         "atop", "average", "color", "color-burn", "color-dodge", "conjoint-over",
         "copy", "difference", "disjoint-over", "divide", "exclusion", "freeze",
         "from", "geometric", "grain-extract", "grain-merge", "hard-light", "hue",
         "hypot", "in", "luminosity", "mask", "matte", "max", "min", "minus",
         "multiply", "out", "over", "overlay", "pinlight", "plus", "reflect",
         "saturation", "screen", "soft-light", "stencil", "under", "xor"
-    ], 28)
+    ]:
+        blendingModeParam.addOption(option, "")
+    blendingModeParam.setDefaultValue(28)
+    blendingModeParam.restoreDefaultValue()
+    _finalize(page, group, blendingModeParam, "blendingMode", anim=True)
 
-    group.setPagesOrder(["TextSettings", "Node", "Settings"])
+    overlayCenterParam = group.createDouble2DParam("textOverlayCenter", "Text Overlay Center")
+    overlayCenterParam.setDefaultValue(0, 0)
+    overlayCenterParam.restoreDefaultValue(0)
+    overlayCenterParam.setDefaultValue(0, 1)
+    overlayCenterParam.restoreDefaultValue(1)
+    overlayCenterParam.setVisibleByDefault(False)
+    _finalize(page, group, overlayCenterParam, "textOverlayCenter", anim=False)
+
+TEXT_PARAM_SPECS = [
+    {"name": "rotate", "label": "Rotate", "kind": "double", "range": [{"displayMin": -180, "displayMax": 180}], "anim": True},
+    {"name": "scale", "label": "Scale", "kind": "double2d", "range": [{"min": -10000, "max": 10000, "displayMin": 0.1, "displayMax": 10}, {"min": -10000, "max": 10000, "displayMin": 0.1, "displayMax": 10}], "default": (1, 1), "anim": True},
+    {"name": "uniform", "label": "Uniform", "kind": "bool", "anim": True},
+    {"name": "skewX", "label": "Skew X", "kind": "double", "range": [{"displayMin": -1, "displayMax": 1}], "anim": True},
+    {"name": "skewY", "label": "Skew Y", "kind": "double", "range": [{"displayMin": -1, "displayMax": 1}], "anim": True},
+    {"name": "skewOrder", "label": "Skew Order", "kind": "choice", "anim": True},
+    {"name": "transformAmount", "label": "Amount", "kind": "double", "range": [{"displayMin": 0, "displayMax": 1}], "default": 1, "anim": True},
+    {"name": "center", "label": "Center", "kind": "double2d", "range": [{"displayMin": -10000, "displayMax": 10000}, {"displayMin": -10000, "displayMax": 10000}], "default": (0.5, 0.5), "value": (890, 540), "anim": True},
+    {"name": "interactive", "label": "Interactive Update", "kind": "bool", "default": True, "eval": False, "anim": False},
+    {"name": "hidpi", "label": "HiDPI", "kind": "bool", "value": True, "eval": False, "anim": False},
+    {"name": "transform", "label": "Transform", "kind": "bool", "default": True, "anim": False},
+    {"name": "autoSize", "label": "Auto size", "kind": "bool", "anim": False},
+    {"name": "centerInteract", "label": "Center Interact", "kind": "bool", "anim": False},
+    {"name": "canvas", "label": "Canvas size", "kind": "int2d", "range": [{"min": 0, "max": 10000, "displayMin": 0, "displayMax": 4000}, {"min": 0, "max": 10000, "displayMin": 0, "displayMax": 4000}], "default": (0, 0), "anim": False},
+    {"name": "markup", "label": "Markup", "kind": "bool", "anim": False},
+    {"name": "file", "label": "Text File", "kind": "file", "anim": False},
+    {"name": "subtitle", "label": "Subtitle File", "kind": "file", "anim": False},
+    {"name": "fps", "label": "Frame Rate", "kind": "double", "range": [{"min": -1.79769e+308, "max": 1.79769e+308, "displayMin": -1.79769e+308, "displayMax": 1.79769e+308}], "default": 24, "anim": False},
+    {"name": "text", "label": "Text", "kind": "string", "stringType": "multiline", "default": "Text", "anim": True},
+    {"name": "justify", "label": "Justify", "kind": "bool", "anim": False},
+    {"name": "wrap", "label": "Wrap", "kind": "choice", "anim": False},
+    {"name": "align", "label": "Horizontal align", "kind": "choice", "anim": False},
+    {"name": "valign", "label": "Vertical align", "kind": "choice", "anim": False},
+    {"name": "name", "label": "Select font", "kind": "choice", "default": 11, "anim": False},
+    {"name": "custom", "label": "Custom font(s)", "kind": "file", "anim": False},
+    {"name": "font", "label": "Font family", "kind": "string", "stringType": "default", "default": "Arial", "anim": True},
+    {"name": "size", "label": "Font size", "kind": "int", "range": [{"min": 1, "max": 10000, "displayMin": 1, "displayMax": 500}], "default": 64, "value": 84, "anim": True},
+    {"name": "color", "label": "Font color", "kind": "color", "range": [{"min": -1.79769e+308, "max": 1.79769e+308, "displayMin": 0, "displayMax": 1}] * 4, "default": (1, 1, 1, 1), "anim": True},
+    {"name": "backgroundColor", "label": "Background Color", "kind": "color", "range": [{"min": -1.79769e+308, "max": 1.79769e+308, "displayMin": 0, "displayMax": 1}] * 4, "anim": True},
+    {"name": "letterSpace", "label": "Letter spacing", "kind": "int", "range": [{"min": -10000, "max": 10000, "displayMin": -250, "displayMax": 250}], "default": 0, "anim": True},
+    {"name": "hintStyle", "label": "Hint style", "kind": "choice", "anim": False},
+    {"name": "hintMetrics", "label": "Hint metrics", "kind": "choice", "anim": False},
+    {"name": "antialiasing", "label": "Antialiasing", "kind": "choice", "anim": False},
+    {"name": "subpixel", "label": "Subpixel", "kind": "choice", "anim": False},
+    {"name": "style", "label": "Style", "kind": "choice", "anim": False},
+    {"name": "weight", "label": "Weight", "kind": "choice", "default": 5, "anim": False},
+    {"name": "stretch", "label": "Stretch", "kind": "choice", "default": 4, "anim": False},
+    {"name": "strokeSize", "label": "Stroke size", "kind": "double", "range": [{"min": 0, "max": 500, "displayMin": 0, "displayMax": 100}], "anim": True},
+    {"name": "strokeColor", "label": "Stroke color", "kind": "color", "range": [{"min": -1.79769e+308, "max": 1.79769e+308, "displayMin": 0, "displayMax": 1}] * 4, "default": (1, 0, 0, 1), "anim": True},
+    {"name": "strokeDash", "label": "Stroke dash length", "kind": "int", "range": [{"min": 0, "max": 100, "displayMin": 0, "displayMax": 10}], "default": 0, "anim": True},
+    {"name": "strokeDashPattern", "label": "Stroke dash pattern", "kind": "double3d", "range": [{"min": -1.79769e+308, "max": 1.79769e+308, "displayMin": -1.79769e+308, "displayMax": 1.79769e+308}] * 3, "default": (1, 0, 0), "anim": True},
+    {"name": "circleRadius", "label": "Circle radius", "kind": "double", "range": [{"min": 0, "max": 10000, "displayMin": 0, "displayMax": 1000}], "anim": True},
+    {"name": "circleWords", "label": "Circle Words", "kind": "int", "range": [{"min": 1, "max": 1000, "displayMin": 1, "displayMax": 100}], "default": 10, "anim": True},
+    {"name": "arcRadius", "label": "Arc Radius", "kind": "double", "range": [{"min": 0, "max": 10000, "displayMin": 0, "displayMax": 1000}], "default": 100, "anim": True},
+    {"name": "arcAngle", "label": "Arc Angle", "kind": "double", "range": [{"min": 0, "max": 360, "displayMin": 0, "displayMax": 360}], "anim": True},
+    {"name": "scrollX", "label": "Scroll X", "kind": "double", "range": [{"min": -10000, "max": 10000, "displayMin": -4000, "displayMax": 4000}], "anim": True},
+    {"name": "scrollY", "label": "Scroll Y", "kind": "double", "range": [{"min": -10000, "max": 10000, "displayMin": -4000, "displayMax": 4000}], "anim": True},
+    {"name": "channels", "label": "Output Layer", "kind": "choice", "anim": False},
+    {"name": "processAllPlanes", "label": "All Planes", "kind": "bool", "default": True, "anim": False},
+]
+
+def createInstance(app, group):
+    group.setColor(0.7, 0.7, 0.7)
+    fluxPage = group.createPageParam("FluxTextSettings", "Flux")
+    _add_flux_contract_params(group, fluxPage)
+
+    textPage = group.createPageParam("userNatron", "Text")
+    for spec in TEXT_PARAM_SPECS:
+        _create_text_promoted_param(group, textPage, spec)
+
+    group.setPagesOrder(["userNatron", "FluxTextSettings", "Node", "Settings"])
     group.refreshUserParamsGUI()
 
     textNode = app.createNode("net.fxarena.openfx.Text", 6, group)
+    if textNode is None:
+        raise RuntimeError("Failed to create Text1")
     textNode.setScriptName("Text1")
     textNode.setLabel("Text1")
     textNode.setPosition(0, -200)
-    textNode.setSize(150, 100)
+    textNode.setColor(0.3, 0.5, 0.2)
+    for name, value in [("transform", True), ("hidpi", True), ("autoSize", False), ("markup", False), ("text", "Text"), ("size", 84)]:
+        param = textNode.getParam(name)
+        if param is not None:
+            if isinstance(value, bool) or isinstance(value, str):
+                param.setValue(value)
+            else:
+                param.setValue(value, 0)
 
-    # Native Text transform is the layer transform. There is no extra Transform node.
-    param = textNode.getParam("transform")
-    if param is not None:
-        param.setValue(True)
-    param = textNode.getParam("autoSize")
-    if param is not None:
-        param.setValue(True)
-    param = textNode.getParam("markup")
-    if param is not None:
-        param.setValue(True)
-    param = textNode.getParam("text")
-    if param is not None:
-        param.setValue("Text")
-    param = textNode.getParam("font")
-    if param is not None:
-        param.setValue("D/DejaVu Sans")
-    param = textNode.getParam("size")
-    if param is not None:
-        param.setValue(64, 0)
+    frameRangeNode = app.createNode("net.sf.openfx.FrameRange", 1, group)
+    if frameRangeNode is None:
+        raise RuntimeError("Failed to create FrameRange1")
+    frameRangeNode.setScriptName("FrameRange1")
+    frameRangeNode.setLabel("FrameRange1")
+    frameRangeNode.setPosition(0, -100)
+    frameRangeNode.setSize(82, 56)
 
     timeOffsetNode = app.createNode("net.sf.openfx.timeOffset", 1, group)
+    if timeOffsetNode is None:
+        raise RuntimeError("Failed to create TimeOffset1")
     timeOffsetNode.setScriptName("TimeOffset1")
     timeOffsetNode.setLabel("TimeOffset1")
-    timeOffsetNode.setPosition(0, -60)
-    timeOffsetNode.setSize(82, 33)
+    timeOffsetNode.setPosition(0, 0)
 
-    multiplyNode = app.createNode("net.sf.openfx.MultiplyPlugin", 1, group)
-    multiplyNode.setScriptName("Multiply1")
-    multiplyNode.setLabel("Multiply1")
-    multiplyNode.setPosition(0, 20)
-    multiplyNode.setSize(82, 33)
-    multiplyNode.getParam("NatronOfxParamProcessR").setValue(True)
-    multiplyNode.getParam("NatronOfxParamProcessG").setValue(True)
-    multiplyNode.getParam("NatronOfxParamProcessB").setValue(True)
-    multiplyNode.getParam("NatronOfxParamProcessA").setValue(True)
+    gradeNode = app.createNode("net.sf.openfx.GradePlugin", 2, group)
+    if gradeNode is None:
+        raise RuntimeError("Failed to create Grade1")
+    gradeNode.setScriptName("Grade1")
+    gradeNode.setLabel("Grade1")
+    gradeNode.setPosition(0, 100)
 
     outputNode = app.createNode("fr.inria.built-in.Output", 1, group)
+    if outputNode is None:
+        raise RuntimeError("Failed to create Output1")
     outputNode.setLabel("Output1")
-    outputNode.setPosition(0, 100)
-    outputNode.setSize(106, 33)
+    outputNode.setPosition(0, 200)
 
-    timeOffsetNode.connectInput(0, textNode)
-    multiplyNode.connectInput(0, timeOffsetNode)
-    outputNode.connectInput(0, multiplyNode)
+    frameRangeNode.connectInput(0, textNode)
+    timeOffsetNode.connectInput(0, frameRangeNode)
+    gradeNode.connectInput(0, timeOffsetNode)
+    outputNode.connectInput(0, gradeNode)
 
-    for name in [
-        "rotate", "scale", "uniform", "skewX", "skewY", "skewOrder", "transformAmount",
-        "transformCenterChanged", "transformInteractOpen", "interactive", "hidpi", "transform",
-        "autoSize", "centerInteract", "canvas", "markup", "file", "subtitle", "fps", "text",
-        "justify", "wrap", "align", "valign", "name", "custom", "font", "size", "color",
-        "backgroundColor", "letterSpace", "hintStyle", "hintMetrics", "antialiasing",
-        "subpixel", "style", "weight", "stretch", "strokeSize", "strokeColor", "strokeDash",
-        "strokeDashPattern", "circleRadius", "circleWords", "arcRadius", "arcAngle", "scrollX",
-        "scrollY", "frameRange", "enableNodeLifeTime", "nodeLifeTime"
-    ]:
-        _alias(group, name, textNode, name)
+    group.getParam("frameRange").setAsAlias(frameRangeNode.getParam("frameRange"))
+    group.getParam("timeOffset").setAsAlias(timeOffsetNode.getParam("timeOffset"))
+    group.getParam("before").setAsAlias(frameRangeNode.getParam("before"))
+    group.getParam("after").setAsAlias(frameRangeNode.getParam("after"))
+    group.getParam("opacity").setAsAlias(gradeNode.getParam("multiply"))
 
-    _alias(group, "textCenter", textNode, "center")
-    # The FxArena Text node exposes its transform knobs unprefixed.
-    # Its Center knob is the onscreen text/transform position; do not set it
-    # from C++ just to place the default text. Let Text's own defaults and
-    # text-alignment knobs define the text's internal anchor/bounds behavior.
-    _alias(group, "translate", textNode, "center")
-    _alias(group, "rotate", textNode, "rotate")
-    _alias(group, "scale", textNode, "scale")
-    _alias(group, "uniform", textNode, "uniform")
-    _alias(group, "skewX", textNode, "skewX")
-    _alias(group, "skewY", textNode, "skewY")
-    _alias(group, "skewOrder", textNode, "skewOrder")
-    _alias(group, "center", textNode, "center")
-    _alias(group, "interactive", textNode, "interactive")
-    _alias(group, "timeOffset", timeOffsetNode, "timeOffset")
-    _alias(group, "opacity", multiplyNode, "value")
+    for spec in TEXT_PARAM_SPECS:
+        source = textNode.getParam(spec["name"])
+        promoted = group.getParam("Text1" + spec["name"])
+        if source is not None and promoted is not None:
+            promoted.setAsAlias(source)

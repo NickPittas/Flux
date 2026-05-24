@@ -1165,6 +1165,7 @@ KnobChoice::onKnobAboutToAlias(const KnobIPtr &slave)
     KnobChoice* isChoice = dynamic_cast<KnobChoice*>( slave.get() );
 
     if (isChoice) {
+        setCascading(isChoice->isCascading());
         populateChoices(isChoice->getEntries_mt_safe());
     }
 }
