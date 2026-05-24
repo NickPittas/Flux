@@ -18,6 +18,8 @@
 #include <QDrag>
 #include <QKeyEvent>
 
+#include <cmath>
+
 #include "Gui/Gui.h"
 #include "Gui/GuiAppInstance.h"
 #include "Gui/FluxEffectsPanel.h"
@@ -34,6 +36,9 @@
 #include "Engine/EffectInstance.h"
 #include "Engine/Knob.h"
 #include "Engine/KnobTypes.h"
+#include "Engine/Curve.h"
+#include "Engine/Bezier.h"
+#include "Engine/RotoContext.h"
 #include "Engine/ViewIdx.h"
 #include "Engine/CreateNodeArgs.h"
 #include "Gui/ViewerTab.h"
@@ -41,6 +46,7 @@
 #include "Engine/ViewerInstance.h"
 #include "Gui/FluxTimelineSerialization.h"
 #include "Gui/FluxMaskUtils.h"
+#include "Gui/FluxKeyframeModel.h"
 
 NATRON_NAMESPACE_ENTER
 
@@ -56,6 +62,9 @@ FluxTimeline::FluxTimeline(Gui* gui,
       , _selectedType(eFluxSelectionNone)
       , _selectedEffectIndex(-1)
       , _selectedMaskIndex(-1)
+      , _selectedPropertyIndex(-1)
+      , _selectedKeyPropertyIndex(-1)
+      , _selectedKeyTime(0.0)
       , _zoom(10.0)
     , _scrollOffsetX(0)
     , _scrollOffsetY(0)
@@ -74,6 +83,12 @@ FluxTimeline::FluxTimeline(Gui* gui,
     , _panStartScrollY(0)
     , _resizeStartX(0)
     , _resizeStartWidth(0)
+    , _dragPropertyIndex(-1)
+    , _dragOrigKeyTime(0.0)
+    , _dragCurrentKeyTime(0.0)
+    , _showKeyframeCurves(false)
+    , _ungroupedKeyframeProperties()
+    , _rowsDirty(false)
     , _isDragOver(false)
       , _dragPreviewPos()
       , _timeline()
@@ -256,6 +271,7 @@ FluxTimeline::addAdjustmentEffectRow()
     _selectedLayer = -1;
     _selectedEffectIndex = -1;
     _selectedMaskIndex = -1;
+    _selectedPropertyIndex = -1;
     Q_EMIT layerSelected(-1);
     showNodeCreationDialog();
     update();
@@ -304,6 +320,7 @@ FluxTimeline::removeLayer(int index)
             _selectedType = eFluxSelectionNone;
             _selectedEffectIndex = -1;
             _selectedMaskIndex = -1;
+            _selectedPropertyIndex = -1;
             Q_EMIT layerSelected(-1);
         } else if (_selectedLayer > index) {
             --_selectedLayer;
@@ -910,6 +927,7 @@ FluxTimeline::removeEffectFromLayer(int layerIndex, int effectIndex)
     _selectedLayer = layerIndex;
     _selectedEffectIndex = -1;
     _selectedMaskIndex = -1;
+    _selectedPropertyIndex = -1;
 
     refreshVisibleRows();
     Q_EMIT effectsChanged(layerIndex);
@@ -964,6 +982,7 @@ FluxTimeline::moveEffectInLayer(int layerIndex, int fromEffectIndex, int toEffec
     _selectedType = eFluxSelectionEffect;
     _selectedLayer = layerIndex;
     _selectedEffectIndex = toEffectIndex;
+    _selectedPropertyIndex = -1;
 
     refreshVisibleRows();
     Q_EMIT effectsChanged(layerIndex);
@@ -1043,6 +1062,7 @@ FluxTimeline::addLayerMask(int layerIndex)
     _selectedLayer = layerIndex;
     _selectedEffectIndex = -1;
     _selectedMaskIndex = newMaskIndex;
+    _selectedPropertyIndex = -1;
 
     refreshVisibleRows();
     Q_EMIT masksChanged(layerIndex);
@@ -1082,6 +1102,7 @@ FluxTimeline::addEffectMask(int layerIndex, int effectIndex)
     _selectedLayer = layerIndex;
     _selectedEffectIndex = effectIndex;
     _selectedMaskIndex = newMaskIndex;
+    _selectedPropertyIndex = -1;
 
     refreshVisibleRows();
     Q_EMIT masksChanged(layerIndex);
@@ -1159,6 +1180,7 @@ FluxTimeline::removeMaskFromLayer(int layerIndex, int maskIndex)
     _selectedLayer = layerIndex;
     _selectedEffectIndex = -1;
     _selectedMaskIndex = -1;
+    _selectedPropertyIndex = -1;
 
     refreshVisibleRows();
     Q_EMIT masksChanged(layerIndex);
@@ -1264,10 +1286,16 @@ FluxTimeline::onExternalFrameChanged(SequenceTime time,
 void
 FluxTimeline::paintEvent(QPaintEvent* /*event*/)
 {
-    QPainter painter(this);
-    painter.setRenderHint(QPainter::Antialiasing, false);
+    // Rebuild property rows if flagged dirty (set after keyframe edits, graph
+    // changes, etc.). We do NOT poll animation state during painting — rows are
+    // refreshed explicitly via refreshVisibleRows() or _rowsDirty after mutations.
+    if (_rowsDirty) {
+        _rowsDirty = false;
+        rebuildVisibleRows();
+    }
 
-    // Safety: rebuild visible rows if out of sync
+    // Safety: if layer count is out of sync (e.g. external structural change),
+    // rebuild. This is a lightweight structural check only, not a full keyframe poll.
     {
         int layerRowCount = 0;
         for (const FluxVisibleRow& vr : _visibleRows) {
@@ -1279,6 +1307,8 @@ FluxTimeline::paintEvent(QPaintEvent* /*event*/)
             rebuildVisibleRows();
         }
     }
+
+    QPainter painter(this);
 
     QRect totalRect = rect();
 
@@ -1339,6 +1369,27 @@ FluxTimeline::paintEvent(QPaintEvent* /*event*/)
         painter.drawText(fitBtnRect, Qt::AlignCenter, QString::fromUtf8("Fit"));
         painter.setPen(QColor(70, 70, 75));
         painter.drawRect(fitBtnRect);
+    }
+
+    // Keyframe/Curve mode toggle button in name-area header
+    {
+        int toggleX = kControlColumnWidth + 4;
+        int toggleW = qMin(80, _layerLabelWidth - kControlColumnWidth - 8);
+        if (toggleW > 20) {
+            QRect toggleRect(toggleX, 2, toggleW, kTimeRulerHeight - 4);
+            QColor toggleBg = _showKeyframeCurves ? QColor(80, 70, 50) : QColor(55, 55, 60);
+            painter.fillRect(toggleRect, toggleBg);
+            painter.setPen(QColor(160, 160, 170));
+            QFont toggleFont;
+            toggleFont.setPointSize(8);
+            painter.setFont(toggleFont);
+            QString toggleLabel = _showKeyframeCurves
+                ? QString::fromUtf8("Curves")
+                : QString::fromUtf8("Keys");
+            painter.drawText(toggleRect, Qt::AlignCenter, toggleLabel);
+            painter.setPen(QColor(70, 70, 75));
+            painter.drawRect(toggleRect);
+        }
     }
 }
 
@@ -1440,8 +1491,8 @@ FluxTimeline::drawLayerBars(QPainter& painter,
                 painter.setPen(QColor(200, 200, 210));
             }
 
-            // Disclosure arrow if layer has effects or masks
-            const bool hasChildren = !layer.effects.isEmpty() || !layer.masks.isEmpty();
+            // Disclosure arrow if layer has visible children or animated property rows
+            const bool hasChildren = layerHasExpandableChildren(i);
             int textLeftPad = 4;
             if (hasChildren) {
                 int arrowX = nameColX + 4;
@@ -1716,6 +1767,211 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             // Separator in name column
             painter.setPen(QColor(44, 44, 48));
             painter.drawLine(kControlColumnWidth, y, kControlColumnWidth, y + rowHeight);
+
+        } else if (visibleRow.type == eFluxVisibleRowProperty) {
+            // ── Animated property row ──
+            if (visibleRow.propertyIndex < 0 || visibleRow.propertyIndex >= _propertyRows.size()) {
+                continue;
+            }
+            const FluxKeyframeProperty& prop = _propertyRows[visibleRow.propertyIndex];
+
+            bool isPropSelected = (_selectedType == eFluxSelectionProperty &&
+                                   _selectedPropertyIndex == visibleRow.propertyIndex);
+
+            // Subtle indented row background
+            QColor propBg = isPropSelected ? QColor(42, 50, 68) : QColor(28, 28, 32);
+            painter.fillRect(0, y, width(), rowHeight, propBg);
+
+            // Property label in the name column (indented deeper than effect rows)
+            int propIndent = kControlColumnWidth + kEffectIndent + 8;
+            QRect propLabelRect(propIndent, y, _layerLabelWidth - propIndent - 4, rowHeight);
+            QFont propFont;
+            propFont.setPointSize(7);
+            painter.setFont(propFont);
+            QFontMetrics pfm(propFont);
+            QString propLabel = pfm.elidedText(prop.label, Qt::ElideRight, qMax(0, propLabelRect.width()));
+            painter.setPen(QColor(150, 155, 170));
+            painter.drawText(propLabelRect, Qt::AlignVCenter | Qt::AlignLeft, propLabel);
+
+            // Separator in name column
+            painter.setPen(QColor(42, 42, 46));
+            painter.drawLine(kControlColumnWidth, y, kControlColumnWidth, y + rowHeight);
+
+            // Separator across timeline area
+            painter.setPen(QColor(42, 42, 46));
+            painter.drawLine(_layerLabelWidth, y + rowHeight, width(), y + rowHeight);
+
+            // ── Draw keyframe diamonds in the timeline area ──
+            QList<FluxKeyframeKey> keys = keysForProperty(prop);
+
+            // Clip: skip if row entirely outside visible timeline rect
+            int timelineLeft = _layerLabelWidth;
+            int timelineRight = width();
+            if (y + rowHeight < rect.top() || y > rect.bottom()) {
+                // Already handled by outer clip, but skip keys if row invisible
+                continue;
+            }
+
+            const int diamondSize = 6; // half-width of diamond
+            int diamondY = y + rowHeight / 2;
+
+            bool isThisDragRow = (_interactionMode == eModeDragKeyframe &&
+                                  _dragPropertyIndex == visibleRow.propertyIndex);
+
+            for (const FluxKeyframeKey& key : keys) {
+                // Skip the key being dragged — we draw it separately at the drag position
+                if (isThisDragRow && std::abs(key.time - _dragOrigKeyTime) < 0.5) {
+                    // Draw ghost at original position
+                    int keyX = frameToX(static_cast<int>(key.time + 0.5));
+                    if (keyX >= timelineLeft - diamondSize && keyX <= timelineRight + diamondSize) {
+                        QPainterPath diamond;
+                        diamond.moveTo(keyX, diamondY - diamondSize);
+                        diamond.lineTo(keyX + diamondSize, diamondY);
+                        diamond.lineTo(keyX, diamondY + diamondSize);
+                        diamond.lineTo(keyX - diamondSize, diamondY);
+                        diamond.closeSubpath();
+                        QColor ghostColor(120, 110, 60, 100);
+                        painter.setPen(QPen(QColor(120, 110, 60, 120), 1));
+                        painter.setBrush(ghostColor);
+                        painter.drawPath(diamond);
+                        painter.setBrush(Qt::NoBrush);
+                    }
+                    continue;
+                }
+
+                int keyX = frameToX(static_cast<int>(key.time + 0.5));
+
+                // Skip if outside visible timeline area
+                if (keyX < timelineLeft - diamondSize || keyX > timelineRight + diamondSize) {
+                    continue;
+                }
+
+                QPainterPath diamond;
+                diamond.moveTo(keyX, diamondY - diamondSize);
+                diamond.lineTo(keyX + diamondSize, diamondY);
+                diamond.lineTo(keyX, diamondY + diamondSize);
+                diamond.lineTo(keyX - diamondSize, diamondY);
+                diamond.closeSubpath();
+
+                const bool isSelectedKey = (_selectedType == eFluxSelectionProperty &&
+                                            _selectedKeyPropertyIndex == visibleRow.propertyIndex &&
+                                            std::abs(key.time - _selectedKeyTime) < 0.5);
+
+                if (key.isPartial) {
+                    // Hollow diamond (partial grouped keys)
+                    painter.setPen(QPen(isSelectedKey ? QColor(255, 240, 140) : QColor(200, 180, 80),
+                                        isSelectedKey ? 2 : 1));
+                    painter.setBrush(Qt::NoBrush);
+                    painter.drawPath(diamond);
+                } else {
+                    // Solid diamond (full grouped keys)
+                    painter.setPen(isSelectedKey ? QPen(QColor(255, 240, 140), 2) : Qt::NoPen);
+                    painter.setBrush(QColor(200, 180, 80));
+                    painter.drawPath(diamond);
+                    painter.setBrush(Qt::NoBrush);
+                }
+            }
+
+            // ── Inline curve preview (only when _showKeyframeCurves && knob-backed) ──
+            if (_showKeyframeCurves && !prop.isRotoAggregate && prop.knob) {
+                // Determine visible frame range in pixels
+                int visLeftFrame = xToFrame(timelineLeft);
+                int visRightFrame = xToFrame(timelineRight);
+                int frameSpan = visRightFrame - visLeftFrame;
+                if (frameSpan < 1) {
+                    frameSpan = 1;
+                }
+
+                // Subtle dim colors per dimension
+                static const QColor kDimColors[] = {
+                    QColor(100, 180, 255, 120),  // blue
+                    QColor(255, 130, 100, 120),  // red-orange
+                    QColor(100, 255, 140, 120),  // green
+                    QColor(255, 220, 100, 120),  // yellow
+                    QColor(200, 130, 255, 120),  // purple
+                    QColor(255, 180, 200, 120),  // pink
+                    QColor(130, 255, 255, 120),  // cyan
+                    QColor(255, 160, 80, 120)    // orange
+                };
+                const int kNumDimColors = 8;
+
+                int rowPad = 2;
+                int plotTop = y + rowPad;
+                int plotHeight = rowHeight - rowPad * 2;
+                if (plotHeight < 4) {
+                    plotHeight = 4;
+                }
+
+                for (size_t di = 0; di < prop.dims.size(); ++di) {
+                    int dim = prop.dims[di];
+                    std::shared_ptr<Curve> curve = prop.knob->getCurve(ViewSpec::current(), dim);
+                    if (!curve) {
+                        continue;
+                    }
+
+                    // Sample the curve at ~2 samples per pixel for smoothness
+                    int numSamples = qMax(2, (timelineRight - timelineLeft) * 2);
+                    numSamples = qMin(numSamples, 4000); // cap for performance
+                    double sampleStep = (double)frameSpan / numSamples;
+
+                    // First pass: compute min/max from samples
+                    double yMin = 1e30, yMax = -1e30;
+                    for (int s = 0; s <= numSamples; ++s) {
+                        double sampleFrame = visLeftFrame + s * sampleStep;
+                        double val = curve->getValueAt(sampleFrame);
+                        if (val < yMin) yMin = val;
+                        if (val > yMax) yMax = val;
+                    }
+
+                    double yRange = yMax - yMin;
+                    bool isFlat = (yRange < 1e-10);
+
+                    // Build the polyline
+                    QPainterPath linePath;
+                    bool first = true;
+                    for (int s = 0; s <= numSamples; ++s) {
+                        double sampleFrame = visLeftFrame + s * sampleStep;
+                        double val = curve->getValueAt(sampleFrame);
+                        int px = frameToX(static_cast<int>(sampleFrame + 0.5));
+                        int py;
+                        if (isFlat) {
+                            py = plotTop + plotHeight / 2;
+                        } else {
+                            double normalized = (val - yMin) / yRange;
+                            // Invert: higher values toward top
+                            py = plotTop + static_cast<int>((1.0 - normalized) * (plotHeight - 1));
+                        }
+                        if (first) {
+                            linePath.moveTo(px, py);
+                            first = false;
+                        } else {
+                            linePath.lineTo(px, py);
+                        }
+                    }
+
+                    QColor dimColor = kDimColors[di % kNumDimColors];
+                    painter.setPen(QPen(dimColor, 1.2));
+                    painter.setBrush(Qt::NoBrush);
+                    painter.drawPath(linePath);
+                }
+            }
+
+            // Draw the dragged key at its current target position
+            if (isThisDragRow) {
+                int dragX = frameToX(static_cast<int>(_dragCurrentKeyTime + 0.5));
+                if (dragX >= timelineLeft - diamondSize && dragX <= timelineRight + diamondSize) {
+                    QPainterPath diamond;
+                    diamond.moveTo(dragX, diamondY - diamondSize);
+                    diamond.lineTo(dragX + diamondSize, diamondY);
+                    diamond.lineTo(dragX, diamondY + diamondSize);
+                    diamond.lineTo(dragX - diamondSize, diamondY);
+                    diamond.closeSubpath();
+                    painter.setPen(QPen(QColor(255, 220, 80), 2));
+                    painter.setBrush(QColor(255, 220, 80));
+                    painter.drawPath(diamond);
+                    painter.setBrush(Qt::NoBrush);
+                }
+            }
         }
     }
 }
@@ -1818,6 +2074,9 @@ void
 FluxTimeline::rebuildVisibleRows()
 {
     _visibleRows.clear();
+    _propertyRows.clear();
+    _selectedKeyPropertyIndex = -1;
+    _selectedKeyTime = 0.0;
     int y = 0;
     for (int i = 0; i < _layers.size(); ++i) {
         FluxVisibleRow row;
@@ -1830,6 +2089,26 @@ FluxTimeline::rebuildVisibleRows()
         y += row.height;
 
         if (_layers[i].expanded) {
+            // Layer-level animated property rows
+            {
+                QList<FluxKeyframeProperty> props = buildLayerProperties(_layers[i], _ungroupedKeyframeProperties);
+                for (int p = 0; p < props.size(); ++p) {
+                    int propIdx = _propertyRows.size();
+                    _propertyRows.append(props[p]);
+                    FluxVisibleRow propRow;
+                    propRow.type = eFluxVisibleRowProperty;
+                    propRow.layerIndex = i;
+                    propRow.childIndex = -1;
+                    propRow.effectIndex = -1;
+                    propRow.maskIndex = -1;
+                    propRow.propertyIndex = propIdx;
+                    propRow.y = y;
+                    propRow.height = kPropertyRowHeight;
+                    _visibleRows.append(propRow);
+                    y += propRow.height;
+                }
+            }
+
             // Layer-level masks (effectIndex < 0)
             const QList<FluxMask>& masks = _layers[i].masks;
             for (int m = 0; m < masks.size(); ++m) {
@@ -1846,6 +2125,26 @@ FluxTimeline::rebuildVisibleRows()
                 maskRow.height = kMaskRowHeight;
                 _visibleRows.append(maskRow);
                 y += maskRow.height;
+
+                // Mask property rows
+                {
+                    QList<FluxKeyframeProperty> props = buildMaskProperties(masks[m]);
+                    for (int p = 0; p < props.size(); ++p) {
+                        int propIdx = _propertyRows.size();
+                        _propertyRows.append(props[p]);
+                        FluxVisibleRow propRow;
+                        propRow.type = eFluxVisibleRowProperty;
+                        propRow.layerIndex = i;
+                        propRow.childIndex = -1;
+                        propRow.effectIndex = -1;
+                        propRow.maskIndex = m;
+                        propRow.propertyIndex = propIdx;
+                        propRow.y = y;
+                        propRow.height = kPropertyRowHeight;
+                        _visibleRows.append(propRow);
+                        y += propRow.height;
+                    }
+                }
             }
 
             // Effects and their masks
@@ -1862,6 +2161,26 @@ FluxTimeline::rebuildVisibleRows()
                 _visibleRows.append(effectRow);
                 y += effectRow.height;
 
+                // Effect property rows
+                {
+                    QList<FluxKeyframeProperty> props = buildEffectProperties(effects[e], isAdjustmentRow(i), _ungroupedKeyframeProperties);
+                    for (int p = 0; p < props.size(); ++p) {
+                        int propIdx = _propertyRows.size();
+                        _propertyRows.append(props[p]);
+                        FluxVisibleRow propRow;
+                        propRow.type = eFluxVisibleRowProperty;
+                        propRow.layerIndex = i;
+                        propRow.childIndex = -1;
+                        propRow.effectIndex = e;
+                        propRow.maskIndex = -1;
+                        propRow.propertyIndex = propIdx;
+                        propRow.y = y;
+                        propRow.height = kPropertyRowHeight;
+                        _visibleRows.append(propRow);
+                        y += propRow.height;
+                    }
+                }
+
                 // Effect-level masks
                 for (int m = 0; m < masks.size(); ++m) {
                     if (masks[m].effectIndex != e) {
@@ -1877,11 +2196,247 @@ FluxTimeline::rebuildVisibleRows()
                     maskRow.height = kMaskRowHeight;
                     _visibleRows.append(maskRow);
                     y += maskRow.height;
+
+                    // Effect-mask property rows
+                    {
+                        QList<FluxKeyframeProperty> props = buildMaskProperties(masks[m]);
+                        for (int p = 0; p < props.size(); ++p) {
+                            int propIdx = _propertyRows.size();
+                            _propertyRows.append(props[p]);
+                            FluxVisibleRow propRow;
+                            propRow.type = eFluxVisibleRowProperty;
+                            propRow.layerIndex = i;
+                            propRow.childIndex = -1;
+                            propRow.effectIndex = e;
+                            propRow.maskIndex = m;
+                            propRow.propertyIndex = propIdx;
+                            propRow.y = y;
+                            propRow.height = kPropertyRowHeight;
+                            _visibleRows.append(propRow);
+                            y += propRow.height;
+                        }
+                    }
                 }
             }
         }
     }
     _totalContentHeight = y;
+
+    // After rebuilding rows, refresh native signal connections so external
+    // keyframe edits (from DopeSheet, CurveEditor, property panel) invalidate rows.
+    refreshKeyframeSignalConnections();
+}
+
+void
+FluxTimeline::refreshKeyframeSignalConnections()
+{
+    // Collect all knobs from Flux-owned nodes (layer gizmos + effects) that
+    // could potentially appear as keyframe property rows. We connect to their
+    // native KnobSignalSlotHandler signals so external edits (DopeSheet,
+    // CurveEditor, property panel) invalidate our cached property rows.
+    //
+    // We use a set of raw KnobSignalSlotHandler* pointers to avoid duplicate
+    // connections across multiple rebuildVisibleRows() calls. Qt::UniqueConnection
+    // would also work but the set lets us quickly skip known handlers.
+
+    std::set<KnobSignalSlotHandler*> neededHandlers;
+
+    for (int i = 0; i < _layers.size(); ++i) {
+        const FluxLayer& layer = _layers[i];
+
+        // Layer gizmo knobs
+        if (layer.gizmoNode) {
+            const std::vector<KnobIPtr>& knobs = layer.gizmoNode->getKnobs();
+            for (const KnobIPtr& knob : knobs) {
+                if (!knob || !knob->canAnimate()) {
+                    continue;
+                }
+                KnobSignalSlotHandlerPtr handler = knob->getSignalSlotHandler();
+                if (handler) {
+                    neededHandlers.insert(handler.get());
+                }
+            }
+        }
+
+        // Effect knobs
+        for (int e = 0; e < layer.effects.size(); ++e) {
+            if (!layer.effects[e].node) {
+                continue;
+            }
+            const std::vector<KnobIPtr>& knobs = layer.effects[e].node->getKnobs();
+            for (const KnobIPtr& knob : knobs) {
+                if (!knob || !knob->canAnimate()) {
+                    continue;
+                }
+                KnobSignalSlotHandlerPtr handler = knob->getSignalSlotHandler();
+                if (handler) {
+                    neededHandlers.insert(handler.get());
+                }
+            }
+        }
+
+        // Mask node knobs (Roto/RotoPaint nodes may have animatable knobs)
+        for (int m = 0; m < layer.masks.size(); ++m) {
+            if (!layer.masks[m].maskNode) {
+                continue;
+            }
+            const std::vector<KnobIPtr>& knobs = layer.masks[m].maskNode->getKnobs();
+            for (const KnobIPtr& knob : knobs) {
+                if (!knob || !knob->canAnimate()) {
+                    continue;
+                }
+                KnobSignalSlotHandlerPtr handler = knob->getSignalSlotHandler();
+                if (handler) {
+                    neededHandlers.insert(handler.get());
+                }
+            }
+        }
+    }
+
+    // Connect new knob handlers that we haven't seen before
+    for (KnobSignalSlotHandler* handler : neededHandlers) {
+        if (_connectedKnobHandlers.find(handler) != _connectedKnobHandlers.end()) {
+            continue; // already connected
+        }
+        // Connect keyframe mutation signals. All route to the same handler:
+        // mark rows dirty and schedule a repaint. The actual rebuild is deferred
+        // to the next paintEvent via _rowsDirty.
+        QObject::connect(handler, SIGNAL(keyFrameSet(double,ViewSpec,int,int,bool)),
+                         this, SLOT(onNativeKeyframeChanged()),
+                         Qt::UniqueConnection);
+        QObject::connect(handler, SIGNAL(keyFrameRemoved(double,ViewSpec,int,int)),
+                         this, SLOT(onNativeKeyframeChanged()),
+                         Qt::UniqueConnection);
+        QObject::connect(handler, SIGNAL(keyFrameMoved(ViewSpec,int,double,double)),
+                         this, SLOT(onNativeKeyframeChanged()),
+                         Qt::UniqueConnection);
+        QObject::connect(handler, SIGNAL(multipleKeyFramesSet(std::list<double>,ViewSpec,int,int)),
+                         this, SLOT(onNativeKeyframeChanged()),
+                         Qt::UniqueConnection);
+        QObject::connect(handler, SIGNAL(multipleKeyFramesRemoved(std::list<double>,ViewSpec,int,int)),
+                         this, SLOT(onNativeKeyframeChanged()),
+                         Qt::UniqueConnection);
+        QObject::connect(handler, SIGNAL(animationRemoved(ViewSpec,int)),
+                         this, SLOT(onNativeKeyframeChanged()),
+                         Qt::UniqueConnection);
+        QObject::connect(handler, SIGNAL(animationAboutToBeRemoved(ViewSpec,int)),
+                         this, SLOT(onNativeKeyframeChanged()),
+                         Qt::UniqueConnection);
+
+        _connectedKnobHandlers.insert(handler);
+    }
+
+    // --- Bezier shape keyframe signals for roto aggregate rows ---
+    // Aggregate mask rows are driven by RotoContext::getBeziersKeyframeTimes().
+    // Bezier emits keyframeSet/Removed/animationRemoved when shape keys change
+    // (e.g. via roto overlay in the viewer).
+    std::set<Bezier*> neededBeziers;
+
+    for (int i = 0; i < _layers.size(); ++i) {
+        const FluxLayer& layer = _layers[i];
+        for (int m = 0; m < layer.masks.size(); ++m) {
+            if (!layer.masks[m].maskNode) {
+                continue;
+            }
+            RotoContextPtr rotoCtx = layer.masks[m].maskNode->getRotoContext();
+            if (!rotoCtx) {
+                continue;
+            }
+            std::list<RotoDrawableItemPtr> items = rotoCtx->getCurvesByRenderOrder(true);
+            for (const RotoDrawableItemPtr& item : items) {
+                BezierPtr bez = std::dynamic_pointer_cast<Bezier>(item);
+                if (bez) {
+                    neededBeziers.insert(bez.get());
+                }
+            }
+        }
+    }
+
+    // Connect new Bezier signals not yet tracked
+    for (Bezier* bez : neededBeziers) {
+        if (_connectedBeziers.find(bez) != _connectedBeziers.end()) {
+            continue; // already connected
+        }
+        QObject::connect(bez, SIGNAL(keyframeSet(double)),
+                         this, SLOT(onNativeKeyframeChanged()),
+                         Qt::UniqueConnection);
+        QObject::connect(bez, SIGNAL(keyframeRemoved(double)),
+                         this, SLOT(onNativeKeyframeChanged()),
+                         Qt::UniqueConnection);
+        QObject::connect(bez, SIGNAL(animationRemoved()),
+                         this, SLOT(onNativeKeyframeChanged()),
+                         Qt::UniqueConnection);
+
+        _connectedBeziers.insert(bez);
+    }
+
+    // --- RotoContext lifecycle signals ---
+    // When shapes are inserted/removed or their activation state changes,
+    // the set of active Bezier shapes changes. We need to invalidate rows
+    // so the next rebuild discovers new Beziers and connects their key signals.
+    std::set<RotoContext*> neededRotoContexts;
+
+    for (int i = 0; i < _layers.size(); ++i) {
+        const FluxLayer& layer = _layers[i];
+        for (int m = 0; m < layer.masks.size(); ++m) {
+            if (!layer.masks[m].maskNode) {
+                continue;
+            }
+            RotoContextPtr rotoCtx = layer.masks[m].maskNode->getRotoContext();
+            if (rotoCtx) {
+                neededRotoContexts.insert(rotoCtx.get());
+            }
+        }
+    }
+
+    for (RotoContext* ctx : neededRotoContexts) {
+        if (_connectedRotoContexts.find(ctx) != _connectedRotoContexts.end()) {
+            continue; // already connected
+        }
+        // itemInserted(int,int) — a new shape was added
+        QObject::connect(ctx, &RotoContext::itemInserted,
+                         this, [this]() { onNativeKeyframeChanged(); },
+                         Qt::UniqueConnection);
+        // itemRemoved(const RotoItemPtr&,int) — a shape was removed
+        QObject::connect(ctx, &RotoContext::itemRemoved,
+                         this, [this]() { onNativeKeyframeChanged(); },
+                         Qt::UniqueConnection);
+        // itemGloballyActivatedChanged — shape visibility toggled, changes active set
+        QObject::connect(ctx, &RotoContext::itemGloballyActivatedChanged,
+                         this, [this]() { onNativeKeyframeChanged(); },
+                         Qt::UniqueConnection);
+
+        _connectedRotoContexts.insert(ctx);
+    }
+
+    // Note: we do NOT disconnect stale knob handlers, Bezier pointers, or
+    // RotoContext pointers when nodes/shapes are removed. Stale connections
+    // fire into onNativeKeyframeChanged() which just sets _rowsDirty and calls
+    // update() — harmless and cheap. The sets are never pruned to keep the
+    // logic simple; they grow to at most O(knobs+shapes+contexts).
+}
+
+void
+FluxTimeline::onNativeKeyframeChanged()
+{
+    // A native knob keyframe was added/removed/moved outside FluxTimeline
+    // (e.g. via DopeSheet, CurveEditor, or property panel). Mark rows dirty
+    // so the next paint rebuilds property rows from current animation state.
+    _rowsDirty = true;
+    update();
+}
+
+bool
+FluxTimeline::layerHasExpandableChildren(int layerIndex) const
+{
+    if (layerIndex < 0 || layerIndex >= _layers.size()) {
+        return false;
+    }
+    const FluxLayer& layer = _layers[layerIndex];
+    if (!layer.effects.isEmpty() || !layer.masks.isEmpty()) {
+        return true;
+    }
+    return !buildLayerProperties(layer, _ungroupedKeyframeProperties).isEmpty();
 }
 
 const FluxVisibleRow*
@@ -2073,6 +2628,7 @@ FluxTimeline::showNodeCreationDialog()
                               _selectedLayer = targetLayer;
                               _selectedEffectIndex = -1;
                               _selectedMaskIndex = -1;
+                              _selectedPropertyIndex = -1;
                               Q_EMIT layerSelected(targetLayer);
                               Q_EMIT effectsChanged(targetLayer);
                               fprintf(stderr, "FLUX: Added effect '%s' to layer %d '%s'\n",
@@ -2093,11 +2649,12 @@ FluxTimeline::showNodeCreationDialog()
                               adjustment.nodeInitialized = true;
                                _layers.insert(0, adjustment);
                                rebuildVisibleRows();
-                               _selectedType = eFluxSelectionLayer;
-                               _selectedLayer = 0;
-                               _selectedEffectIndex = -1;
-                               _selectedMaskIndex = -1;
-                              Q_EMIT layerSelected(0);
+                                _selectedType = eFluxSelectionLayer;
+                                _selectedLayer = 0;
+                                _selectedEffectIndex = -1;
+                                _selectedMaskIndex = -1;
+                                _selectedPropertyIndex = -1;
+                               Q_EMIT layerSelected(0);
                              fprintf(stderr, "FLUX: Created adjustment effect row '%s' after final merge\n",
                                      effect.label.toStdString().c_str());
                          }
@@ -2208,6 +2765,17 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
     int x = event->pos().x();
     int y = event->pos().y();
 
+    // Keyframe/Curve mode toggle button (name-area header, in ruler row)
+    {
+        int toggleX = kControlColumnWidth + 4;
+        int toggleW = qMin(80, _layerLabelWidth - kControlColumnWidth - 8);
+        if (toggleW > 20 && x >= toggleX && x < toggleX + toggleW && y >= 2 && y < kTimeRulerHeight - 2) {
+            _showKeyframeCurves = !_showKeyframeCurves;
+            update();
+            return;
+        }
+    }
+
     // Fit button (top-left corner, control column header in ruler row)
     if (x >= 2 && x < kControlColumnWidth - 2 && y >= 2 && y < kTimeRulerHeight - 2) {
         fitToView();
@@ -2245,6 +2813,7 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             _selectedLayer = -1;
             _selectedEffectIndex = -1;
             _selectedMaskIndex = -1;
+            _selectedPropertyIndex = -1;
             Q_EMIT layerSelected(-1);
             update();
             return;
@@ -2256,6 +2825,7 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             _selectedLayer = clickRow->layerIndex;
             _selectedEffectIndex = clickRow->childIndex;
             _selectedMaskIndex = -1;
+            _selectedPropertyIndex = -1;
             Q_EMIT effectSelected(_selectedLayer, _selectedEffectIndex);
             update();
             return;
@@ -2267,7 +2837,21 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             _selectedLayer = clickRow->layerIndex;
             _selectedEffectIndex = clickRow->effectIndex;
             _selectedMaskIndex = clickRow->maskIndex;
+            _selectedPropertyIndex = -1;
             Q_EMIT maskSelected(_selectedLayer, _selectedMaskIndex);
+            update();
+            return;
+        }
+
+        if (clickRow->type == eFluxVisibleRowProperty) {
+            // Select property row in label area
+            _selectedType = eFluxSelectionProperty;
+            _selectedLayer = clickRow->layerIndex;
+            _selectedEffectIndex = -1;
+            _selectedMaskIndex = -1;
+            _selectedPropertyIndex = clickRow->propertyIndex;
+            _selectedKeyPropertyIndex = -1;
+            _selectedKeyTime = 0.0;
             update();
             return;
         }
@@ -2275,8 +2859,7 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
         int layerIdx = clickRow->layerIndex;
         if (layerIdx >= 0 && layerIdx < _layers.size()) {
             // Check disclosure arrow
-            const FluxLayer& layer = _layers[layerIdx];
-            const bool hasChildren = !layer.effects.isEmpty() || !layer.masks.isEmpty();
+            const bool hasChildren = layerHasExpandableChildren(layerIdx);
             if (hasChildren) {
                 int arrowX = kControlColumnWidth + 4;
                 int arrowY = rowYForLayer(layerIdx) + (kLayerRowHeight - kDisclosureSize) / 2;
@@ -2332,6 +2915,7 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             _selectedLayer = layerIdx;
             _selectedEffectIndex = -1;
             _selectedMaskIndex = -1;
+            _selectedPropertyIndex = -1;
             Q_EMIT layerSelected(layerIdx);
             update();
         }
@@ -2347,6 +2931,7 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             _selectedLayer = clickRow->layerIndex;
             _selectedEffectIndex = clickRow->childIndex;
             _selectedMaskIndex = -1;
+            _selectedPropertyIndex = -1;
             Q_EMIT effectSelected(_selectedLayer, _selectedEffectIndex);
             update();
             return;
@@ -2356,7 +2941,44 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             _selectedLayer = clickRow->layerIndex;
             _selectedEffectIndex = clickRow->effectIndex;
             _selectedMaskIndex = clickRow->maskIndex;
+            _selectedPropertyIndex = -1;
             Q_EMIT maskSelected(_selectedLayer, _selectedMaskIndex);
+            update();
+            return;
+        }
+
+        if (clickRow && clickRow->type == eFluxVisibleRowProperty) {
+            // Property row click in timeline area
+            int propIdx = clickRow->propertyIndex;
+            if (propIdx < 0 || propIdx >= _propertyRows.size()) {
+                return;
+            }
+            const FluxKeyframeProperty& prop = _propertyRows[propIdx];
+
+            // Select this property row
+            _selectedType = eFluxSelectionProperty;
+            _selectedLayer = clickRow->layerIndex;
+            _selectedEffectIndex = -1;
+            _selectedMaskIndex = -1;
+            _selectedPropertyIndex = propIdx;
+            _selectedKeyPropertyIndex = -1;
+            _selectedKeyTime = 0.0;
+
+            // Key hit-test: check if mouse is on a keyframe diamond
+            double toleranceFrames = qMax(1.0, 8.0 / _zoom);
+            double nearestTime = 0.0;
+            if (nearestKeyTimeForProperty(prop, xToFrame(x), toleranceFrames, &nearestTime)) {
+                _selectedKeyPropertyIndex = propIdx;
+                _selectedKeyTime = nearestTime;
+                // Start dragging the keyframe
+                _interactionMode = eModeDragKeyframe;
+                _interactionStartX = x;
+                _interactionStartY = y;
+                _dragPropertyIndex = propIdx;
+                _dragOrigKeyTime = nearestTime;
+                _dragCurrentKeyTime = nearestTime;
+                setCursor(Qt::SplitHCursor);
+            }
             update();
             return;
         }
@@ -2370,6 +2992,7 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             _selectedLayer = -1;
             _selectedEffectIndex = -1;
             _selectedMaskIndex = -1;
+            _selectedPropertyIndex = -1;
             Q_EMIT layerSelected(-1);
             _interactionMode = eModeDragPlayhead;
             _currentFrame = xToFrame(x);
@@ -2386,6 +3009,7 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
         _selectedLayer = layerIdx;
         _selectedEffectIndex = -1;
         _selectedMaskIndex = -1;
+        _selectedPropertyIndex = -1;
         Q_EMIT layerSelected(layerIdx);
 
         // Store interaction start state
@@ -2556,6 +3180,17 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
         break;
     }
 
+    case eModeDragKeyframe: {
+        if (_dragPropertyIndex < 0 || _dragPropertyIndex >= _propertyRows.size()) {
+            break;
+        }
+        int targetFrame = xToFrame(x);
+        _dragCurrentKeyTime = qBound((double)_firstFrame, (double)targetFrame, (double)_lastFrame);
+        setCursor(Qt::SplitHCursor);
+        update();
+        break;
+    }
+
     case eModeNone:
     default: {
         // No active interaction — update cursor based on hover position
@@ -2616,6 +3251,26 @@ FluxTimeline::mouseReleaseEvent(QMouseEvent* /*event*/)
         Q_EMIT compositingChanged();
     }
 
+    if (_interactionMode == eModeDragKeyframe) {
+        if (_dragPropertyIndex >= 0 && _dragPropertyIndex < _propertyRows.size()) {
+            double oldTime = _dragOrigKeyTime;
+            double newTime = _dragCurrentKeyTime;
+            double roundedOld = std::round(oldTime);
+            double roundedNew = std::round(newTime);
+            if (std::abs(roundedNew - roundedOld) > 0.5) {
+                const FluxKeyframeProperty& prop = _propertyRows[_dragPropertyIndex];
+                if (moveKeysAtTime(prop, roundedOld, roundedNew)) {
+                    rebuildVisibleRows();
+                    Q_EMIT compositingChanged();
+                    Q_EMIT frameChanged(_currentFrame);
+                }
+            }
+        }
+        _dragPropertyIndex = -1;
+        _dragOrigKeyTime = 0.0;
+        _dragCurrentKeyTime = 0.0;
+    }
+
     if (_interactionMode == eModePan || _interactionMode == eModeResizePanel) {
         unsetCursor();
     }
@@ -2642,6 +3297,7 @@ FluxTimeline::mouseDoubleClickEvent(QMouseEvent* event)
                 _selectedLayer = row->layerIndex;
                 _selectedEffectIndex = row->childIndex;
                 _selectedMaskIndex = -1;
+                _selectedPropertyIndex = -1;
                 Q_EMIT effectSelected(_selectedLayer, _selectedEffectIndex);
                 update();
             } else if (row->type == eFluxVisibleRowMask) {
@@ -2650,6 +3306,7 @@ FluxTimeline::mouseDoubleClickEvent(QMouseEvent* event)
                 _selectedLayer = row->layerIndex;
                 _selectedEffectIndex = row->effectIndex;
                 _selectedMaskIndex = row->maskIndex;
+                _selectedPropertyIndex = -1;
                 Q_EMIT maskSelected(_selectedLayer, _selectedMaskIndex);
                 update();
             }
@@ -2685,6 +3342,7 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                 _selectedLayer = li;
                 _selectedEffectIndex = ei;
                 _selectedMaskIndex = -1;
+                _selectedPropertyIndex = -1;
                 Q_EMIT effectSelected(li, ei);
                 update();
 
@@ -2728,6 +3386,7 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                     _selectedLayer = li;
                     _selectedEffectIndex = -1;
                     _selectedMaskIndex = -1;
+                    _selectedPropertyIndex = -1;
                     Q_EMIT layerSelected(li);
                     update();
                     showNodeCreationDialog();
@@ -2758,6 +3417,7 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                 _selectedLayer = li;
                 _selectedEffectIndex = contextRow->effectIndex;
                 _selectedMaskIndex = mi;
+                _selectedPropertyIndex = -1;
                 Q_EMIT maskSelected(li, mi);
                 update();
 
@@ -2778,6 +3438,132 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                 connect(removeAction, &QAction::triggered, this, [this, li, mi]() {
                     removeMaskFromLayer(li, mi);
                 });
+
+                if (!menu.actions().isEmpty()) {
+                    menu.exec(event->globalPos());
+                }
+                return;
+            } else if (contextRow->type == eFluxVisibleRowProperty) {
+                // Property row context menu
+                int propIdx = contextRow->propertyIndex;
+                if (propIdx < 0 || propIdx >= _propertyRows.size()) {
+                    return;
+                }
+                const FluxKeyframeProperty& prop = _propertyRows[propIdx];
+
+                // Select the property row
+                _selectedType = eFluxSelectionProperty;
+                _selectedLayer = contextRow->layerIndex;
+                _selectedEffectIndex = -1;
+                _selectedMaskIndex = -1;
+                _selectedPropertyIndex = propIdx;
+                _selectedKeyPropertyIndex = -1;
+                _selectedKeyTime = 0.0;
+                update();
+
+                // Toggle mode action
+                QString modeLabel = _showKeyframeCurves
+                    ? QString::fromUtf8("Show Keyframes")
+                    : QString::fromUtf8("Show Inline Curves");
+                QAction* toggleModeAction = menu.addAction(modeLabel);
+                connect(toggleModeAction, &QAction::triggered, this, [this]() {
+                    _showKeyframeCurves = !_showKeyframeCurves;
+                    update();
+                });
+
+                if (prop.groupDimCount > 1 && !prop.groupKey.empty()) {
+                    QAction* groupAction = menu.addAction(prop.isGrouped
+                        ? QString::fromUtf8("Ungroup Dimensions")
+                        : QString::fromUtf8("Group Dimensions"));
+                    connect(groupAction, &QAction::triggered, this, [this, propIdx]() {
+                        if (propIdx < 0 || propIdx >= _propertyRows.size()) {
+                            return;
+                        }
+                        const FluxKeyframeProperty& prop = _propertyRows[propIdx];
+                        if (prop.groupKey.empty()) {
+                            return;
+                        }
+                        if (prop.isGrouped) {
+                            _ungroupedKeyframeProperties.insert(prop.groupKey);
+                        } else {
+                            _ungroupedKeyframeProperties.erase(prop.groupKey);
+                        }
+                        _rowsDirty = true;
+                        rebuildVisibleRows();
+                        update();
+                    });
+                }
+
+                menu.addSeparator();
+
+                QAction* addKeyAction = menu.addAction(QString::fromUtf8("Add Key at Playhead"));
+                connect(addKeyAction, &QAction::triggered, this, [this, propIdx]() {
+                    if (propIdx < 0 || propIdx >= _propertyRows.size()) {
+                        return;
+                    }
+                    const FluxKeyframeProperty& prop = _propertyRows[propIdx];
+                    if (addKeyAtTime(prop, _currentFrame)) {
+                        rebuildVisibleRows();
+                        Q_EMIT compositingChanged();
+                        Q_EMIT frameChanged(_currentFrame);
+                        update();
+                    }
+                });
+
+                QAction* deleteAtPlayheadAction = menu.addAction(QString::fromUtf8("Delete Key at Playhead"));
+                deleteAtPlayheadAction->setEnabled(propertyHasKeysAtTime(prop, _currentFrame));
+                connect(deleteAtPlayheadAction, &QAction::triggered, this, [this, propIdx]() {
+                    if (propIdx < 0 || propIdx >= _propertyRows.size()) {
+                        return;
+                    }
+                    const FluxKeyframeProperty& prop = _propertyRows[propIdx];
+                    if (deleteKeysAtTime(prop, _currentFrame)) {
+                        rebuildVisibleRows();
+                        Q_EMIT compositingChanged();
+                        Q_EMIT frameChanged(_currentFrame);
+                        update();
+                    }
+                });
+
+                double toleranceFrames = qMax(1.0, 8.0 / _zoom);
+                double nearestTime = 0.0;
+                bool hasKeyUnderCursor = nearestKeyTimeForProperty(prop, xToFrame(x), toleranceFrames, &nearestTime);
+                if (hasKeyUnderCursor) {
+                    _selectedKeyPropertyIndex = propIdx;
+                    _selectedKeyTime = nearestTime;
+                }
+
+                QAction* deleteSelectedAction = menu.addAction(QString::fromUtf8("Delete Selected Key"));
+                deleteSelectedAction->setEnabled(_selectedKeyPropertyIndex == propIdx);
+                connect(deleteSelectedAction, &QAction::triggered, this, [this, propIdx]() {
+                    if (propIdx < 0 || propIdx >= _propertyRows.size() || _selectedKeyPropertyIndex != propIdx) {
+                        return;
+                    }
+                    const FluxKeyframeProperty& prop = _propertyRows[propIdx];
+                    if (deleteKeysAtTime(prop, _selectedKeyTime)) {
+                        rebuildVisibleRows();
+                        Q_EMIT compositingChanged();
+                        Q_EMIT frameChanged(_currentFrame);
+                        update();
+                    }
+                });
+
+                QAction* deleteUnderCursorAction = menu.addAction(QString::fromUtf8("Delete Key Under Cursor"));
+                deleteUnderCursorAction->setEnabled(hasKeyUnderCursor);
+                if (hasKeyUnderCursor) {
+                    connect(deleteUnderCursorAction, &QAction::triggered, this, [this, propIdx, nearestTime]() {
+                        if (propIdx < 0 || propIdx >= _propertyRows.size()) {
+                            return;
+                        }
+                        const FluxKeyframeProperty& prop = _propertyRows[propIdx];
+                        if (deleteKeysAtTime(prop, nearestTime)) {
+                            rebuildVisibleRows();
+                            Q_EMIT compositingChanged();
+                            Q_EMIT frameChanged(_currentFrame);
+                            update();
+                        }
+                    });
+                }
 
                 if (!menu.actions().isEmpty()) {
                     menu.exec(event->globalPos());
@@ -2917,6 +3703,7 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                 _selectedLayer = layerIdx;
                 _selectedEffectIndex = -1;
                 _selectedMaskIndex = -1;
+                _selectedPropertyIndex = -1;
                 Q_EMIT layerSelected(layerIdx);
                 update();
                 showNodeCreationDialog();
@@ -2984,7 +3771,17 @@ void
 FluxTimeline::keyPressEvent(QKeyEvent* event)
 {
     if (event->key() == Qt::Key_Delete) {
-        if (_selectedType == eFluxSelectionMask &&
+        if (_selectedType == eFluxSelectionProperty &&
+            _selectedKeyPropertyIndex >= 0 &&
+            _selectedKeyPropertyIndex < _propertyRows.size()) {
+            const FluxKeyframeProperty& prop = _propertyRows[_selectedKeyPropertyIndex];
+            if (deleteKeysAtTime(prop, _selectedKeyTime)) {
+                rebuildVisibleRows();
+                Q_EMIT compositingChanged();
+                Q_EMIT frameChanged(_currentFrame);
+                update();
+            }
+        } else if (_selectedType == eFluxSelectionMask &&
             _selectedLayer >= 0 && _selectedLayer < _layers.size() &&
             _selectedMaskIndex >= 0) {
             removeMaskFromLayer(_selectedLayer, _selectedMaskIndex);
@@ -3020,6 +3817,7 @@ FluxTimeline::keyPressEvent(QKeyEvent* event)
         _selectedLayer = -1;
         _selectedEffectIndex = -1;
         _selectedMaskIndex = -1;
+        _selectedPropertyIndex = -1;
         Q_EMIT layerSelected(-1);
         update();
         event->accept();
@@ -3136,6 +3934,7 @@ FluxTimeline::dropEvent(QDropEvent* event)
     _selectedLayer = row;
     _selectedEffectIndex = -1;
     _selectedMaskIndex = -1;
+    _selectedPropertyIndex = -1;
     Q_EMIT layerSelected(row);
 
     // Emit signal so Gui can create the gizmo + rebuild compositing graph
@@ -3394,6 +4193,9 @@ FluxTimeline::serializeForProject() const
 {
     FluxTimelineSerialization ser;
     ser.selectedLayer = _selectedLayer;
+    ser.showKeyframeCurves = _showKeyframeCurves;
+    ser.ungroupedKeyframeProperties.assign(_ungroupedKeyframeProperties.begin(),
+                                           _ungroupedKeyframeProperties.end());
 
     for (int i = 0; i < _layers.size(); ++i) {
         const FluxLayer& layer = _layers[i];
@@ -3408,6 +4210,7 @@ FluxTimeline::serializeForProject() const
         layerSer.muted = layer.muted;
         layerSer.locked = layer.locked;
         layerSer.solo = layer.solo;
+        layerSer.expanded = layer.expanded;
 
         // Timing
         layerSer.inPoint = layer.inPoint;
@@ -3492,6 +4295,11 @@ FluxTimeline::restoreFromProjectSerialization(const FluxTimelineSerialization& s
                                                 Gui* gui)
 {
     _layers.clear();
+    _ungroupedKeyframeProperties.clear();
+    _showKeyframeCurves = ser.showKeyframeCurves;
+    _ungroupedKeyframeProperties.insert(ser.ungroupedKeyframeProperties.begin(),
+                                        ser.ungroupedKeyframeProperties.end());
+    _rowsDirty = true;
 
     ProjectPtr project = gui->getApp()->getProject();
 
@@ -3508,6 +4316,7 @@ FluxTimeline::restoreFromProjectSerialization(const FluxTimelineSerialization& s
         layer.muted = layerSer.muted;
         layer.locked = layerSer.locked;
         layer.solo = layerSer.solo;
+        layer.expanded = layerSer.expanded;
 
         // Timing
         layer.inPoint = layerSer.inPoint;
@@ -3615,6 +4424,8 @@ FluxTimeline::restoreFromProjectSerialization(const FluxTimelineSerialization& s
     }
 
     _selectedLayer = ser.selectedLayer;
+    _selectedKeyPropertyIndex = -1;
+    _selectedKeyTime = 0.0;
 
     rebuildVisibleRows();
     update();

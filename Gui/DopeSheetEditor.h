@@ -43,6 +43,7 @@ CLANG_DIAG_ON(uninitialized)
 NATRON_NAMESPACE_ENTER
 
 class DopeSheetEditorPrivate;
+class DopeSheet;
 
 /**
  * @class DopeSheetEditor
@@ -113,6 +114,12 @@ public:
     DopeSheetView* getDopesheetView() const;
 
     HierarchyView* getHierarchyView() const;
+
+    /**
+     * @brief T074 autonomous proof hook: exposes the native DopeSheet model
+     * for an env-gated validation harness. Not used by production UI code.
+     */
+    DopeSheet* getModelForT074Proof() const;
 
     void setTreeWidgetWidth(int width);
 

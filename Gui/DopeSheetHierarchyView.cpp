@@ -27,14 +27,15 @@
 
 #include <stdexcept>
 
-#include <QDebug> //REMOVEME
 #include <QSize>
 #include <QHeaderView>
 #include <QPainter>
 #include <QResizeEvent>
 #include <QStyleOption>
 
+#include "Engine/Curve.h"
 #include "Engine/Node.h"
+#include "Engine/Knob.h"
 #include "Engine/NodeGroup.h"
 #include "Engine/Settings.h"
 #include "Engine/ViewIdx.h"
@@ -51,6 +52,16 @@
 NATRON_NAMESPACE_ENTER
 
 typedef std::list<DSKnobPtr> DSKnobPtrList;
+
+static bool
+isFluxManagedDopeSheetNode(const NodePtr& node)
+{
+    if (!node) {
+        return false;
+    }
+
+    return node->getPluginID().find("net.sf.openfx.Flux") == 0;
+}
 
 
 ////////////////////////// HierarchyViewSelectionModel //////////////////////////
@@ -130,7 +141,7 @@ HierarchyViewSelectionModel::selectChildren(const QModelIndex &index,
                                             QItemSelection *selection) const
 {
     int row = 0;
-    QModelIndex childIndex = index.model()->index(row, 0);
+    QModelIndex childIndex = index.model()->index(row, 0, index);
 
     while ( childIndex.isValid() ) {
         if ( !selection->contains(childIndex) ) {
@@ -143,7 +154,7 @@ HierarchyViewSelectionModel::selectChildren(const QModelIndex &index,
         }
 
         ++row;
-        childIndex = index.model()->index(row, 0);
+        childIndex = index.model()->index(row, 0, index);
     }
 }
 
@@ -187,7 +198,7 @@ HierarchyViewSelectionModel::checkParentsSelectedStates(const QModelIndex &index
         QModelIndex index = (*it);
         bool selectParent = true;
         int row = 0;
-        QModelIndex childIndexIt = index.model()->index(row, 0);
+        QModelIndex childIndexIt = index.model()->index(row, 0, index);
 
         while ( childIndexIt.isValid() ) {
             if ( childIndexIt.data(QT_ROLE_CONTEXT_IS_ANIMATED).toBool() ) {
@@ -199,7 +210,7 @@ HierarchyViewSelectionModel::checkParentsSelectedStates(const QModelIndex &index
             }
 
             ++row;
-            childIndexIt = index.model()->index(row, 0);
+            childIndexIt = index.model()->index(row, 0, index);
         }
 
         if ( (flags & QItemSelectionModel::Select && selectParent) ) {
@@ -366,7 +377,7 @@ HierarchyViewPrivate::checkNodeVisibleState(DSNode *dsNode)
         showNode = true;
     }
 
-    if ( !nodeGui->isSettingsPanelVisible() ) {
+    if ( !nodeGui->isSettingsPanelVisible() && !isFluxManagedDopeSheetNode(nodeGui->getNode()) ) {
         showNode = false;
     }
 
@@ -384,22 +395,45 @@ HierarchyViewPrivate::checkKnobVisibleState(DSKnob *dsKnob)
     int dim = dsKnob->getDimension();
     KnobGuiPtr knobGui = dsKnob->getKnobGui();
 
-    assert(knobGui);
+    if (!knobGui) {
+        return;
+    }
     bool showContext = false;
 
     if ( dsKnob->isMultiDimRoot() ) {
+        KnobIPtr knob = dsKnob->getInternalKnob();
         for (int i = 0; i < knobGui->getKnob()->getDimension(); ++i) {
-            bool curveIsAnimated = knobGui->getCurve(ViewIdx(0), i)->isAnimated();
+            // Prefer the authoritative engine knob curve for gizmo/PyPlug alias knobs
+            // so visibility reflects real animation state, not empty GUI-curve clones.
+            CurvePtr curveV;
+            if (knob) {
+                curveV = knob->getCurve(ViewIdx(0), i);
+            }
+            if (!curveV) {
+                curveV = knobGui->getCurve(ViewIdx(0), i);
+            }
+            bool curveIsAnimated = curveV ? curveV->isAnimated() : false;
             QTreeWidgetItem *dimItem = dsKnob->findDimTreeItem(i);
-            dimItem->setHidden(!curveIsAnimated);
-            dimItem->setData(0, QT_ROLE_CONTEXT_IS_ANIMATED, curveIsAnimated);
+            if (dimItem) {
+                dimItem->setHidden(!curveIsAnimated);
+                dimItem->setData(0, QT_ROLE_CONTEXT_IS_ANIMATED, curveIsAnimated);
+            }
 
             if (curveIsAnimated) {
                 showContext = true;
             }
         }
     } else {
-        showContext = knobGui->getCurve(ViewIdx(0), dim)->isAnimated();
+        // Prefer the authoritative engine knob curve for gizmo/PyPlug alias knobs.
+        CurvePtr curveV;
+        KnobIPtr knob = dsKnob->getInternalKnob();
+        if (knob) {
+            curveV = knob->getCurve(ViewIdx(0), dim);
+        }
+        if (!curveV) {
+            curveV = knobGui->getCurve(ViewIdx(0), dim);
+        }
+        showContext = curveV ? curveV->isAnimated() : false;
     }
 
     QTreeWidgetItem *treeItem = dsKnob->getTreeItem();
@@ -1023,7 +1057,10 @@ HierarchyView::onKeyframeSelectionChanged(bool recurse)
     for (DopeSheetKeyPtrList::const_iterator it = selectedKeys.begin();
          it != selectedKeys.end();
          ++it) {
-        toCheck.insert( (*it)->getContext() );
+        DSKnobPtr ctx = (*it)->getContext();
+        if (ctx) {
+            toCheck.insert(ctx);
+        }
     }
 
 
@@ -1041,9 +1078,24 @@ HierarchyView::onKeyframeSelectionChanged(bool recurse)
              ++toCheckIt) {
             DSKnobPtr dsKnob = (*toCheckIt);
             KnobGuiPtr knobGui = dsKnob->getKnobGui();
-            assert(knobGui);
+            if (!knobGui) {
+                continue;
+            }
             int dim = dsKnob->getDimension();
-            KeyFrameSet keyframes = knobGui->getCurve(ViewIdx(0), dim)->getKeyFrames_mt_safe();
+            // Prefer the authoritative engine knob curve for gizmo/PyPlug alias knobs
+            // so tree selection reflects real animation state, not empty GUI-curve clones.
+            CurvePtr curve;
+            KnobIPtr knobInternal = dsKnob->getInternalKnob();
+            if (knobInternal) {
+                curve = knobInternal->getCurve(ViewIdx(0), dim);
+            }
+            if (!curve) {
+                curve = knobGui->getCurve(ViewIdx(0), dim);
+            }
+            if (!curve) {
+                continue;
+            }
+            KeyFrameSet keyframes = curve->getKeyFrames_mt_safe();
             bool selectItem = true;
 
             for (KeyFrameSet::const_iterator kfIt = keyframes.begin();

@@ -20,6 +20,8 @@
 file(GLOB NatronEngine_HEADERS ../Engine/*.h)
 file(GLOB NatronGui_HEADERS *.h)
 file(GLOB NatronGui_SOURCES *.cpp)
+list(APPEND NatronGui_HEADERS FluxT074Harness.h)
+list(APPEND NatronGui_SOURCES FluxT074Harness.cpp)
 
 set(PYGUI_OUT ${CMAKE_CURRENT_BINARY_DIR}/Qt${QT_VERSION_MAJOR})
 set(PYGUI_INCLUDE_DIRS . .. ../Engine ../Global ../libs/OpenFX/include)

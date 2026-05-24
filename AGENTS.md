@@ -7,8 +7,6 @@ This file governs all Forge agent behavior within the Flux workspace.
 Every agent working in this workspace MUST read this `AGENTS.md` file on **every single user request** before taking any action. Do not rely on memory of prior reads; re-read it every turn/request.
 
 Every agent working in this workspace MUST also read:
-1. `/home/npittas/forge/COLLABORATION.md` — Who Nick is, how to work with him
-2. `/home/npittas/forge/AGENTS.md` — Global Forge rules
 3. `ARCHITECTURE.md` — Current project architecture (this file IS the source of truth for tech decisions)
 4. `plans/PHASES.md` — Current phase status and breakdown
 5. `tasks/TASKS.md` — Active task list with status
@@ -18,6 +16,7 @@ Every agent working in this workspace MUST also read:
 The agent MUST NOT make high-level product, UX, architecture, workflow, or repository-policy decisions without Nick's explicit approval.
 
 Before any non-trivial change, the agent MUST:
+
 1. Present a concrete plan.
 2. State expected user-visible behavior and risks.
 3. Wait for Nick's explicit approval of that plan.
@@ -39,6 +38,7 @@ NEVER commit, amend, revert, reset, push, stage broad changes, or otherwise alte
 When asked to scrutinize/review/debug, do not rely only on `git diff`.
 
 Required review behavior:
+
 1. Read the underlying source files and relevant surrounding code.
 2. Trace the actual runtime path end-to-end.
 3. Infer and state the intent before judging the code.
@@ -50,6 +50,7 @@ Required review behavior:
 ## Project Identity
 
 **Flux** is a 2D motion graphics compositor for Linux, built as a fork of Natron (GPL2).
+
 - Fork: Natron RB-2.6 (C++17, CMake, Qt5/6)
 - Direction: Replace Natron's node-graph-only UI with a layer-based timeline UI (After Effects paradigm)
 - The node graph remains accessible for power users
@@ -57,16 +58,19 @@ Required review behavior:
 ## Architecture Decision Record
 
 ### ADR-001: Qt over Electron (2026-05-20)
+
 - **Decision**: Use Qt for the UI instead of Electron + React
 - **Rationale**: Natron Engine is deeply coupled to Qt (QObject, signals/slots, QThread, QMutex). Removing Qt from the engine would be weeks of refactoring with high risk. Qt eliminates the IPC bridge bottleneck for pixel data transfer. No validation spikes needed — everything already works.
 - **Consequence**: We keep Qt as a dependency. The UI is Qt widgets (modernized, restyled), not web technologies.
 
 ### ADR-002: Fork Natron, don't build from scratch (2026-05-20)
+
 - **Decision**: Fork Natron RB-2.6 under GPL2
 - **Rationale**: Natron provides years of battle-tested engine code: 32-bit float pipeline, OCIO, OIIO, FFmpeg, OpenFX host, cache, animation, roto, tracking. Building from scratch would take months before rendering a single frame.
 - **Consequence**: Flux is GPL2. We inherit Natron's code quality (C++98 heritage, now C++17). Some technical debt comes with it.
 
 ### ADR-003: Layer-based timeline over node graph (2026-05-20)
+
 - **Decision**: Primary UI is a layer-based timeline. Node graph is secondary (power-user feature).
 - **Rationale**: After Effects proved this model works for motion graphics. Layers are UI abstractions over Natron nodes. The engine doesn't change — we add a translation layer.
 - **Consequence**: Need to build: Timeline widget, Layer-to-Node bridge, Effects stack panel, Shape/Text layer types.
@@ -125,6 +129,7 @@ tasks/
 ### Validation Requirements
 
 Every feature must be validated with real-world test artifacts:
+
 - **Import**: Test with actual .mov, .mp4, .mxf, .exr, .tiff, .psd, .png, .jpg, .svg files
 - **Rendering**: Verify output matches expected results (visual comparison)
 - **Performance**: Measure frame rates, cache hit rates, memory usage

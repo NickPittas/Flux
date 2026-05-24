@@ -1,6 +1,6 @@
 # Flux — Master Task List
 
-Last updated: 2026-05-24
+Last updated: 2026-05-25
 
 ## Active Phase: P7 (Shapes + Text)
 
@@ -141,6 +141,7 @@ Last updated: 2026-05-24
 | T071 | Text layer v1 — FluxText PyPlug wraps native Text→FrameRange→TimeOffset→Grade→Output. Native Text knobs are promoted as `Text1...` group knobs in Natron PyPlug-exporter style and linked with `setAsAlias()`, with Text controls first in properties. Timeline trim uses FrameRange; opacity uses Grade multiply; viewer transform overlay registers against promoted Text transform knobs; `Text1name` syncs to `Text1font`; promoted cascading font menus preserve grouping; 2D viewer overlay edits now create keyframes correctly. Build passed, `plugins/FluxText.py` compiles, deployed extras passed, Oracle reviewed overlay-keyframe fix, and live GUI validation passed for Text v1. | DONE | forge | 2026-05-24 | 2026-05-24 | plugins/FluxText.py, Engine/KnobTypes.cpp, Gui/FluxTimeline.cpp, Gui/Gui05.cpp, Gui/HostOverlay.cpp |
 | T072 | Native Text justification/alignment follow-up — standalone Text OFX left/center/right alignment is broken independently of FluxText; investigate separately from Text v1. | PENDING | — | — | — | — |
 | T073 | Dope Sheet/keyframe readability polish — keyframes exist, but readability/stability in the Dope Sheet needs separate UI polish. | PENDING | — | — | — | — |
+| T074 | FluxTimeline animated property rows + grouped keyframes v1 — add AE-like animated property rows under layers/effects/masks, backed by native Knob/Curve/Roto data; show only animated properties; toggle simple keyframe vs inline-curve previews; multidim knobs with one animated dim stay separate, two+ animated dims group by default without creating missing keys; hide adjustment disable keys; expose promoted Text1 knobs only; include aggregate Roto shape keys, not per-vertex animation. | DONE | opencode | 2026-05-24 | 2026-05-25 | tasks/T074-flux-timeline-keyframe-editor.md |
 
 ---
 

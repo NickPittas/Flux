@@ -136,6 +136,9 @@ struct FluxLayerSerialization
     std::string maskApplyNodeScriptName;
     std::vector<FluxMaskSerialization> masks;
 
+    // Expanded state (version 2)
+    bool expanded;
+
     FluxLayerSerialization()
         : name()
         , filePath()
@@ -167,6 +170,7 @@ struct FluxLayerSerialization
         , hasPrecompBranch(false)
         , maskApplyNodeScriptName()
         , masks()
+        , expanded(false)
     {}
 
     friend class ::boost::serialization::access;
@@ -222,6 +226,9 @@ struct FluxLayerSerialization
                 ar & ::boost::serialization::make_nvp("Mask", masks[i]);
             }
         }
+        if (version >= 2) {
+            ar & ::boost::serialization::make_nvp("Expanded", expanded);
+        }
     }
 };
 
@@ -230,16 +237,20 @@ struct FluxTimelineSerialization
     std::vector<FluxLayerSerialization> layers;
     std::string bgReformatNodeScriptName;
     int selectedLayer;
+    bool showKeyframeCurves;
+    std::vector<std::string> ungroupedKeyframeProperties;
 
     FluxTimelineSerialization()
         : layers()
         , bgReformatNodeScriptName()
         , selectedLayer(-1)
+        , showKeyframeCurves(false)
+        , ungroupedKeyframeProperties()
     {}
 
     friend class ::boost::serialization::access;
     template<class Archive>
-    void serialize(Archive & ar, const unsigned int /*version*/)
+    void serialize(Archive & ar, const unsigned int version)
     {
         int numLayers = (int)layers.size();
         ar & ::boost::serialization::make_nvp("NumLayers", numLayers);
@@ -251,13 +262,25 @@ struct FluxTimelineSerialization
         }
         ar & ::boost::serialization::make_nvp("BgReformatNodeScriptName", bgReformatNodeScriptName);
         ar & ::boost::serialization::make_nvp("SelectedLayer", selectedLayer);
+        if (version >= 2) {
+            ar & ::boost::serialization::make_nvp("ShowKeyframeCurves", showKeyframeCurves);
+
+            int numUngrouped = (int)ungroupedKeyframeProperties.size();
+            ar & ::boost::serialization::make_nvp("NumUngroupedKeyframeProperties", numUngrouped);
+            if (Archive::is_loading::value) {
+                ungroupedKeyframeProperties.resize(numUngrouped);
+            }
+            for (int i = 0; i < numUngrouped; ++i) {
+                ar & ::boost::serialization::make_nvp("UngroupedKeyframeProperty", ungroupedKeyframeProperties[i]);
+            }
+        }
     }
 };
 
 NATRON_NAMESPACE_EXIT
 
-BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxTimelineSerialization, 1)
-BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxLayerSerialization, 1)
+BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxTimelineSerialization, 2)
+BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxLayerSerialization, 2)
 BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxMaskSerialization, 1)
 
 #endif // FLUXTIMELINESERIALIZATION_H

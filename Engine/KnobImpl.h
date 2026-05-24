@@ -1573,7 +1573,6 @@ Knob<T>::setValueAtTime(double time,
         ret = eValueChangedReturnCodeKeyframeAdded;
     }
 
-
     if (holder) {
         holder->setHasAnimation(true);
     }

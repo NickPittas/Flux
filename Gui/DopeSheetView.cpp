@@ -41,6 +41,7 @@
 // Natron includes
 #include "Engine/Curve.h"
 #include "Engine/Image.h"
+#include "Engine/Knob.h"
 #include "Engine/Node.h"
 #include "Engine/NodeGroup.h"
 #include "Engine/Project.h"
@@ -121,6 +122,16 @@ running_in_main_thread_and_context(const QOpenGLWidget *glWidget)
 {
     running_in_main_thread();
     running_in_main_context(glWidget);
+}
+
+bool
+isFluxManagedDopeSheetNode(const NodePtr& node)
+{
+    if (!node) {
+        return false;
+    }
+
+    return node->getPluginID().find("net.sf.openfx.Flux") == 0;
 }
 
 NATRON_NAMESPACE_ANONYMOUS_EXIT
@@ -687,7 +698,11 @@ std::vector<DopeSheetKey> DopeSheetViewPrivate::isNearByKeyframe(const DSKnobPtr
     assert(dsKnob);
 
     std::vector<DopeSheetKey> ret;
-    KnobIPtr knob = dsKnob->getKnobGui()->getKnob();
+    KnobGuiPtr knobGui690 = dsKnob->getKnobGui();
+    if (!knobGui690) {
+        return ret;
+    }
+    KnobIPtr knob = knobGui690->getKnob();
     int dim = dsKnob->getDimension();
     int startDim = 0;
     int endDim = knob->getDimension();
@@ -698,7 +713,11 @@ std::vector<DopeSheetKey> DopeSheetViewPrivate::isNearByKeyframe(const DSKnobPtr
     }
 
     for (int i = startDim; i < endDim; ++i) {
-        KeyFrameSet keyframes = knob->getCurve(ViewIdx(0), i)->getKeyFrames_mt_safe();
+        CurvePtr curve = knob->getCurve(ViewIdx(0), i);
+        if (!curve) {
+            continue;
+        }
+        KeyFrameSet keyframes = curve->getKeyFrames_mt_safe();
 
         for (KeyFrameSet::const_iterator kIt = keyframes.begin();
              kIt != keyframes.end();
@@ -713,6 +732,10 @@ std::vector<DopeSheetKey> DopeSheetViewPrivate::isNearByKeyframe(const DSKnobPtr
                     context = model->mapNameItemToDSKnob(childItem);
                 } else {
                     context = dsKnob;
+                }
+
+                if (!context) {
+                    continue;
                 }
 
                 ret.push_back( DopeSheetKey(context, kf) );
@@ -732,14 +755,31 @@ std::vector<DopeSheetKey> DopeSheetViewPrivate::isNearByKeyframe(DSNodePtr dsNod
     for (DSTreeItemKnobMap::const_iterator it = dsKnobs.begin(); it != dsKnobs.end(); ++it) {
         DSKnobPtr dsKnob = (*it).second;
         KnobGuiPtr knobGui = dsKnob->getKnobGui();
-        assert(knobGui);
+        if (!knobGui) {
+            continue;
+        }
         int dim = dsKnob->getDimension();
 
         if (dim == -1) {
             continue;
         }
 
-        KeyFrameSet keyframes = knobGui->getCurve(ViewIdx(0), dim)->getKeyFrames_mt_safe();
+        CurvePtr curve = knobGui->getCurve(ViewIdx(0), dim);
+        // Prefer the authoritative engine knob curve for gizmo/PyPlug alias knobs
+        // so we detect keyframes on the real animation data, not empty GUI clones.
+        {
+            KnobIPtr knob = dsKnob->getInternalKnob();
+            if (knob) {
+                CurvePtr engineCurve = knob->getCurve(ViewIdx(0), dim);
+                if (engineCurve) {
+                    curve = engineCurve;
+                }
+            }
+        }
+        if (!curve) {
+            continue;
+        }
+        KeyFrameSet keyframes = curve->getKeyFrames_mt_safe();
 
         for (KeyFrameSet::const_iterator kIt = keyframes.begin();
              kIt != keyframes.end();
@@ -800,11 +840,21 @@ DopeSheetViewPrivate::generateKeyframeTextures()
     glGenTextures(KF_TEXTURES_COUNT, kfTexturesIDs);
 
     glEnable(GL_TEXTURE_2D);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
     for (int i = 0; i < KF_TEXTURES_COUNT; ++i) {
+        if (kfTexturesImages[i].isNull()) {
+            // Create a 1x1 white fallback so the texture ID remains valid
+            kfTexturesImages[i] = QImage(KF_PIXMAP_SIZE, KF_PIXMAP_SIZE, QImage::Format_RGBA8888);
+            kfTexturesImages[i].fill(Qt::white);
+        }
+
         if (std::max( kfTexturesImages[i].width(), kfTexturesImages[i].height() ) != KF_PIXMAP_SIZE) {
             kfTexturesImages[i] = kfTexturesImages[i].scaled(KF_PIXMAP_SIZE, KF_PIXMAP_SIZE, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         }
+
+        // Convert to RGBA8888 so bytes in memory are R,G,B,A matching GL_RGBA/GL_UNSIGNED_BYTE
+        QImage rgbaImage = kfTexturesImages[i].convertToFormat(QImage::Format_RGBA8888);
 
         glBindTexture(GL_TEXTURE_2D, kfTexturesIDs[i]);
 
@@ -814,7 +864,7 @@ DopeSheetViewPrivate::generateKeyframeTextures()
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
-        glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA8, KF_PIXMAP_SIZE, KF_PIXMAP_SIZE, 0, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8_REV, kfTexturesImages[i].bits() );
+        glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA8, KF_PIXMAP_SIZE, KF_PIXMAP_SIZE, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgbaImage.bits() );
     }
 
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -994,6 +1044,7 @@ DopeSheetViewPrivate::drawRows() const
              it != treeItemsAndDSNodes.end();
              ++it) {
             QTreeWidgetItem *treeItem = (*it).first;
+            DSNodePtr dsNode = (*it).second;
 
             if ( treeItem->isHidden() ) {
                 continue;
@@ -1007,8 +1058,6 @@ DopeSheetViewPrivate::drawRows() const
 
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-            DSNodePtr dsNode = (*it).second;
 
             drawNodeRow(dsNode);
 
@@ -1034,7 +1083,7 @@ DopeSheetViewPrivate::drawRows() const
                 drawRange(dsNode);
             }
 
-            if (nodeType != eDopeSheetItemTypeGroup) {
+            if (nodeType != eDopeSheetItemTypeGroup || isFluxManagedDopeSheetNode(dsNode->getInternalNode())) {
                 drawKeyframes(dsNode);
             }
         }
@@ -1298,7 +1347,26 @@ DopeSheetViewPrivate::drawKeyframes(const DSNodePtr &dsNode) const
                 continue;
             }
 
-            KeyFrameSet keyframes = dsKnob->getKnobGui()->getCurve(ViewIdx(0), dim)->getKeyFrames_mt_safe();
+            KnobGuiPtr knobGuiP = dsKnob->getKnobGui();
+            if (!knobGuiP) {
+                continue;
+            }
+
+            // Prefer the authoritative engine knob curve (getInternalKnob) so that
+            // gizmo/PyPlug alias knobs read real animation data instead of empty
+            // GUI-curve clones.
+            KnobIPtr knobP = dsKnob->getInternalKnob();
+            CurvePtr curveP;
+            if (knobP) {
+                curveP = knobP->getCurve(ViewIdx(0), dim);
+            }
+            if (!curveP) {
+                curveP = knobGuiP->getCurve(ViewIdx(0), dim);
+            }
+            if (!curveP) {
+                continue;
+            }
+            KeyFrameSet keyframes = curveP->getKeyFrames_mt_safe();
 
             for (KeyFrameSet::const_iterator kIt = keyframes.begin();
                  kIt != keyframes.end();
@@ -1317,11 +1385,10 @@ DopeSheetViewPrivate::drawKeyframes(const DSNodePtr &dsNode) const
 
                 // Draw keyframe in the knob dim row only if it's visible
                 bool drawInDimRow = hierarchyView->itemIsVisibleFromOutside(knobTreeItem);
+                DopeSheetViewPrivate::KeyframeTexture texType = kfTextureFromKeyframeType( kf.getInterpolation(),
+                                                                                           kfSelected || selectionRect.intersects(zoomKfRect) );
 
                 if (drawInDimRow) {
-                    DopeSheetViewPrivate::KeyframeTexture texType = kfTextureFromKeyframeType( kf.getInterpolation(),
-                                                                                               kfSelected || selectionRect.intersects(zoomKfRect) );
-
                     if (texType != DopeSheetViewPrivate::kfTextureNone) {
                         drawTexturedKeyframe(texType, hasSingleKfTimeSelected && kfSelected,
                                              kfTimeSelected, selectionColor, zoomKfRect);
@@ -1423,24 +1490,56 @@ DopeSheetViewPrivate::drawTexturedKeyframe(DopeSheetViewPrivate::KeyframeTexture
     GLProtectAttrib a(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_CURRENT_BIT | GL_TRANSFORM_BIT);
     GLProtectMatrix pr(GL_MODELVIEW);
 
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, kfTexturesIDs[textureType]);
+    // Validate texture type and ID — fall back to plain diamond if unavailable
+    bool textureValid = (textureType >= 0 && textureType < KF_TEXTURES_COUNT && kfTexturesIDs[textureType] != 0);
 
-    glBegin(GL_POLYGON);
-    glTexCoord2f(0.0f, 1.0f);
-    glVertex2f( rect.left(), rect.top() );
-    glTexCoord2f(0.0f, 0.0f);
-    glVertex2f( rect.left(), rect.bottom() );
-    glTexCoord2f(1.0f, 0.0f);
-    glVertex2f( rect.right(), rect.bottom() );
-    glTexCoord2f(1.0f, 1.0f);
-    glVertex2f( rect.right(), rect.top() );
-    glEnd();
+    if (textureValid) {
+        glColor4f(1.f, 1.f, 1.f, 1.f);
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, kfTexturesIDs[textureType]);
 
-    glColor4f(1, 1, 1, 1);
-    glBindTexture(GL_TEXTURE_2D, 0);
+        glBegin(GL_POLYGON);
+        glTexCoord2f(0.0f, 1.0f);
+        glVertex2f( rect.left(), rect.top() );
+        glTexCoord2f(0.0f, 0.0f);
+        glVertex2f( rect.left(), rect.bottom() );
+        glTexCoord2f(1.0f, 0.0f);
+        glVertex2f( rect.right(), rect.bottom() );
+        glTexCoord2f(1.0f, 1.0f);
+        glVertex2f( rect.right(), rect.top() );
+        glEnd();
 
-    glDisable(GL_TEXTURE_2D);
+        glColor4f(1.f, 1.f, 1.f, 1.f);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glDisable(GL_TEXTURE_2D);
+    } else {
+        // Fallback: draw a simple non-textured diamond so keyframes remain visible
+        glDisable(GL_TEXTURE_2D);
+        glColor4f(0.9f, 0.9f, 0.9f, 1.f);
+
+        double cx = (rect.left() + rect.right()) * 0.5;
+        double cy = (rect.top() + rect.bottom()) * 0.5;
+        double hw = (rect.right() - rect.left()) * 0.5;
+        double hh = (rect.top() - rect.bottom()) * 0.5;
+
+        glBegin(GL_POLYGON);
+        glVertex2f(cx, cy + hh);       // top
+        glVertex2f(cx + hw, cy);       // right
+        glVertex2f(cx, cy - hh);       // bottom
+        glVertex2f(cx - hw, cy);       // left
+        glEnd();
+
+        // Outline
+        glColor4f(0.6f, 0.6f, 0.6f, 1.f);
+        glBegin(GL_LINE_LOOP);
+        glVertex2f(cx, cy + hh);
+        glVertex2f(cx + hw, cy);
+        glVertex2f(cx, cy - hh);
+        glVertex2f(cx - hw, cy);
+        glEnd();
+
+        glColor4f(1.f, 1.f, 1.f, 1.f);
+    }
 
     if (drawTime) {
         QString text = QString::number(time);
@@ -1776,7 +1875,9 @@ DopeSheetViewPrivate::computeSelectedKeysBRect()
          it != selectedKeyframes.end();
          ++it) {
         DSKnobPtr knobContext = (*it)->context.lock();
-        assert(knobContext);
+        if (!knobContext) {
+            continue;
+        }
 
         QTreeWidgetItem *keyItem = knobContext->getTreeItem();
         double time = (*it)->key.getTime();
@@ -1819,10 +1920,16 @@ DopeSheetViewPrivate::computeSelectedKeysBRect()
     }
 
     QTreeWidgetItem *bottomMostItem = hierarchyView->itemAt(0, selectedKeysBRect.y2);
+    if (!bottomMostItem) {
+        return;
+    }
     double bottom = hierarchyView->visualItemRect(bottomMostItem).bottom();
     bottom = zoomContext.toZoomCoordinates(0, bottom).y();
 
     QTreeWidgetItem *topMostItem = hierarchyView->itemAt(0, selectedKeysBRect.y1);
+    if (!topMostItem) {
+        return;
+    }
     double top = hierarchyView->visualItemRect(topMostItem).top();
     top = zoomContext.toZoomCoordinates(0, top).y();
 
@@ -2140,7 +2247,11 @@ DopeSheetViewPrivate::computeGroupRange(DSNode *group)
                 continue;
             } else {
                 for (int i = 0; i < knob->getDimension(); ++i) {
-                    KeyFrameSet keyframes = knob->getCurve(ViewIdx(0), i)->getKeyFrames_mt_safe();
+                    CurvePtr curveR = knob->getCurve(ViewIdx(0), i);
+                    if (!curveR) {
+                        continue;
+                    }
+                    KeyFrameSet keyframes = curveR->getKeyFrames_mt_safe();
 
                     if ( keyframes.empty() ) {
                         continue;
@@ -2316,7 +2427,26 @@ DopeSheetViewPrivate::createSelectionFromRect(const RectD &zoomCoordsRect,
                 continue;
             }
 
-            KeyFrameSet keyframes = dsKnob->getKnobGui()->getCurve(ViewIdx(0), dim)->getKeyFrames_mt_safe();
+            KnobGuiPtr knobGuiS = dsKnob->getKnobGui();
+            if (!knobGuiS) {
+                continue;
+            }
+
+            CurvePtr curveS = knobGuiS->getCurve(ViewIdx(0), dim);
+            // Prefer the authoritative engine knob curve for gizmo/PyPlug alias knobs.
+            {
+                KnobIPtr knobS = dsKnob->getInternalKnob();
+                if (knobS) {
+                    CurvePtr engineCurveS = knobS->getCurve(ViewIdx(0), dim);
+                    if (engineCurveS) {
+                        curveS = engineCurveS;
+                    }
+                }
+            }
+            if (!curveS) {
+                continue;
+            }
+            KeyFrameSet keyframes = curveS->getKeyFrames_mt_safe();
 
             for (KeyFrameSet::const_iterator kIt = keyframes.begin();
                  kIt != keyframes.end();
@@ -2622,8 +2752,26 @@ std::pair<double, double> DopeSheetView::getKeyframeRange() const
 
             const DSKnobPtr& dsKnob = (*itKnob).second;
 
-            for (int i = 0; i < dsKnob->getKnobGui()->getKnob()->getDimension(); ++i) {
-                KeyFrameSet keyframes = dsKnob->getKnobGui()->getCurve(ViewIdx(0), i)->getKeyFrames_mt_safe();
+            KnobGuiPtr knobGuiBRect = dsKnob->getKnobGui();
+            if (!knobGuiBRect) {
+                continue;
+            }
+
+            for (int i = 0; i < knobGuiBRect->getKnob()->getDimension(); ++i) {
+                // Prefer the authoritative engine knob curve for gizmo/PyPlug alias knobs
+                // so frame-all sees real keyframes, not empty GUI-curve clones.
+                CurvePtr curveBRect;
+                KnobIPtr knobBRect = dsKnob->getInternalKnob();
+                if (knobBRect) {
+                    curveBRect = knobBRect->getCurve(ViewIdx(0), i);
+                }
+                if (!curveBRect) {
+                    curveBRect = knobGuiBRect->getCurve(ViewIdx(0), i);
+                }
+                if (!curveBRect) {
+                    continue;
+                }
+                KeyFrameSet keyframes = curveBRect->getKeyFrames_mt_safe();
 
                 if ( keyframes.empty() ) {
                     continue;

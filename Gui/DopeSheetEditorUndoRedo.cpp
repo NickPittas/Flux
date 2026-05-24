@@ -136,7 +136,11 @@ moveGroupNode(DopeSheetEditor* model,
                 if ( !knob->isAnimated( dim, ViewIdx(0) ) ) {
                     continue;
                 }
-                KeyFrameSet keyframes = knob->getCurve(ViewIdx(0), dim)->getKeyFrames_mt_safe();
+                CurvePtr curve = knob->getCurve(ViewIdx(0), dim);
+                if (!curve) {
+                    continue;
+                }
+                KeyFrameSet keyframes = curve->getKeyFrames_mt_safe();
 
                 for (KeyFrameSet::iterator kfIt = keyframes.begin(); kfIt != keyframes.end(); ++kfIt) {
                     KeyFrame kf = (*kfIt);
@@ -189,7 +193,15 @@ DSMoveKeysAndNodesCommand::DSMoveKeysAndNodesCommand(const DopeSheetKeyPtrList &
     }
 
     for (DopeSheetKeyPtrList::iterator it = _keys.begin(); it != _keys.end(); ++it) {
-        KnobHolder* holder = (*it)->getContext()->getInternalKnob()->getHolder();
+        DSKnobPtr knobCtx = (*it)->getContext();
+        if (!knobCtx) {
+            continue;
+        }
+        KnobGuiPtr knobGui = knobCtx->getKnobGui();
+        if (!knobGui) {
+            continue;
+        }
+        KnobHolder* holder = knobGui->getKnob()->getHolder();
         assert(holder);
         EffectInstance* isEffect = dynamic_cast<EffectInstance*>(holder);
         if (isEffect) {
@@ -242,7 +254,11 @@ DSMoveKeysAndNodesCommand::moveSelection(double dt)
             continue;
         }
 
-        KnobIPtr knob = knobContext->getKnobGui()->getKnob();
+        KnobGuiPtr knobGui245 = knobContext->getKnobGui();
+        if (!knobGui245) {
+            continue;
+        }
+        KnobIPtr knob = knobGui245->getKnob();
 
         knob->moveValueAtTime(eCurveChangeReasonDopeSheet, selectedKey->key.getTime(), ViewIdx(0),
                               knobContext->getDimension(),
@@ -360,7 +376,11 @@ DSTransformKeysCommand::undo()
 
     std::list<KnobHolder*> differentKnobs;
     for (TransformKeys::iterator it = _keys.begin(); it != _keys.end(); ++it) {
-        KnobHolder* holder = it->first->getInternalKnob()->getHolder();
+        KnobIPtr knob = it->first->getInternalKnob();
+        if (!knob) {
+            continue;
+        }
+        KnobHolder* holder = knob->getHolder();
         if (holder) {
             if ( std::find(differentKnobs.begin(), differentKnobs.end(), holder) == differentKnobs.end() ) {
                 differentKnobs.push_back(holder);
@@ -370,7 +390,11 @@ DSTransformKeysCommand::undo()
     }
 
     for (TransformKeys::iterator it = _keys.begin(); it != _keys.end(); ++it) {
-        it->first->getInternalKnob()->cloneCurve(ViewSpec::all(), it->first->getDimension(), *it->second.oldCurve);
+        KnobIPtr knob = it->first->getInternalKnob();
+        if (!knob || !it->second.oldCurve) {
+            continue;
+        }
+        knob->cloneCurve(ViewSpec::all(), it->first->getDimension(), *it->second.oldCurve);
     }
     for (std::list<KnobHolder*>::iterator it = differentKnobs.begin(); it != differentKnobs.end(); ++it) {
         (*it)->endChanges();
@@ -395,7 +419,11 @@ DSTransformKeysCommand::redo()
 
     std::list<KnobHolder*> differentKnobs;
     for (TransformKeys::iterator it = _keys.begin(); it != _keys.end(); ++it) {
-        KnobHolder* holder = it->first->getInternalKnob()->getHolder();
+        KnobIPtr knob = it->first->getInternalKnob();
+        if (!knob) {
+            continue;
+        }
+        KnobHolder* holder = knob->getHolder();
         if (holder) {
             if ( std::find(differentKnobs.begin(), differentKnobs.end(), holder) == differentKnobs.end() ) {
                 differentKnobs.push_back(holder);
@@ -406,7 +434,15 @@ DSTransformKeysCommand::redo()
 
     if (!_firstRedoCalled) {
         for (TransformKeys::iterator it = _keys.begin(); it != _keys.end(); ++it) {
-            it->second.oldCurve.reset( new Curve( *it->first->getInternalKnob()->getCurve( ViewIdx(0), it->first->getDimension() ) ) );
+            KnobIPtr knob = it->first->getInternalKnob();
+            if (!knob) {
+                continue;
+            }
+            CurvePtr c = knob->getCurve( ViewIdx(0), it->first->getDimension() );
+            if (!c) {
+                continue;
+            }
+            it->second.oldCurve.reset( new Curve( *c ) );
         }
         for (TransformKeys::iterator it = _keys.begin(); it != _keys.end(); ++it) {
             for (DopeSheetKeyPtrList::iterator it2 = it->second.keys.begin(); it2 != it->second.keys.end(); ++it2) {
@@ -415,12 +451,24 @@ DSTransformKeysCommand::redo()
         }
 
         for (TransformKeys::iterator it = _keys.begin(); it != _keys.end(); ++it) {
-            it->second.newCurve.reset( new Curve( *it->first->getInternalKnob()->getCurve( ViewIdx(0), it->first->getDimension() ) ) );
+            KnobIPtr knob = it->first->getInternalKnob();
+            if (!knob) {
+                continue;
+            }
+            CurvePtr c = knob->getCurve( ViewIdx(0), it->first->getDimension() );
+            if (!c) {
+                continue;
+            }
+            it->second.newCurve.reset( new Curve( *c ) );
         }
         _firstRedoCalled = true;
     } else {
         for (TransformKeys::iterator it = _keys.begin(); it != _keys.end(); ++it) {
-            it->first->getInternalKnob()->cloneCurve(ViewIdx(0), it->first->getDimension(), *it->second.newCurve);
+            KnobIPtr knob = it->first->getInternalKnob();
+            if (!knob || !it->second.newCurve) {
+                continue;
+            }
+            knob->cloneCurve(ViewIdx(0), it->first->getDimension(), *it->second.newCurve);
         }
     }
 
@@ -443,7 +491,12 @@ DSTransformKeysCommand::transformKey(const DopeSheetKeyPtr& key)
         return;
     }
 
-    KnobIPtr knob = knobContext->getKnobGui()->getKnob();
+    KnobGuiPtr knobGui446 = knobContext->getKnobGui();
+    if (!knobGui446) {
+        return;
+    }
+
+    KnobIPtr knob = knobGui446->getKnob();
     knob->transformValueAtTime(eCurveChangeReasonDopeSheet, key->key.getTime(), ViewSpec::all(), knobContext->getDimension(), _transform, &key->key);
 }
 
@@ -816,7 +869,9 @@ DSRemoveKeysCommand::addOrRemoveKeyframe(bool add)
         }
 
         KnobGuiPtr knobGui = knobContext->getKnobGui();
-        assert(knobGui);
+        if (!knobGui) {
+            continue;
+        }
 
         std::pair<std::set<KnobGuiPtr>::iterator,bool> ok = knobsSet.insert(knobGui);
         if (ok.second) {
@@ -871,7 +926,12 @@ DSSetSelectedKeysInterpolationCommand::setInterpolation(bool undo)
             continue;
         }
 
-        knobContext->getKnobGui()->getKnob()->setInterpolationAtTime(eCurveChangeReasonDopeSheet,
+        KnobGuiPtr knobGui893 = knobContext->getKnobGui();
+        if (!knobGui893) {
+            continue;
+        }
+
+        knobGui893->getKnob()->setInterpolationAtTime(eCurveChangeReasonDopeSheet,
                                                                      ViewSpec::all(),
                                                                      knobContext->getDimension(),
                                                                      it->_key->key.getTime(),
@@ -966,6 +1026,9 @@ DSPasteKeysCommand::addOrRemoveKeyframe(bool add)
 
             int dim = knobContext->getDimension();
             KnobIPtr knob = knobContext->getInternalKnob();
+            if (!knob) {
+                continue;
+            }
             knob->beginChanges();
 
             double keyTime = _keys[i].key.getTime();

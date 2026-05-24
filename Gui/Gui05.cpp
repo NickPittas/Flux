@@ -75,6 +75,7 @@
 #include "Gui/FluxTimeline.h"
 #include "Gui/FluxEffectsPanel.h"
 #include "Gui/FluxExportPanel.h"
+#include "Gui/FluxT074Harness.h"
 #include "Gui/FluxMaskUtils.h"
 #include "Gui/DopeSheetEditor.h"
 #include "Gui/PropertiesBinWrapper.h"
@@ -154,6 +155,31 @@ installFluxTextFontSync(const NodePtr& gizmoNode, QObject* receiver)
     );
 
     syncFluxTextFontChoiceToFont(gizmoNode);
+}
+
+void
+ensureFluxNodeRegisteredWithAnimationEditors(Gui* gui, const NodePtr& node)
+{
+    if (!gui || !node) {
+        return;
+    }
+
+    NodeGraph* graph = gui->getNodeGraph();
+    if (!graph) {
+        return;
+    }
+
+    const NodesGuiList& nodeGuis = graph->getAllActiveNodes();
+    for (NodesGuiList::const_iterator it = nodeGuis.begin(); it != nodeGuis.end(); ++it) {
+        const NodeGuiPtr& nodeGui = *it;
+        if (nodeGui && nodeGui->getNode() == node) {
+            // Create the panel hidden/minimized so Natron registers KnobGui state
+            // with CurveEditor/DopeSheet, but do not filter out unmodified knobs:
+            // the visible Flux properties panel must still show the full layer UI.
+            nodeGui->ensurePanelCreated(true, false);
+            return;
+        }
+    }
 }
 
 } // namespace
@@ -953,6 +979,7 @@ Gui::setupFluxUi()
     }
 
     fprintf(stderr, "FLUX: Layout created successfully\n");
+    FluxT074Harness::maybeStart(this);
 } // Gui::setupFluxUi
 
 // ====================================================================
@@ -1692,6 +1719,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             }
 
             layer.gizmoNode = gizmoNode;
+            ensureFluxNodeRegisteredWithAnimationEditors(this, layer.gizmoNode);
         }
 
         if (layer.type == QString::fromUtf8("text")) {

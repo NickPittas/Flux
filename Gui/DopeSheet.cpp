@@ -40,6 +40,7 @@
 #ifndef NATRON_ENABLE_IO_META_NODES
 #include "Engine/AppInstance.h"
 #endif
+#include "Engine/Curve.h"
 #include "Engine/GroupInput.h"
 #include "Engine/GroupOutput.h"
 #include "Engine/Knob.h"
@@ -601,6 +602,14 @@ struct SortIncreasingFunctor
         DSKnobPtr leftKnobDs = lhs->getContext();
         DSKnobPtr rightKnobDs = rhs->getContext();
 
+        if (!leftKnobDs && !rightKnobDs) {
+            return lhs->key.getTime() < rhs->key.getTime();
+        } else if (!leftKnobDs) {
+            return true;
+        } else if (!rightKnobDs) {
+            return false;
+        }
+
         if ( leftKnobDs.get() < rightKnobDs.get() ) {
             return true;
         } else if ( leftKnobDs.get() > rightKnobDs.get() ) {
@@ -619,7 +628,14 @@ struct SortDecreasingFunctor
         DSKnobPtr leftKnobDs = lhs->getContext();
         DSKnobPtr rightKnobDs = rhs->getContext();
 
-        assert(leftKnobDs && rightKnobDs);
+        if (!leftKnobDs && !rightKnobDs) {
+            return lhs->key.getTime() > rhs->key.getTime();
+        } else if (!leftKnobDs) {
+            return true;
+        } else if (!rightKnobDs) {
+            return false;
+        }
+
         if ( leftKnobDs.get() < rightKnobDs.get() ) {
             return true;
         } else if ( leftKnobDs.get() > rightKnobDs.get() ) {
@@ -650,8 +666,23 @@ DopeSheet::moveSelectedKeysAndNodes(double dt)
         if (!knobDs) {
             continue;
         }
-        CurvePtr curve = knobDs->getKnobGui()->getCurve( ViewIdx(0), knobDs->getDimension() );
-        assert(curve);
+        KnobGuiPtr knobGui = knobDs->getKnobGui();
+        if (!knobGui) {
+            continue;
+        }
+        // Prefer the authoritative engine knob curve for gizmo/PyPlug alias knobs
+        // so move constraints see real keyframes, not empty GUI-curve clones.
+        CurvePtr curve;
+        KnobIPtr knobInternal = knobDs->getInternalKnob();
+        if (knobInternal) {
+            curve = knobInternal->getCurve(ViewIdx(0), knobDs->getDimension());
+        }
+        if (!curve) {
+            curve = knobGui->getCurve( ViewIdx(0), knobDs->getDimension() );
+        }
+        if (!curve) {
+            continue;
+        }
         KeyFrame prevKey, nextKey;
         if ( curve->getNextKeyframeTime( (*it)->key.getTime(), &nextKey ) ) {
             if ( !_imp->selectionModel->keyframeIsSelected(knobDs, nextKey) ) {
@@ -1180,27 +1211,60 @@ DopeSheetSelectionModel::selectAll()
 
 void
 DopeSheetSelectionModel::makeDopeSheetKeyframesForKnob(const DSKnobPtr &dsKnob,
-                                                       std::vector<DopeSheetKey> *result)
+                                                        std::vector<DopeSheetKey> *result)
 {
     assert(dsKnob);
+    if (!dsKnob) {
+        return;
+    }
+
+    KnobIPtr internalKnob = dsKnob->getInternalKnob();
+    if (!internalKnob) {
+        return;
+    }
+
+    KnobGuiPtr knobGui = dsKnob->getKnobGui();
+    if (!knobGui) {
+        return;
+    }
 
     int dim = dsKnob->getDimension();
+    int knobDimCount = internalKnob->getDimension();
     int startDim = 0;
-    int endDim = dsKnob->getInternalKnob()->getDimension();
+    int endDim = knobDimCount;
 
     if (dim > -1) {
+        if (dim >= knobDimCount) {
+            return;
+        }
         startDim = dim;
         endDim = dim + 1;
     }
 
     for (int i = startDim; i < endDim; ++i) {
-        KeyFrameSet keyframes = dsKnob->getKnobGui()->getCurve(ViewIdx(0), i)->getKeyFrames_mt_safe();
+        // Prefer the authoritative engine knob curve for gizmo/PyPlug alias knobs
+        // so selection reads real animation data, not empty GUI-curve clones.
+        CurvePtr curve;
+        if (internalKnob) {
+            curve = internalKnob->getCurve(ViewIdx(0), i);
+        }
+        if (!curve) {
+            curve = knobGui->getCurve(ViewIdx(0), i);
+        }
+        if (!curve) {
+            continue;
+        }
+        KeyFrameSet keyframes = curve->getKeyFrames_mt_safe();
         DSKnobPtr context;
         if (dim == -1) {
             QTreeWidgetItem *childItem = dsKnob->findDimTreeItem(i);
             context = _imp->dopeSheet->mapNameItemToDSKnob(childItem);
         } else {
             context = dsKnob;
+        }
+
+        if (!context) {
+            continue;
         }
 
         for (KeyFrameSet::const_iterator kIt = keyframes.begin();
@@ -1312,7 +1376,9 @@ DopeSheetSelectionModel::hasSingleKeyFrameTimeSelected(double* time) const
     }
     for (DopeSheetKeyPtrList::iterator it = _imp->selectedKeyframes.begin(); it != _imp->selectedKeyframes.end(); ++it) {
         DSKnobPtr knobContext = (*it)->context.lock();
-        assert(knobContext);
+        if (!knobContext) {
+            continue;
+        }
         if (!timeSet) {
             *time = (*it)->key.getTime();
             knob = knobContext->getKnobGui();
@@ -1339,7 +1405,9 @@ DopeSheetSelectionModel::keyframeIsSelected(const DSKnobPtr &dsKnob,
 {
     for (DopeSheetKeyPtrList::iterator it = _imp->selectedKeyframes.begin(); it != _imp->selectedKeyframes.end(); ++it) {
         DSKnobPtr knobContext = (*it)->context.lock();
-        assert(knobContext);
+        if (!knobContext) {
+            continue;
+        }
         if ( (knobContext == dsKnob) && ( (*it)->key.getTime() == keyframe.getTime() ) ) {
             return true;
         }
@@ -1399,7 +1467,10 @@ DopeSheetSelectionModel::onNodeAboutToBeRemoved(const DSNodePtr &removed)
          it != _imp->selectedKeyframes.end(); ) {
         DopeSheetKeyPtr key = (*it);
         DSKnobPtr knobContext = key->context.lock();
-        assert(knobContext);
+        if (!knobContext) {
+            it = _imp->selectedKeyframes.erase(it);
+            continue;
+        }
 
         if (_imp->dopeSheet->findDSNode( knobContext->getInternalKnob() ) == removed) {
             it = _imp->selectedKeyframes.erase(it);

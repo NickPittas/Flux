@@ -32,6 +32,8 @@ CLANG_DIAG_OFF(uninitialized)
 #include <QDropEvent>
 #include <QPoint>
 #include <QContextMenuEvent>
+#include <set>
+#include <string>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
@@ -39,21 +41,26 @@ CLANG_DIAG_ON(uninitialized)
 
 #include "Engine/TimeLine.h"
 
+#include "Engine/Knob.h"
+
 #include "Gui/FluxTimelineSerialization.h"
+#include "Gui/FluxKeyframeModel.h"
 
 NATRON_NAMESPACE_ENTER
 
 enum FluxVisibleRowType {
     eFluxVisibleRowLayer,
     eFluxVisibleRowEffect,
-    eFluxVisibleRowMask
+    eFluxVisibleRowMask,
+    eFluxVisibleRowProperty
 };
 
 enum FluxSelectionType {
     eFluxSelectionNone,
     eFluxSelectionLayer,
     eFluxSelectionEffect,
-    eFluxSelectionMask
+    eFluxSelectionMask,
+    eFluxSelectionProperty
 };
 
 struct FluxVisibleRow {
@@ -62,6 +69,7 @@ struct FluxVisibleRow {
     int childIndex;
     int effectIndex;
     int maskIndex;
+    int propertyIndex; ///< index into _propertyRows for this row's FluxKeyframeProperty
     int y;
     int height;
 
@@ -71,6 +79,7 @@ struct FluxVisibleRow {
         , childIndex(-1)
         , effectIndex(-1)
         , maskIndex(-1)
+        , propertyIndex(-1)
         , y(0)
         , height(0)
     {}
@@ -286,6 +295,9 @@ public Q_SLOTS:
     void addMaskToSelectedRow();
     void addAdjustmentEffectRow();
 
+    /** @brief Responds to native knob keyframe signals (external keyframe changes). */
+    void onNativeKeyframeChanged();
+
 protected:
 
     virtual bool event(QEvent* event) OVERRIDE;
@@ -342,6 +354,7 @@ private:
     void showNodeCreationDialog();
 
     void rebuildVisibleRows();
+    bool layerHasExpandableChildren(int layerIndex) const;
     const FluxVisibleRow* yToRow(int y) const;
     int rowYForLayer(int layerIndex) const;
     int insertionLayerIndexForY(int y) const;
@@ -363,8 +376,12 @@ private:
     QString makeUniqueMaskName(int layerIndex, int effectIndex) const;
     bool canAddEffectMask(int layerIndex, int effectIndex) const;
 
+    /** @brief Connect native knob keyframe signals for all currently modeled nodes. */
+    void refreshKeyframeSignalConnections();
+
     QList<FluxLayer> _layers;
     QList<FluxVisibleRow> _visibleRows;
+    QList<FluxKeyframeProperty> _propertyRows; ///< parallel store for eFluxVisibleRowProperty rows
     int _totalContentHeight;
     int _firstFrame;
     int _lastFrame;
@@ -373,6 +390,9 @@ private:
     FluxSelectionType _selectedType;
     int _selectedEffectIndex;
     int _selectedMaskIndex;
+    int _selectedPropertyIndex; ///< index into _propertyRows when eFluxSelectionProperty
+    int _selectedKeyPropertyIndex;
+    double _selectedKeyTime;
     double _zoom;         // pixels per frame
     int _scrollOffsetX;
     int _scrollOffsetY;
@@ -386,6 +406,7 @@ private:
     static const int kTrimHandleWidth = 6; // pixels for trim handles at bar edges
     static const int kEffectRowHeight = 24;
     static const int kMaskRowHeight = 22;
+    static const int kPropertyRowHeight = 20;
     static const int kDisclosureSize = 12;
     static const int kEffectIndent = 18;
 
@@ -400,7 +421,8 @@ private:
         eModeTrimRight,      // trimming the right (out) edge of a bar
         eModeReorderLayer,   // dragging a layer up/down to reorder
         eModePan,            // middle-mouse or Alt+Left pan (both axes)
-        eModeResizePanel     // resizing the left label panel
+        eModeResizePanel,    // resizing the left label panel
+        eModeDragKeyframe    // dragging a keyframe diamond horizontally
     };
 
     InteractionMode _interactionMode;
@@ -421,6 +443,28 @@ private:
     // Panel resize state
     int _resizeStartX;         // mouse X at resize start
     int _resizeStartWidth;     // _layerLabelWidth at resize start
+
+    // Keyframe drag state
+    int _dragPropertyIndex;    // index into _propertyRows for the dragged key
+    double _dragOrigKeyTime;   // original key time at drag start
+    double _dragCurrentKeyTime;// current target key time during drag
+
+    // Keyframe display mode
+    bool _showKeyframeCurves; ///< false = diamond keyframe mode, true = inline curve preview
+    std::set<std::string> _ungroupedKeyframeProperties;
+    bool _rowsDirty; ///< true when property rows need rebuild before next paint
+
+    /** @brief Set of KnobSignalSlotHandler raw pointers we have already connected to,
+     *         used to avoid duplicate connections across rebuildVisibleRows() calls. */
+    std::set<KnobSignalSlotHandler*> _connectedKnobHandlers;
+
+    /** @brief Set of Bezier raw pointers we have already connected keyframe signals to,
+     *         used to avoid duplicate connections for roto aggregate rows. */
+    std::set<Bezier*> _connectedBeziers;
+
+    /** @brief Set of RotoContext raw pointers we have already connected lifecycle signals to,
+     *         so new/removed shapes trigger a row rebuild. */
+    std::set<RotoContext*> _connectedRotoContexts;
 
     // Drag and drop state
     bool _isDragOver;

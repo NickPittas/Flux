@@ -190,6 +190,12 @@ DopeSheetEditor::getHierarchyView() const
     return _imp->hierarchyView;
 }
 
+DopeSheet*
+DopeSheetEditor::getModelForT074Proof() const
+{
+    return _imp->model;
+}
+
 void
 DopeSheetEditor::setTreeWidgetWidth(int width)
 {

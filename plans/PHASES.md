@@ -11,7 +11,7 @@
 | P4 | Effects + Properties | DONE | 2026-05-22 | 2026-05-22 | 100% |
 | P5 | Import/Export | DONE | 2026-05-22 | 2026-05-23 | 100% |
 | P6 | Timeline Tree + Masks | DONE | 2026-05-23 | 2026-05-23 | 100% |
-| P7 | Shapes + Text | IN_PROGRESS | 2026-05-24 | — | 25% |
+| P7 | Shapes + Text | IN_PROGRESS | 2026-05-24 | — | 35% |
 | P8 | Polish + Cache | PENDING | — | — | 0% |
 
 ---
@@ -250,6 +250,7 @@
 
 **Tasks**:
 - T071: ✅ Text layer v1 — FluxText PyPlug and UI actions implemented. Current architecture is native Text → FrameRange → TimeOffset → Grade → Output, with Text controls promoted as group knobs in Natron PyPlug-exporter style and linked via `setAsAlias()`. Text controls appear first in properties, timeline trim uses FrameRange, opacity uses Grade multiply, and the viewer transform overlay registers against promoted Text knobs. Font selector changes sync `Text1name` to `Text1font`; promoted cascading choice metadata is preserved; 2D viewer overlay writes now create keyframes correctly. Build passed, `plugins/FluxText.py` compiles, deployed extras passed, Oracle reviewed overlay-keyframe fix, and live GUI validation passed for Text v1.
+- T074: ✅ FluxTimeline animated property rows + grouped keyframes v1 — AE-like keyframe rows under layers/effects/masks, native Knob/Curve/Roto-backed animation, keyframe/inline-curve toggle, grouped multidim behavior without creating missing dimension keys, promoted Text1-only text keys, hidden adjustment disable keys, and aggregate Roto shape keyframes. Build passed, autonomous DopeSheet proof passed, and Nick manually validated final behavior.
 
 **Known follow-ups**:
 - Native Text justification/alignment is broken in standalone Text too; track as a native Text OFX issue, not a FluxText v1 blocker.

@@ -286,11 +286,7 @@ public:
 
     DSKnobPtr getContext() const
     {
-        DSKnobPtr ret = context.lock();
-
-        assert(ret);
-
-        return ret;
+        return context.lock();
     }
 
     DSKnobWPtr context;
