@@ -138,7 +138,7 @@ Last updated: 2026-05-24
 
 | ID | Task | Status | Assigned | Started | Completed | File |
 |---|---|---|---|---|---|---|
-| T071 | Text layer v1 — add FluxText PyPlug wrapping native Text→TimeOffset→Multiply→Output; no extra Transform or FrameRange node. Text OFX native knobs are exposed front-and-center, with Flux stable transform names aliased to Text `transform*` knobs and Flux `frameRange` aliased directly to Text `frameRange` for trim/split/reset. UI Text actions are gated when Text.ofx provider is unavailable; text layer masks use alpha-safe Unpremult/Roto/Premult path. Build passed, native text/transform/frameRange alias smoke reached `FLUX_TEXT_SMOKE_OK`; Natron `-b -t` still segfaults on interpreter shutdown after success, so needs live GUI validation before DONE. | TESTING | forge | 2026-05-24 | — | plugins/FluxText.py, Gui/FluxTimeline.{h,cpp}, Gui/Gui.cpp, Gui/Gui05.cpp |
+| T071 | Text layer v1 — add FluxText PyPlug wrapping native Text→TimeOffset→Multiply→Output; no extra Transform or FrameRange node. Text OFX native knobs are exposed front-and-center; required aliases now hard-fail if missing. Flux `frameRange` aliases directly to Text `frameRange`, and trim also syncs Text/host `enableNodeLifeTime` + `nodeLifeTime`; no C++ init meddles with Text center. UI Text actions are gated when Text.ofx provider is unavailable; text layer masks use alpha-safe Unpremult/Roto/Premult path. Build passed, native text/transform/frameRange/lifetime alias smoke reached `FLUX_TEXT_SMOKE_OK`; Natron `-b -t` still segfaults on interpreter shutdown after success, so needs live GUI validation before DONE. | TESTING | forge | 2026-05-24 | — | plugins/FluxText.py, Gui/FluxTimeline.{h,cpp}, Gui/Gui.cpp, Gui/Gui05.cpp |
 
 ---
 

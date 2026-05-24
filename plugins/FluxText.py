@@ -80,11 +80,14 @@ def _add_choice(group, page, name, label, options, default=0):
     param.setAnimationEnabled(True)
     page.addParam(param)
 
-def _alias(group, group_name, node, node_name):
+def _alias(group, group_name, node, node_name, required=True):
     source = group.getParam(group_name)
     target = node.getParam(node_name) if node else None
-    if source is not None and target is not None:
-        source.setAsAlias(target)
+    if source is None or target is None:
+        if required:
+            raise RuntimeError("FluxText alias failed: %s -> %s" % (group_name, node_name))
+        return
+    source.setAsAlias(target)
 
 def createInstance(app, group):
     page = group.createPageParam("TextSettings", "Text Settings")
@@ -144,6 +147,14 @@ def createInstance(app, group):
     frameRangeParam.setDefaultValue(1, 0)
     frameRangeParam.setDefaultValue(100, 1)
     page.addParam(frameRangeParam)
+    enableNodeLifeTimeParam = group.createBooleanParam("enableNodeLifeTime", "Enable Lifetime")
+    enableNodeLifeTimeParam.setDefaultValue(True)
+    enableNodeLifeTimeParam.restoreDefaultValue()
+    page.addParam(enableNodeLifeTimeParam)
+    nodeLifeTimeParam = group.createInt2DParam("nodeLifeTime", "Lifetime Range")
+    nodeLifeTimeParam.setDefaultValue(1, 0)
+    nodeLifeTimeParam.setDefaultValue(100, 1)
+    page.addParam(nodeLifeTimeParam)
     timeOffsetParam = group.createIntParam("timeOffset", "Time Offset (Frames)")
     timeOffsetParam.setDefaultValue(0, 0)
     page.addParam(timeOffsetParam)
@@ -211,24 +222,30 @@ def createInstance(app, group):
     multiplyNode.connectInput(0, timeOffsetNode)
     outputNode.connectInput(0, multiplyNode)
 
-    for name in [
-        "text", "font", "size", "weight", "stretch", "italic", "markup", "justify",
-        "wrap", "autoSize", "centeredH", "custom", "file", "letterSpace", "scrollX",
-        "scrollY", "backgroundColor", "strokeColor", "strokeSize", "strokeDash",
-        "strokeDashPattern", "subtitle", "valign", "antialiasing", "circleRadius",
-        "circleWords", "arcAngle", "arcRadius", "directionalBlur", "transform", "frameRange"
-    ]:
+    for name in ["text", "font", "size", "markup", "autoSize", "transform", "frameRange", "enableNodeLifeTime", "nodeLifeTime"]:
         _alias(group, name, textNode, name)
 
+    for name in [
+        "weight", "stretch", "italic", "justify", "wrap", "centeredH", "custom", "file",
+        "letterSpace", "scrollX", "scrollY", "backgroundColor", "strokeColor", "strokeSize",
+        "strokeDash", "strokeDashPattern", "subtitle", "valign", "antialiasing", "circleRadius",
+        "circleWords", "arcAngle", "arcRadius", "directionalBlur"
+    ]:
+        _alias(group, name, textNode, name, required=False)
+
     _alias(group, "textCenter", textNode, "center")
-    _alias(group, "translate", textNode, "transformTranslate")
-    _alias(group, "rotate", textNode, "transformRotate")
-    _alias(group, "scale", textNode, "transformScale")
-    _alias(group, "uniform", textNode, "transformScaleUniform")
-    _alias(group, "skewX", textNode, "transformSkewX")
-    _alias(group, "skewY", textNode, "transformSkewY")
-    _alias(group, "skewOrder", textNode, "transformSkewOrder")
-    _alias(group, "center", textNode, "transformCenter")
-    _alias(group, "interactive", textNode, "transformInteractive")
+    # The FxArena Text node exposes its transform knobs unprefixed.
+    # Its Center knob is the onscreen text/transform position; do not set it
+    # from C++ just to place the default text. Let Text's own defaults and
+    # text-alignment knobs define the text's internal anchor/bounds behavior.
+    _alias(group, "translate", textNode, "center")
+    _alias(group, "rotate", textNode, "rotate")
+    _alias(group, "scale", textNode, "scale")
+    _alias(group, "uniform", textNode, "uniform")
+    _alias(group, "skewX", textNode, "skewX")
+    _alias(group, "skewY", textNode, "skewY")
+    _alias(group, "skewOrder", textNode, "skewOrder")
+    _alias(group, "center", textNode, "center")
+    _alias(group, "interactive", textNode, "interactive")
     _alias(group, "timeOffset", timeOffsetNode, "timeOffset")
     _alias(group, "opacity", multiplyNode, "value")

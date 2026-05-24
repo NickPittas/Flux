@@ -1608,31 +1608,19 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                     }
                 }
 
-                {
-                    KnobIPtr beforeKnob = gizmoNode->getKnobByName(std::string("before"));
-                    if (beforeKnob) {
-                        KnobIntBasePtr choice = std::dynamic_pointer_cast<KnobIntBase>(beforeKnob);
-                        if (choice) choice->setValue(2, ViewSpec::all(), 0);
-                    }
-                    KnobIPtr afterKnob = gizmoNode->getKnobByName(std::string("after"));
-                    if (afterKnob) {
-                        KnobIntBasePtr choice = std::dynamic_pointer_cast<KnobIntBase>(afterKnob);
-                        if (choice) choice->setValue(2, ViewSpec::all(), 0);
+                KnobIPtr enableLifeKnob = gizmoNode->getKnobByName("enableNodeLifeTime");
+                if (enableLifeKnob) {
+                    KnobBoolPtr boolKnob = std::dynamic_pointer_cast<KnobBool>(enableLifeKnob);
+                    if (boolKnob) {
+                        boolKnob->setValue(true, ViewSpec::all(), 0);
                     }
                 }
-
-                {
-                    Format projectFormat;
-                    getApp()->getProject()->getProjectDefaultFormat(&projectFormat);
-                    double cx = projectFormat.x1 + projectFormat.width() / 2.0;
-                    double cy = projectFormat.y1 + projectFormat.height() / 2.0;
-                    KnobIPtr centerKnob = gizmoNode->getKnobByName("center");
-                    if (centerKnob) {
-                        KnobDoubleBasePtr dbl2D = std::dynamic_pointer_cast<KnobDoubleBase>(centerKnob);
-                        if (dbl2D) {
-                            dbl2D->setValue(cx, ViewSpec::all(), 0);
-                            dbl2D->setValue(cy, ViewSpec::all(), 1);
-                        }
+                KnobIPtr lifeRangeKnob = gizmoNode->getKnobByName("nodeLifeTime");
+                if (lifeRangeKnob) {
+                    KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(lifeRangeKnob);
+                    if (int2D) {
+                        int2D->setValue(projectFirst, ViewSpec::all(), 0);
+                        int2D->setValue(projectLast, ViewSpec::all(), 1);
                     }
                 }
 

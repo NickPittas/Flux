@@ -3223,6 +3223,27 @@ FluxTimeline::updateLayerTrimKnobs(int layerIndex)
         }
     }
 
+    // Text OFX exposes its own frame range plus the host node lifetime range.
+    // Keep both in sync so timeline trim gates the native Text node itself.
+    if (layer.type == QString::fromUtf8("text")) {
+        KnobIPtr enableLifeKnob = layer.gizmoNode->getKnobByName(std::string("enableNodeLifeTime"));
+        if (enableLifeKnob) {
+            KnobBoolPtr boolKnob = std::dynamic_pointer_cast<KnobBool>(enableLifeKnob);
+            if (boolKnob) {
+                boolKnob->setValue(true, ViewSpec::all(), 0);
+            }
+        }
+        KnobIPtr lifeRangeKnob = layer.gizmoNode->getKnobByName(std::string("nodeLifeTime"));
+        if (lifeRangeKnob) {
+            KnobIntBasePtr int2D = std::dynamic_pointer_cast<KnobIntBase>(lifeRangeKnob);
+            if (int2D) {
+                int2D->setValue(layer.inPoint, ViewSpec::all(), 0);
+                int2D->setValue(layer.outPoint, ViewSpec::all(), 1);
+            }
+        }
+        return;
+    }
+
     // Set before/after to black
     KnobIPtr beforeKnob = layer.gizmoNode->getKnobByName(std::string("before"));
     if (beforeKnob) {
