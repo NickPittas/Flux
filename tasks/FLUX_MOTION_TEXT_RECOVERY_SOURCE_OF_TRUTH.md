@@ -1131,3 +1131,13 @@ Every recovery step must add an entry here. If a context compression happens, th
 - Validation: `python3 -m py_compile plugins/FluxMotionText.py` passed; `cmake --build build/openfx-flux -j$(nproc)` passed; `cmake --install build/openfx-flux --prefix plugins` passed; updated `plugins/FluxTextRender.ofx.bundle` was copied to `$HOME/.OFX/Plugins/`; canonical Natron GUI build `cmake --build build --target Natron -- -j$(nproc)` passed and ended at `[100%] Built target Natron`.
 - Failures: no GUI screenshot/recording proof was captured in this step; T081 should remain in REVIEW/validation-pending until Nick validates the controls manually or approves a GUI proof pass.
 - Next step: inspect working tree, run code review/cleanup, then commit only the intended accepted baseline if Nick's requested commit step remains approved.
+
+### 2026-05-26 — T081 Text Animator finishing touches manually validated by Nick
+
+- What was done: recorded Nick's Natron GUI validation of all requested T081 finishing-touch checks after the committed implementation.
+- What was found: Nick reported all T081 tests passed.
+- What changed: tracking only. `tasks/TASKS.md` marks T081 `DONE`; `plans/PHASES.md` marks T081 complete and updates the known follow-up note.
+- Why: T081 had implementation/build/review proof but was intentionally left in `REVIEW` until Nick validated the actual GUI controls.
+- Validation: Nick manually tested target-value preservation during selector/keyframe workflow, Anchor dropdown behavior, sliders for Start/End/Offset/Strength/Scale, animator-row selection opening/highlighting the Animator panel, text-layer row selection returning to the Text panel, and save/reopen persistence. Nick reported: `All tests passed.`
+- Failures: none reported.
+- Next step: T081 is complete. Leave T082 Illustrator/PDF-vector import and T083 AI matte/depth tools for the next run unless Nick changes priority.
