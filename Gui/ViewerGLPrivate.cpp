@@ -239,13 +239,11 @@ ViewerGL::Implementation::drawRenderingVAO(unsigned int mipmapLevel,
     ///the texture rectangle in image coordinates. The values in it are multiples of tile size.
     ///
     const TextureRect &roiRounded = this->displayTextures[textureIndex].texture->getTextureRect();
-    const TextureRect& roiNotRounded = this->displayTextures[textureIndex].roiNotRoundedToTileSize;
 
     ///This is the coordinates in the image being rendered where datas are valid, this is in pixel coordinates
     ///at the time we initialize it but we will convert it later to canonical coordinates. See 1)
     const double par = roiRounded.par;
     const RectD canonicalRoIRoundedToTileSize = roiRounded.toCanonical_noClipping(mipmapLevel, par);
-    const RectD canonicalRoINotRounded = roiNotRounded.toCanonical_noClipping(mipmapLevel, par);
 
     ///the RoD of the image in canonical coords.
     RectD rod = _this->getRoD(textureIndex);

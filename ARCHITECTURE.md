@@ -39,6 +39,12 @@
 - **Python**: 3.14 (system default), PySide6 + Shiboken6 from Fedora repos
 - **Natron base**: `gui-sbk6` branch (has Qt6 fixes, QRegExp→QRegularExpression, Shiboken6 adaptation)
 
+Installer and runbook commands must remain portable. User-facing setup docs use
+`$FLUX_ROOT`, `$BUILD_DIR`, `$PLUGIN_PREFIX`, `$OFX_USER_PLUGIN_DIR`, `$HOME`,
+and `$XDG_CACHE_HOME` instead of developer-machine absolute paths. Host installer
+testing is avoided while T070 is in `TESTING`; use a clean VM/container or
+sandboxed distrobox pod for end-to-end installer validation.
+
 ### P1 Validation Results (2026-05-20)
 
 | Capability | Status | Evidence |
@@ -49,7 +55,7 @@
 | Video import (mov, mp4) | Validated | ReadFFmpeg via OpenFX-IO plugin |
 | OCIO color management | Validated | Working with Nuke OCIO config from /opt/Nuke |
 | OpenFX effects | Validated | Misc.ofx: Merge, Transform, ColorCorrect, Grade, Roto, Shuffle, etc. |
-| Plugin installation | Validated | /usr/OFX/Plugins/ standard path |
+| Plugin installation | Validated | standard OpenFX plugin paths; Flux runbooks prefer `$OFX_USER_PLUGIN_DIR` |
 
 ---
 
@@ -85,7 +91,7 @@
 - **Video**: `.mov` (ProRes, H264, H265), `.mp4` (H264, H265), `.mxf`
 - **Images**: `.exr` (multi-layer, 16/32-bit), `.tiff` (8/16/32-bit), `.png` (8/16-bit), `.jpeg`/`.jpg`
 - **Layered**: `.psd` (Photoshop layers via OpenImageIO)
-- **Vector**: `.svg` (via OpenFX-IO ReadSVG)
+- **Vector**: `.svg` (via OpenFX-IO ReadSVG), `.ai` (Adobe Illustrator files with embedded PDF preview; planned layered/vector import path)
 - **Documents**: `.pdf` (via OpenFX-IO ReadPDF)
 - **Image sequences**: Any supported image format with sequential numbering
 
@@ -115,6 +121,7 @@
 14. **Shape layers** — Rect, ellipse, star, bezier paths
 15. **Text layers** — Text rendering with per-character animation
 16. **Dockable panels** — Drag, resize, detach panels
+17. **AI-assisted matte/depth tools** — Planned model-pluggable matte generation/extraction and video-stable depth estimation workflows
 
 ---
 
@@ -158,7 +165,7 @@ Layer 1: "BG" (Footage.mov)   ->   Read1 → FluxLayer gizmo #1 ──┘
 ```
 
 Each **FluxLayer gizmo** contains: Input → FrameRange → TimeOffset → Transform → Multiply → Output.
-Footage layers have an external **Read** node connected to the gizmo input. Solid layers use **FluxSolid** with an internal Constant source. Text layers use **FluxText** with an internal native Text source followed by FrameRange, TimeOffset, and Grade opacity.
+Footage layers have an external **Read** node connected to the gizmo input. Solid layers use **FluxSolid** with an internal Constant source. Legacy Text v1 layers use **FluxText** with an internal native Text source followed by FrameRange, TimeOffset, and Grade opacity. The recovering **FluxMotionText** path must use Flux-owned `TextRender` controls; any comparison to FluxText is usability parity only, not implementation parity or native Text knob reuse.
 
 - Each **layer** = one FluxLayer PyPlug gizmo node
 - **Effects** on a layer = additional nodes inserted in the chain (future)
@@ -167,8 +174,8 @@ Footage layers have an external **Read** node connected to the gizmo input. Soli
 - **Trim** = FrameRange knob on gizmo (trimStart/trimEnd state tracked in FluxLayer struct)
 - **Move** = TimeOffset knob on gizmo (never touches FrameRange)
 - **Transform** = translate, scale, rotate, center knobs on gizmo (aliased to internal Transform node)
-- **Text layer controls** = promoted group knobs named after the internal Text node (`Text1...`) and linked with `setAsAlias()`, matching Natron's PyPlug exporter style. Text properties are shown first; the native Text `center` remains the Text node's own position/transform knob.
-- **Text font selection** = promoted `Text1name` choice is synchronized to native `Text1font` in `Gui/Gui05.cpp` because the Text renderer reads the font-family string.
+- **Legacy FluxText controls** = promoted group knobs named after the internal Text node (`Text1...`) and linked with `setAsAlias()`, matching Natron's PyPlug exporter style. These are legacy Text v1 implementation details, not a required implementation model for FluxMotionText.
+- **Legacy FluxText font selection** = promoted `Text1name` choice is synchronized to native `Text1font` in `Gui/Gui05.cpp` because the native Text renderer reads the font-family string. FluxMotionText must provide its own usable font-selection path backed by Flux-owned `TextRender` data.
 - **Viewer overlay keyframes** = `Gui/HostOverlay.cpp` passes a `KeyFrame` object for 2D overlay writes so animated translate/center/scale edits author curve keys instead of only changing the current value.
 - **Precomps** = Natron Group nodes
 - **External Read** = footage layers own a Read node outside the gizmo; metadata/range probing uses this node.
@@ -270,8 +277,8 @@ flux/                              <- Forked from NatronGitHub/Natron (gui-sbk6 
 ├── Resources/
 │   └── themes/
 │       └── flux-dark.qss          <- NEW: Dark theme stylesheet
-├── openfx-io/                     <- EXTERNAL: Built separately, installed to /usr/OFX/Plugins/
-├── openfx-misc/                   <- EXTERNAL: Built separately, installed to /usr/OFX/Plugins/
+├── openfx-io/                     <- EXTERNAL: Built separately, installed to an OpenFX plugin path
+├── openfx-misc/                   <- EXTERNAL: Built separately, installed to an OpenFX plugin path
 │
 ├── ARCHITECTURE.md                <- This file
 ├── AGENTS.md                      <- Project-specific agent guidelines
@@ -447,5 +454,5 @@ The compositing graph is reconciled on every structural timeline change (add, re
 - **Task tracking:** All tasks in `tasks/TASKS.md`. All phases in `plans/PHASES.md`.
 - **Code review:** Every implementation reviewed before marking complete.
 - **500-line max per file:** Carry this forward for new code.
-- **OpenFX plugins:** Built separately from main Natron build. Installed to `/usr/OFX/Plugins/`.
+- **OpenFX plugins:** Built separately from main Natron build. Flux runbooks deploy to `$OFX_USER_PLUGIN_DIR` by default; system-wide OpenFX plugin paths remain available for packaged installs.
 - **Run command:** `QT_PLUGIN_PATH=/usr/lib64/qt6/plugins QT_QPA_PLATFORM=xcb /path/to/Natron`

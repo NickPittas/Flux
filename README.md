@@ -1,4 +1,40 @@
-# Natron
+# Flux
+
+Flux is a Linux-first 2D motion-graphics compositor forked from Natron. The
+current direction is an After Effects-style layer timeline on top of Natron's
+render engine, OpenFX host, OCIO/OIIO/FFmpeg I/O, cache, animation, roto, and
+tracking systems.
+
+## Current Flux status
+
+- Layer-based timeline, project bin, effects/masks rows, export panel, and dark
+  Qt UI are implemented in the Flux branch.
+- Text v1 and the Flux-owned `FluxMotionText` Text Animator baseline are in
+  place. Nick accepted the core UI Text Animator task as working; remaining
+  polish is tracked separately in `tasks/TASKS.md` as T081.
+- Adobe Illustrator/PDF-vector import and AI matte/depth workflows are planned
+  research/implementation tasks, not shipped features yet.
+- Canonical Linux setup lives in `INSTALL_FLUX_LINUX.md` and uses path-agnostic
+  variables such as `$FLUX_ROOT`, `$BUILD_DIR`, `$PLUGIN_PREFIX`, and
+  `$OFX_USER_PLUGIN_DIR`. Do not copy developer-specific absolute paths into
+  user-facing install instructions.
+
+## Flux Linux setup
+
+```bash
+git clone --recursive <flux-repo-url> Flux
+cd Flux
+export FLUX_ROOT="$PWD"
+./tools/linux/flux-linux-setup.sh --bootstrap
+```
+
+See `INSTALL_FLUX_LINUX.md` for Fedora-first setup details, including the
+required pre-staged OpenFX payloads for IO/Misc/extras. The inherited Natron
+README below remains upstream reference material.
+
+---
+
+# Natron upstream reference
 
 [![GPL2 License](http://img.shields.io/:license-gpl2-blue.svg?)](https://github.com/NatronGitHub/Natron/blob/master/LICENSE.txt) [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-v1.4%20adopted-ff69b4.svg)](CODE_OF_CONDUCT.md) [![Build Status](https://api.travis-ci.org/NatronGitHub/Natron.svg?branch=RB-2.4)](https://travis-ci.org/NatronGitHub/Natron) [![Coverage Status](https://coveralls.io/repos/NatronGitHub/Natron/badge.svg?branch=master)](https://coveralls.io/r/NatronGitHub/Natron?branch=master) [![Documentation Status](https://readthedocs.org/projects/natron/badge/?version=rb-2.4)](http://natron.readthedocs.io/en/rb-2.4/) [![Packaging status](https://repology.org/badge/tiny-repos/natron.svg)](https://repology.org/project/natron/badges) [![OpenHub](https://www.openhub.net/p/natron/widgets/project_thin_badge?format=gif&ref=Thin+badge)](https://www.openhub.net/p/Natron)
 

@@ -303,6 +303,8 @@ public:
     class FluxTimeline* _fluxTimeline;
     class FluxEffectsPanel* _fluxEffectsPanel;
     class FluxExportPanel* _fluxExportPanel;
+    class FluxTextPanel* _fluxTextPanel;
+    class FluxTextAnimatorPanel* _fluxTextAnimatorPanel;
     TabWidget* _fluxViewerPane;
 
     // Flux compositing graph - Merge nodes for layer compositing

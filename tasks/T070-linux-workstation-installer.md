@@ -19,8 +19,12 @@ current Python, PyPlug, and OpenFX requirements.
   OFX extras staging.
 - Provide `--bootstrap` as the one-command Fedora path after clone: submodules,
   RPM Fusion enablement, repo/package verification, dependency install,
-  configure, build, deploy, launcher, cache clear, and OFX `ldd` validation.
+  configure, build, embedded-Python runtime dependency bootstrap, deploy,
+  launcher, cache clear, and OFX `ldd` validation.
 - Keep sudo opt-in only; no automatic privileged install.
+- Keep user-facing paths portable. Use `$FLUX_ROOT`, `$BUILD_DIR`,
+  `$PLUGIN_PREFIX`, `$OFX_USER_PLUGIN_DIR`, `$HOME`, and `$XDG_CACHE_HOME`
+  instead of developer-specific absolute paths.
 
 ## Deliverables
 
@@ -35,9 +39,11 @@ current Python, PyPlug, and OpenFX requirements.
 - Qt6 / PySide6 / Shiboken6
 - Python 3.14
 - RPM Fusion FFmpeg stack
-- User PyPlug path: `~/.Natron/PyPlugs/`
-- User OpenFX path: `~/.OFX/Plugins/`
-- Scoped OFX cache: `~/.cache/INRIA/Natron/OFXLoadCache/`
+- User PyPlug path: `$HOME/.Natron/PyPlugs/`
+- User OpenFX path: `$OFX_USER_PLUGIN_DIR` (default `$HOME/.OFX/Plugins/`)
+- Scoped OFX cache: `${XDG_CACHE_HOME:-$HOME/.cache}/INRIA/Natron/OFXLoadCache/`
+- Plugin prefix: `$PLUGIN_PREFIX` (default `$FLUX_ROOT/plugins`)
+- Build directory: `$BUILD_DIR` (default `$FLUX_ROOT/build`)
 
 ## Validation so far
 
@@ -73,12 +79,17 @@ All staged/deployed OFX binaries passed `ldd` in the temporary install root:
 Oracle re-review verdict after command-flow and missing-artifact fixes: `SHIP`.
 
 Repository-local extras were then staged under `plugins/ofx-extras/` so a Linux
-checkout has the restored OFX bundle set without relying on Nick's user
-`~/.OFX/Plugins` directory.
+checkout has the restored OFX bundle set without relying on any developer's user
+OpenFX plugin directory.
 
 Repository-local deploy validation also passed using the default
 `plugins/ofx-extras/` source, with all deployed OFX binaries `ldd` clean in a
 temporary install root.
+
+Path portability cleanup updated the installer to derive `$FLUX_ROOT` from the
+script location, support `$BUILD_DIR`, `$PLUGIN_PREFIX`, `$OFX_USER_PLUGIN_DIR`,
+and `$XDG_CACHE_HOME`, and bootstrap `qtpy`/`packaging` into `$BUILD_DIR/Plugins`
+for Natron's embedded Python path.
 
 Installer was then simplified for user-facing setup: after clone, Fedora users
 run `./tools/linux/flux-linux-setup.sh --bootstrap`
@@ -110,7 +121,8 @@ binaries were `ldd` clean; generated launcher syntax passed.
 
 ## Remaining work
 
-- Run the documented sequence on a clean Fedora workstation or VM and move this
+- Run the documented sequence inside a clean Fedora VM/container or sandboxed
+  distrobox pod, not on the production host, and move this
   task to `DONE` only after build, deploy, launch, OFX cache regeneration, and
   PyPlug creation validation pass there.
 - Ubuntu/Debian package mapping and validation.

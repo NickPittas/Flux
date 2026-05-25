@@ -64,7 +64,8 @@ Natron's nodes are contained in separate repositories. To use the default nodes,
 
 You'll find installation instructions in the README of both these repositories. Both openfx-misc and openfx-io have submodules as well.
 
-Plugins must be installed in /usr/OFX/Plugins on Linux
+On Linux, plugins must be installed in a standard OpenFX plugin directory; Flux's
+Linux runbook defaults to `$OFX_USER_PLUGIN_DIR`.
 Or in a directory named "Plugins" located in the parent directory where the binary lies, e.g.:
 
 
@@ -322,4 +323,3 @@ In other words, if one wants to build both 32bits and 64bits version, one would 
 
 	MSBuild Project32.sln /p:Configuration=Release;Platform=win32 /t:Natron /m
 	MSBuild Project64.sln /p:Configuration=Release;Platform=x64 /t:Natron /m
-

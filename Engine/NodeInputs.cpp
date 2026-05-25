@@ -27,6 +27,7 @@
 
 #include <QDebug>
 #include <QThread>
+#include <QtGlobal>
 
 #include "Engine/NodeGroup.h"
 #include "Engine/PrecompNode.h"

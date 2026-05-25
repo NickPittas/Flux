@@ -605,6 +605,18 @@ ProjectGui::load<boost::archive::xml_iarchive>(bool isAutosave,  boost::archive:
         _gui->restoreLayout( true, obj.getVersion() < PROJECT_GUI_SERIALIZATION_MAJOR_OVERHAUL, obj.getGuiLayout() );
     }
 
+    // Re-connect Flux compositing output to viewer now that restoreLayout has
+    // created the Viewer tabs.  The initial rebuildCompositingGraph() (above,
+    // before restoreLayout) could not connect the viewer because no ViewerTab
+    // existed yet.  Calling it again is safe: it is non-destructive (only
+    // creates missing nodes, reconnects, and repositions).
+    if (obj.getVersion() >= PROJECT_GUI_SERIALIZATION_INTRODUCES_FLUX) {
+        FluxTimeline* timeline = _gui->getFluxTimeline();
+        if (timeline && !timeline->getLayers().isEmpty()) {
+            _gui->rebuildCompositingGraph(timeline);
+        }
+    }
+
     ///restore the histograms
     const std::list<std::string> & histograms = obj.getHistograms();
     for (std::list<std::string>::const_iterator it = histograms.begin(); it != histograms.end(); ++it) {

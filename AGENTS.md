@@ -135,6 +135,12 @@ Every feature must be validated with real-world test artifacts:
 - **Performance**: Measure frame rates, cache hit rates, memory usage
 - **Color**: Verify OCIO transforms produce correct colors (compare with reference)
 
+For user-facing GUI work, **screenshot or it never happened**:
+
+- A completed UI step must include screenshots and/or recordings of the actual controls working.
+- Proof must show UI truth, not just rendered pixels: open dropdowns, changed controls, properties panel state, and viewport response when relevant.
+- Do not use "validated" for GUI-control behavior unless the proof artifact shows the control itself and the resulting behavior.
+
 Test assets should be stored in `tests/assets/` when the project reaches that phase.
 
 ## Code Standards

@@ -36,6 +36,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_OFF
 GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include <QApplication> // qApp
 #include <QMenuBar>
+#include <QStringList>
 #include <QUndoGroup>
 #include <QDesktopServices>
 #include <QUrl>
@@ -679,19 +680,29 @@ Gui::createMenuActions()
         });
 
         QAction* actionNewText = new QAction(tr("Text"), this);
-        bool textProviderAvailable = false;
+        bool motionTextProviderAvailable = false;
+        bool textRenderProviderAvailable = false;
         if (appPTR) {
-            const std::list<std::string> textPlugins = appPTR->getPluginIDs("Text");
-            for (std::list<std::string>::const_iterator it = textPlugins.begin(); it != textPlugins.end(); ++it) {
-                if (*it == std::string("net.fxarena.openfx.Text")) {
-                    textProviderAvailable = true;
-                    break;
+            const std::list<std::string> pluginIDs = appPTR->getPluginIDs();
+            for (std::list<std::string>::const_iterator it = pluginIDs.begin(); it != pluginIDs.end(); ++it) {
+                if (*it == std::string("net.sf.openfx.FluxMotionText")) {
+                    motionTextProviderAvailable = true;
+                } else if (*it == std::string("net.flux.openfx.TextRender")) {
+                    textRenderProviderAvailable = true;
                 }
             }
         }
+        const bool textProviderAvailable = motionTextProviderAvailable && textRenderProviderAvailable;
         actionNewText->setEnabled(textProviderAvailable);
         if (!textProviderAvailable) {
-            actionNewText->setToolTip(tr("Text.ofx provider is not available."));
+            QStringList missingProviders;
+            if (!motionTextProviderAvailable) {
+                missingProviders << QString::fromUtf8("net.sf.openfx.FluxMotionText");
+            }
+            if (!textRenderProviderAvailable) {
+                missingProviders << QString::fromUtf8("net.flux.openfx.TextRender");
+            }
+            actionNewText->setToolTip(tr("Text layer unavailable. Missing provider(s): %1.").arg(missingProviders.join(QString::fromUtf8(", "))));
         }
         QObject::connect(actionNewText, &QAction::triggered, this, [this]() {
             if (_imp->_fluxTimeline) {

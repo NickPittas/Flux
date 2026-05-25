@@ -9,16 +9,23 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 FLUX_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
 
-USER_PYPLUG_DIR="${FLUX_USER_PYPLUG_DIR:-${HOME}/.Natron/PyPlugs}"
-USER_OFX_DIR="${FLUX_USER_OFX_DIR:-${HOME}/.OFX/Plugins}"
-OFX_CACHE_DIR="${FLUX_OFX_CACHE_DIR:-${HOME}/.cache/INRIA/Natron/OFXLoadCache}"
-LAUNCHER_PATH="${FLUX_LAUNCHER_PATH:-${HOME}/.local/bin/flux}"
+USER_PYPLUG_DIR="${USER_PYPLUG_DIR:-${FLUX_USER_PYPLUG_DIR:-${HOME}/.Natron/PyPlugs}}"
+OFX_USER_PLUGIN_DIR="${OFX_USER_PLUGIN_DIR:-${FLUX_USER_OFX_DIR:-${HOME}/.OFX/Plugins}}"
+USER_OFX_DIR="${OFX_USER_PLUGIN_DIR}"
+OFX_CACHE_DIR="${OFX_CACHE_DIR:-${FLUX_OFX_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME}/.cache}/INRIA/Natron/OFXLoadCache}}"
+LAUNCHER_PATH="${LAUNCHER_PATH:-${FLUX_LAUNCHER_PATH:-${HOME}/.local/bin/flux}}"
 
-EXTRAS_SOURCE="${FLUX_OFX_EXTRAS:-${FLUX_ROOT}/plugins/ofx-extras}"
+PLUGIN_PREFIX="${PLUGIN_PREFIX:-${FLUX_PLUGIN_PREFIX:-${FLUX_ROOT}/plugins}}"
+EXTRAS_SOURCE="${FLUX_OFX_EXTRAS:-${PLUGIN_PREFIX}/ofx-extras}"
 STAGE_EXTRAS_DIR=""
-BUILD_DIR="${FLUX_BUILD_DIR:-${FLUX_ROOT}/build}"
+BUILD_DIR="${BUILD_DIR:-${FLUX_BUILD_DIR:-${FLUX_ROOT}/build}}"
 BUILD_TYPE="${FLUX_BUILD_TYPE:-RelWithDebInfo}"
 BUILD_JOBS="${FLUX_BUILD_JOBS:-}"
+PYTHON_RUNTIME_DIR_SET=0
+if [[ -n "${PYTHON_RUNTIME_DIR:-}" || -n "${FLUX_PYTHON_RUNTIME_DIR:-}" ]]; then
+  PYTHON_RUNTIME_DIR_SET=1
+fi
+PYTHON_RUNTIME_DIR="${PYTHON_RUNTIME_DIR:-${FLUX_PYTHON_RUNTIME_DIR:-${BUILD_DIR}/Plugins}}"
 
 DO_CHECK=0
 CHECK_EXPLICIT=0
@@ -34,6 +41,8 @@ DO_DEPLOY_EXTRAS=0
 DO_INSTALL_LAUNCHER=0
 DO_CLEAR_OFX_CACHE=0
 DO_VALIDATE_LDD=0
+DO_VALIDATE_OFX_DISCOVERY=0
+DO_BOOTSTRAP_PYTHON=0
 FORCE=0
 COPY_MODE="copy"
 
@@ -84,14 +93,16 @@ FEDORA_PACKAGES=(
 )
 
 PYPLUG_FILES=(
-  "${FLUX_ROOT}/plugins/FluxLayer.py"
-  "${FLUX_ROOT}/plugins/FluxSolid.py"
-  "${FLUX_ROOT}/plugins/FluxText.py"
+  "${PLUGIN_PREFIX}/FluxLayer.py"
+  "${PLUGIN_PREFIX}/FluxSolid.py"
+  "${PLUGIN_PREFIX}/FluxText.py"
+  "${PLUGIN_PREFIX}/FluxMotionText.py"
 )
 
 OFX_CORE_BUNDLES=(
   "IO.ofx.bundle"
   "Misc.ofx.bundle"
+  "FluxTextRender.ofx.bundle"
 )
 
 OFX_EXTRA_BUNDLES=(
@@ -114,7 +125,18 @@ EXPECTED_OFX_IDS=(
   "net.sf.cimg.CImgBlur"
   "net.sf.cimg.CImgBloom"
   "net.sf.cimg.CImgDilate"
+  "net.flux.openfx.TextRender"
 )
+
+refresh_derived_paths() {
+  USER_OFX_DIR="${OFX_USER_PLUGIN_DIR}"
+  PYPLUG_FILES=(
+    "${PLUGIN_PREFIX}/FluxLayer.py"
+    "${PLUGIN_PREFIX}/FluxSolid.py"
+    "${PLUGIN_PREFIX}/FluxText.py"
+    "${PLUGIN_PREFIX}/FluxMotionText.py"
+  )
+}
 
 log() {
   printf '[flux-linux-setup] %s\n' "$*"
@@ -138,12 +160,13 @@ Checks and prepares a Linux workstation for Flux.
 Default:
   --check                    Check packages, build output, PyPlugs, OFX bundles.
 
-One-command setup:
-  --bootstrap                Fedora path after clone: update submodules, verify
-                             RPM Fusion free, verify package availability,
-                             install deps, configure, build, deploy plugins,
-                             clear OFX cache, install launcher, and
-                             ldd-validate OFX bundles.
+Bootstrap setup:
+  --bootstrap                Fedora path after required OFX payloads are staged:
+                             update submodules, verify RPM Fusion free, verify
+                             package availability, install deps, configure,
+                             build, deploy plugins, clear OFX cache, install
+                             launcher, ldd-validate OFX bundles, and validate
+                             Flux OFX discovery.
 
 Mutating actions:
   --update-submodules        Run git submodule update --init --recursive.
@@ -151,14 +174,17 @@ Mutating actions:
   --verify-fedora-repos      Verify all Fedora package names are available.
   --install-deps             Install Fedora build/runtime packages with sudo dnf.
   --configure                Configure CMake for Flux Qt6 build.
-  --build                    Build the Natron/Flux GUI target.
+  --build                    Build Natron/Flux GUI, Renderer, and Flux OFX bundle.
   --deploy-extras            Install Flux PyPlugs and OFX bundles into user paths.
   --install-launcher         Write ${LAUNCHER_PATH}.
   --clear-ofx-cache          Remove only ${OFX_CACHE_DIR}.
+  --bootstrap-python         Install qtpy/packaging for embedded Python into
+                             ${PYTHON_RUNTIME_DIR}.
   --stage-extras DIR         Copy validated OFX bundles into DIR for transfer.
 
 Validation:
   --validate-ldd             Run ldd checks on installed OFX binaries.
+  --validate-ofx-discovery   Cold-cache validate Flux OFX discovery via Renderer.
 
 Options:
   --extras-source DIR        Source directory for extra OFX bundles.
@@ -167,6 +193,8 @@ Options:
   --symlink                  Symlink PyPlugs/OFX bundles instead of copying.
   --copy                     Copy PyPlugs/OFX bundles. Default.
   --build-dir DIR            CMake build directory. Default: ${BUILD_DIR}
+  --plugin-prefix DIR        Runtime plugin prefix. Default: ${PLUGIN_PREFIX}
+  --python-runtime-dir DIR   Embedded Python dependency dir. Default: ${PYTHON_RUNTIME_DIR}
   --build-type TYPE          CMake build type. Default: ${BUILD_TYPE}
   --jobs N                   Parallel build jobs. Default: nproc.
   --force                    Replace Flux-managed target files/bundles.
@@ -178,7 +206,7 @@ Examples:
   ${0##*/} --check
   ${0##*/} --install-deps
   ${0##*/} --configure --build
-  ${0##*/} --deploy-extras --install-launcher --validate-ldd
+  ${0##*/} --deploy-extras --install-launcher --validate-ldd --validate-ofx-discovery
   ${0##*/} --stage-extras dist/flux-linux-ofx-extras
 EOF
 }
@@ -250,6 +278,16 @@ parse_args() {
         ACTION_REQUESTED=1
         shift
         ;;
+      --validate-ofx-discovery)
+        DO_VALIDATE_OFX_DISCOVERY=1
+        ACTION_REQUESTED=1
+        shift
+        ;;
+      --bootstrap-python)
+        DO_BOOTSTRAP_PYTHON=1
+        ACTION_REQUESTED=1
+        shift
+        ;;
       --extras-source)
         [[ $# -ge 2 ]] || die '--extras-source requires a directory'
         EXTRAS_SOURCE="$2"
@@ -272,6 +310,23 @@ parse_args() {
       --build-dir)
         [[ $# -ge 2 ]] || die '--build-dir requires a directory'
         BUILD_DIR="$2"
+        if [[ "$PYTHON_RUNTIME_DIR_SET" -eq 0 ]]; then
+          PYTHON_RUNTIME_DIR="${BUILD_DIR}/Plugins"
+        fi
+        shift 2
+        ;;
+      --plugin-prefix)
+        [[ $# -ge 2 ]] || die '--plugin-prefix requires a directory'
+        PLUGIN_PREFIX="$2"
+        if [[ -z "${FLUX_OFX_EXTRAS:-}" ]]; then
+          EXTRAS_SOURCE="${PLUGIN_PREFIX}/ofx-extras"
+        fi
+        shift 2
+        ;;
+      --python-runtime-dir)
+        [[ $# -ge 2 ]] || die '--python-runtime-dir requires a directory'
+        PYTHON_RUNTIME_DIR="$2"
+        PYTHON_RUNTIME_DIR_SET=1
         shift 2
         ;;
       --build-type)
@@ -309,6 +364,8 @@ parse_args() {
     DO_CLEAR_OFX_CACHE=1
     DO_INSTALL_LAUNCHER=1
     DO_VALIDATE_LDD=1
+    DO_VALIDATE_OFX_DISCOVERY=1
+    DO_BOOTSTRAP_PYTHON=1
   fi
 
   if [[ "$ACTION_REQUESTED" -eq 0 && "$CHECK_EXPLICIT" -eq 0 ]]; then
@@ -443,6 +500,40 @@ build_flux() {
   fi
   log "Building Flux target Natron with ${BUILD_JOBS} jobs."
   cmake --build "$BUILD_DIR" --target Natron -j "$BUILD_JOBS"
+  log "Building Flux target NatronRenderer with ${BUILD_JOBS} jobs."
+  cmake --build "$BUILD_DIR" --target NatronRenderer -j "$BUILD_JOBS"
+}
+
+ensure_build_jobs() {
+  if [[ -z "$BUILD_JOBS" ]]; then
+    if command -v nproc >/dev/null 2>&1; then
+      BUILD_JOBS="$(nproc)"
+    else
+      BUILD_JOBS=8
+    fi
+  fi
+}
+
+build_ofx_flux() {
+  local ofx_flux_build_dir="${BUILD_DIR}/openfx-flux"
+  command -v cmake >/dev/null 2>&1 || die 'cmake is required to build openfx-flux.'
+  [[ -d "${FLUX_ROOT}/openfx-flux" ]] || die "Missing Flux OFX source path: ${FLUX_ROOT}/openfx-flux"
+  [[ -d "${FLUX_ROOT}/openfx-misc/openfx/include" ]] || die 'Missing OpenFX support headers. Run: git submodule update --init --recursive'
+
+  ensure_build_jobs
+  log "Building Flux OFX bundle FluxTextRender.ofx.bundle with ${BUILD_JOBS} jobs."
+  cmake -S "${FLUX_ROOT}/openfx-flux" -B "$ofx_flux_build_dir" \
+    -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
+  cmake --build "$ofx_flux_build_dir" -j "$BUILD_JOBS"
+  cmake --install "$ofx_flux_build_dir" --prefix "${PLUGIN_PREFIX}"
+  log "Installed FluxTextRender.ofx.bundle to ${PLUGIN_PREFIX}"
+}
+
+bootstrap_python_runtime() {
+  command -v python3 >/dev/null 2>&1 || die 'python3 is required for --bootstrap-python.'
+  mkdir -p "$PYTHON_RUNTIME_DIR"
+  log "Installing embedded Python runtime deps into ${PYTHON_RUNTIME_DIR}."
+  python3 -m pip install --upgrade --target "$PYTHON_RUNTIME_DIR" qtpy packaging
 }
 
 replace_target() {
@@ -493,7 +584,7 @@ bundle_source_for() {
   local bundle="$1"
   local candidate
 
-  candidate="${FLUX_ROOT}/plugins/${bundle}"
+  candidate="${PLUGIN_PREFIX}/${bundle}"
   if [[ -d "$candidate" ]]; then
     printf '%s\n' "$candidate"
     return 0
@@ -524,7 +615,7 @@ bundle_dir_for_check() {
     return 0
   fi
 
-  candidate="${FLUX_ROOT}/plugins/${bundle}"
+  candidate="${PLUGIN_PREFIX}/${bundle}"
   if [[ -d "$candidate" ]]; then
     printf '%s\n' "$candidate"
     return 0
@@ -544,6 +635,10 @@ preflight_ofx_bundle_sources() {
 
   for bundle in "${OFX_CORE_BUNDLES[@]}" "${OFX_EXTRA_BUNDLES[@]}"; do
     if ! bundle_source_for "$bundle" >/dev/null; then
+      if [[ "$bundle" == "FluxTextRender.ofx.bundle" && "$DO_BUILD" -eq 1 && -d "${FLUX_ROOT}/openfx-flux" ]]; then
+        log "FluxTextRender.ofx.bundle will be built from ${FLUX_ROOT}/openfx-flux."
+        continue
+      fi
       warn "Missing OFX bundle source for ${bundle}. Provide --extras-source DIR or stage extras first."
       missing=1
     fi
@@ -635,8 +730,8 @@ if [[ -n "\${QT_PLUGIN_PATH:-}" ]]; then
   export QT_PLUGIN_PATH
 fi
 export QT_QPA_PLATFORM="\${QT_QPA_PLATFORM:-xcb}"
-export NATRON_PLUGIN_PATH="\${NATRON_PLUGIN_PATH:-${USER_PYPLUG_DIR}:${FLUX_ROOT}/Gui/Resources/PyPlugs:${FLUX_ROOT}/plugins/natron-plugins}"
-export OFX_PLUGIN_PATH="\${OFX_PLUGIN_PATH:-${USER_OFX_DIR}:${FLUX_ROOT}/plugins}"
+export NATRON_PLUGIN_PATH="\${NATRON_PLUGIN_PATH:-${USER_PYPLUG_DIR}:${FLUX_ROOT}/Gui/Resources/PyPlugs:${PLUGIN_PREFIX}/natron-plugins}"
+export OFX_PLUGIN_PATH="\${OFX_PLUGIN_PATH:-${USER_OFX_DIR}:${PLUGIN_PREFIX}}"
 
 exec "${BUILD_DIR}/App/Natron" "\$@"
 EOF
@@ -661,6 +756,7 @@ ofx_binary_path() {
     ResolveMath.ofx.bundle) printf '%s\n' "${base}/ResolveMath.ofx" ;;
     IO.ofx.bundle) printf '%s\n' "${base}/IO.ofx" ;;
     Misc.ofx.bundle) printf '%s\n' "${base}/Misc.ofx" ;;
+    FluxTextRender.ofx.bundle) printf '%s\n' "${base}/FluxTextRender.ofx" ;;
     *) return 1 ;;
   esac
 }
@@ -686,6 +782,63 @@ validate_ldd() {
   return "$failed"
 }
 
+validate_ofx_discovery() {
+  local renderer="${BUILD_DIR}/Renderer/NatronRenderer"
+  local temp_dir script output status=0 source_bundle
+
+  if [[ ! -x "$renderer" ]]; then
+    die "NatronRenderer not found; cannot validate OFX discovery: ${renderer}. Run --build first."
+  fi
+
+  temp_dir="$(mktemp -d /tmp/flux-ofx-discovery.XXXXXX)"
+  mkdir -p "${temp_dir}/home" "${temp_dir}/cache" "${temp_dir}/disk-cache" "${temp_dir}/plugins"
+  if [[ -d "${USER_OFX_DIR}/FluxTextRender.ofx.bundle" ]]; then
+    source_bundle="${USER_OFX_DIR}/FluxTextRender.ofx.bundle"
+  elif [[ -d "${PLUGIN_PREFIX}/FluxTextRender.ofx.bundle" ]]; then
+    source_bundle="${PLUGIN_PREFIX}/FluxTextRender.ofx.bundle"
+  else
+    rm -rf "$temp_dir"
+    die 'FluxTextRender.ofx.bundle is not built/deployed. Run --build, then --deploy-extras.'
+  fi
+  ln -s "$source_bundle" "${temp_dir}/plugins/FluxTextRender.ofx.bundle"
+
+  script="${temp_dir}/validate_flux_text_render.py"
+  cat > "$script" <<'PY'
+import NatronEngine
+
+app = NatronEngine.natron.getInstance(0)
+assert app is not None, 'No NatronEngine app instance available'
+ids = list(NatronEngine.natron.getPluginIDs('TextRender'))
+print('FLUX_OFX_DISCOVERY_IDS:', ids)
+assert 'net.flux.openfx.TextRender' in ids, 'net.flux.openfx.TextRender was not discovered'
+node = app.createNode('net.flux.openfx.TextRender')
+assert node is not None, 'net.flux.openfx.TextRender node creation failed'
+print('FLUX_OFX_DISCOVERY_CREATE_OK:', node.getPluginID(), node.getScriptName())
+PY
+
+  log 'Cold-cache validating net.flux.openfx.TextRender discovery via NatronRenderer.'
+  output="$(HOME="${temp_dir}/home" \
+    XDG_CACHE_HOME="${temp_dir}/cache" \
+    NATRON_DISK_CACHE_PATH="${temp_dir}/disk-cache" \
+    OFX_PLUGIN_PATH="${temp_dir}/plugins" \
+    QT_PLUGIN_PATH="${QT_PLUGIN_PATH:-/usr/lib64/qt6/plugins}" \
+    QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}" \
+    "$renderer" -b "$script" 2>&1)" || status=$?
+
+  if [[ "$output" != *'FLUX_OFX_DISCOVERY_CREATE_OK: net.flux.openfx.TextRender'* ]]; then
+    warn 'Flux OFX discovery validation failed. Output:'
+    printf '%s\n' "$output" >&2
+    rm -rf "$temp_dir"
+    return 1
+  fi
+
+  if [[ "$status" -ne 0 ]]; then
+    warn "NatronRenderer exited with status ${status} after validation marker; ignoring expected no-writer batch exit."
+  fi
+  log 'Flux OFX discovery validation passed: net.flux.openfx.TextRender.'
+  rm -rf "$temp_dir"
+}
+
 check_pyplugs() {
   local missing=0
   local pyplug
@@ -699,8 +852,8 @@ check_pyplugs() {
     warn "Missing bundled PyPlug directory: ${FLUX_ROOT}/Gui/Resources/PyPlugs"
     missing=1
   fi
-  if [[ ! -d "${FLUX_ROOT}/plugins/natron-plugins" || ! -f "${FLUX_ROOT}/plugins/natron-plugins/README.md" ]]; then
-    warn "Missing community PyPlug submodule content: ${FLUX_ROOT}/plugins/natron-plugins"
+  if [[ ! -d "${PLUGIN_PREFIX}/natron-plugins" || ! -f "${PLUGIN_PREFIX}/natron-plugins/README.md" ]]; then
+    warn "Missing community PyPlug submodule content: ${PLUGIN_PREFIX}/natron-plugins"
     warn 'Run: git submodule update --init --recursive'
     missing=1
   fi
@@ -768,6 +921,7 @@ run_checks() {
 
 main() {
   parse_args "$@"
+  refresh_derived_paths
 
   if [[ "$DO_UPDATE_SUBMODULES" -eq 1 ]]; then
     update_submodules
@@ -795,6 +949,11 @@ main() {
 
   if [[ "$DO_BUILD" -eq 1 ]]; then
     build_flux
+    build_ofx_flux
+  fi
+
+  if [[ "$DO_BOOTSTRAP_PYTHON" -eq 1 ]]; then
+    bootstrap_python_runtime
   fi
 
   if [[ "$DO_DEPLOY_EXTRAS" -eq 1 ]]; then
@@ -818,13 +977,17 @@ main() {
     validate_ldd
   fi
 
+  if [[ "$DO_VALIDATE_OFX_DISCOVERY" -eq 1 ]]; then
+    validate_ofx_discovery
+  fi
+
   if [[ "$DO_CHECK" -eq 1 ]]; then
     run_checks
   fi
 
   if [[ "$DO_BOOTSTRAP" -eq 1 ]]; then
     log "Bootstrap complete. Launch Flux with: ${LAUNCHER_PATH}"
-    log "After the first launch rebuilds the OFX cache, run: ${0} --check --validate-ldd"
+    log "After the first launch rebuilds the OFX cache, run: ${0} --check --validate-ldd --validate-ofx-discovery"
   fi
 }
 

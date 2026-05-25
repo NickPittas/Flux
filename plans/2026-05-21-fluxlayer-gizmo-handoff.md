@@ -24,7 +24,7 @@ The following earlier work was validated before the FluxLayer gizmo effort:
 1. Natron fork builds with Qt6 on Fedora 44.
 2. Natron GUI launches under Wayland using xcb compatibility:
    ```bash
-   QT_PLUGIN_PATH=/usr/lib64/qt6/plugins QT_QPA_PLATFORM=xcb /home/npittas/Flux/build/App/Natron
+   QT_QPA_PLATFORM=xcb "$BUILD_DIR/App/Natron"
    ```
 3. OpenFX-IO and OpenFX-Misc plugins were built/installed.
 4. JPG/PNG/MOV/MP4 import works after selecting a valid OCIO config.
@@ -154,7 +154,7 @@ Primary files for the next agent:
 
 - `FinalPlugin.py` — working reference PyPlug pattern provided by Nick.
 - `plugins/FluxLayer.py` — current FluxLayer PyPlug; must be audited/fixed against `FinalPlugin.py`.
-- `/home/npittas/.Natron/PyPlugs/FluxLayer.py` — installed copy Natron loads; keep in sync with repo version.
+- `$HOME/.Natron/PyPlugs/FluxLayer.py` — installed copy Natron loads; keep in sync with repo version.
 - `Gui/Gui05.cpp` — `setupFluxUi()` signal wiring and `Gui::rebuildCompositingGraph()`.
 - `Gui/FluxTimeline.h` — `FluxLayer` data model and gizmo/node pointers.
 - `Gui/FluxTimeline.cpp` — timeline trim/move/reorder handlers and knob update logic.
@@ -166,7 +166,7 @@ Do these in order. Do not skip verification.
 
 1. Revert or repair the current broken FluxLayer-related edits until the project builds.
 2. Make `plugins/FluxLayer.py` match `FinalPlugin.py` structurally, with internal Read/FrameRange/TimeOffset/Transform/Output.
-3. Copy it to `/home/npittas/.Natron/PyPlugs/FluxLayer.py`.
+3. Copy it to `$HOME/.Natron/PyPlugs/FluxLayer.py`.
 4. Launch Natron and manually verify the PyPlug appears and can be created from the UI before touching C++ integration.
 5. Verify the group exposes the exact expected knob names. Record them in this handoff or task docs.
 6. Only after that, update C++ to create the gizmo by its exact plugin ID.

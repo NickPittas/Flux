@@ -25,8 +25,16 @@ Required restored provider IDs:
 | `Magick.ofx.bundle` | `net.fxarena.openfx.Tile` |
 | `ResolveMath.ofx.bundle` | `OpenFX.Yo.ResolveMath` |
 
+Flux-owned OFX bundle built from source during Linux setup:
+
+| Bundle | Runtime IDs |
+|---|---|
+| `FluxTextRender.ofx.bundle` | `net.flux.openfx.TextRender` |
+
 `IO.ofx.bundle` and `Misc.ofx.bundle` are also staged here for transfer-package
 completeness, but the canonical checkout copies those from `plugins/` first.
+`FluxTextRender.ofx.bundle` is generated from `openfx-flux/` by
+`./tools/linux/flux-linux-setup.sh --build` and then deployed from `plugins/`.
 
 Validation:
 

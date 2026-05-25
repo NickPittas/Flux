@@ -33,6 +33,7 @@
 #include <limits>
 
 #include <QCoreApplication>
+#include <QtGlobal>
 #include <QThread>
 #include <QTimer>
 
@@ -75,7 +76,11 @@
 #include "Gui/FluxTimeline.h"
 #include "Gui/FluxEffectsPanel.h"
 #include "Gui/FluxExportPanel.h"
+#include "Gui/FluxTextAnimatorModel.h"
+#include "Gui/FluxTextAnimatorPanel.h"
+#include "Gui/FluxTextPanel.h"
 #include "Gui/FluxT074Harness.h"
+#include "Gui/FluxT079Harness.h"
 #include "Gui/FluxMaskUtils.h"
 #include "Gui/DopeSheetEditor.h"
 #include "Gui/PropertiesBinWrapper.h"
@@ -602,6 +607,16 @@ Gui::setupFluxUi()
     exportPanel->setLabel( tr("Export").toStdString() );
     TabWidget::moveTab(exportPanel, exportPanel, topRightPane);
 
+    FluxTextPanel* textPanel = new FluxTextPanel(this);
+    textPanel->setScriptName("fluxTextPanel");
+    textPanel->setLabel( tr("Text").toStdString() );
+    TabWidget::moveTab(textPanel, textPanel, topRightPane);
+
+    FluxTextAnimatorPanel* textAnimatorPanel = new FluxTextAnimatorPanel(this);
+    textAnimatorPanel->setScriptName("fluxTextAnimatorPanel");
+    textAnimatorPanel->setLabel( tr("Text Animators").toStdString() );
+    TabWidget::moveTab(textAnimatorPanel, textAnimatorPanel, topRightPane);
+
     // ====================================================================
     // Populate workshop pane (bottom): Timeline + Dope Sheet + Curve Editor
     // ====================================================================
@@ -709,7 +724,7 @@ Gui::setupFluxUi()
 
     // 3. Timeline: layerSelected → open gizmo properties panel + update Effects Panel
     QObject::connect(timeline, &FluxTimeline::layerSelected, this,
-                      [this, timeline, effectsPanel](int index) {
+                      [this, timeline, effectsPanel, textPanel, textAnimatorPanel](int index) {
                           // Close previously selected layer's properties panel
                           const QList<FluxLayer>& prevLayers = timeline->getLayers();
                           for (int i = 0; i < prevLayers.size(); ++i) {
@@ -724,16 +739,45 @@ Gui::setupFluxUi()
                           // Open newly selected layer's properties panel.
                           const QList<FluxLayer>& layers = timeline->getLayers();
                           if (index >= 0 && index < layers.size()) {
-                              effectsPanel->setActiveLayer(index, layers[index].name);
-                              for (int e = 0; e < layers[index].effects.size(); ++e) {
-                                  const FluxEffect& effect = layers[index].effects[e];
+                              const FluxLayer& selLayer = layers[index];
+                              effectsPanel->setActiveLayer(index, selLayer.name);
+
+                              // Bind text panel for FluxMotionText layers
+                              const bool isTextLayer = (selLayer.type == QString::fromUtf8("text"));
+                              if (textPanel) {
+                                  if (isTextLayer && selLayer.gizmoNode) {
+                                      textPanel->setActiveNode(selLayer.gizmoNode);
+                                      if (textAnimatorPanel) {
+                                          textAnimatorPanel->setActiveNode(selLayer.gizmoNode);
+                                      }
+                                      // Foreground the Text tab in the top-right pane
+                                      TabWidget* pane = textPanel->getParentPane();
+                                      if (pane) {
+                                          const int count = pane->count();
+                                          for (int t = 0; t < count; ++t) {
+                                              if (pane->tabAt(t) == textPanel) {
+                                                  pane->makeCurrentTab(t);
+                                                  break;
+                                              }
+                                          }
+                                      }
+                                  } else {
+                                      textPanel->setActiveNode(NodePtr());
+                                      if (textAnimatorPanel) {
+                                          textAnimatorPanel->setActiveNode(NodePtr());
+                                      }
+                                  }
+                              }
+
+                              for (int e = 0; e < selLayer.effects.size(); ++e) {
+                                  const FluxEffect& effect = selLayer.effects[e];
                                   if (effect.node && effect.node->isActivated()) {
                                       effectsPanel->addEffect(effect.pluginId, effect.label);
                                   }
                               }
 
-                              if (layers[index].gizmoNode) {
-                                  NodeGuiPtr nodeGui = std::dynamic_pointer_cast<NodeGui>(layers[index].gizmoNode->getNodeGui());
+                              if (selLayer.gizmoNode) {
+                                  NodeGuiPtr nodeGui = std::dynamic_pointer_cast<NodeGui>(selLayer.gizmoNode->getNodeGui());
                                   if (nodeGui) {
                                       nodeGui->setVisibleSettingsPanel(true);
                                   NodeSettingsPanel* settingsPanel = nodeGui->getSettingPanel();
@@ -745,11 +789,44 @@ Gui::setupFluxUi()
                               }
                           } else {
                               effectsPanel->setActiveLayer(-1, QString());
+                              if (textPanel) {
+                                  textPanel->setActiveNode(NodePtr());
+                              }
+                              if (textAnimatorPanel) {
+                                  textAnimatorPanel->setActiveNode(NodePtr());
+                              }
                           }
 
                           // Redraw viewers to update overlay handles
                           redrawAllViewers();
                       });
+
+    QObject::connect(timeline, &FluxTimeline::textAnimatorSelected, this,
+                     [this, timeline, textPanel, textAnimatorPanel](int layerIndex, int animatorId) {
+                         const QList<FluxLayer>& layers = timeline->getLayers();
+                         if (layerIndex < 0 || layerIndex >= layers.size() || layers[layerIndex].type != QString::fromUtf8("text")) {
+                             return;
+                         }
+                         NodePtr textNode = layers[layerIndex].gizmoNode;
+                         if (textPanel) {
+                             textPanel->setActiveNode(textNode);
+                         }
+                         if (textAnimatorPanel) {
+                             textAnimatorPanel->setActiveNode(textNode);
+                             textAnimatorPanel->setSelectedAnimatorId(animatorId);
+                             TabWidget* pane = textAnimatorPanel->getParentPane();
+                             if (pane) {
+                                 const int count = pane->count();
+                                 for (int t = 0; t < count; ++t) {
+                                     if (pane->tabAt(t) == textAnimatorPanel) {
+                                         pane->makeCurrentTab(t);
+                                         break;
+                                     }
+                                 }
+                             }
+                         }
+                         redrawAllViewers();
+                     });
 
     // 4. Effects Panel: select/remove actual effect nodes owned by the timeline model.
     QObject::connect(effectsPanel, &FluxEffectsPanel::effectSelected, this,
@@ -899,6 +976,8 @@ Gui::setupFluxUi()
     _imp->_fluxTimeline = timeline;
     _imp->_fluxEffectsPanel = effectsPanel;
     _imp->_fluxExportPanel = exportPanel;
+    _imp->_fluxTextPanel = textPanel;
+    _imp->_fluxTextAnimatorPanel = textAnimatorPanel;
 
     // Create Flux export nodes (disabled Reformat + Write)
     {
@@ -980,6 +1059,7 @@ Gui::setupFluxUi()
 
     fprintf(stderr, "FLUX: Layout created successfully\n");
     FluxT074Harness::maybeStart(this);
+    FluxT079Harness::maybeStart(this);
 } // Gui::setupFluxUi
 
 // ====================================================================
@@ -1539,7 +1619,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             if (layer.type == QString::fromUtf8("solid")) {
                 pluginId = QString::fromUtf8("net.sf.openfx.FluxSolid");
             } else if (layer.type == QString::fromUtf8("text")) {
-                pluginId = QString::fromUtf8("net.sf.openfx.FluxText");
+                pluginId = QString::fromUtf8("net.sf.openfx.FluxMotionText");
             } else {
                 pluginId = QString::fromUtf8("net.sf.openfx.FluxLayer");
             }
@@ -1705,6 +1785,21 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                     }
                 }
 
+                {
+                    Format projectFormat;
+                    getApp()->getProject()->getProjectDefaultFormat(&projectFormat);
+                    double cx = projectFormat.x1 + projectFormat.width() / 2.0;
+                    double cy = projectFormat.y1 + projectFormat.height() / 2.0;
+                    KnobIPtr centerKnob = gizmoNode->getKnobByName("center");
+                    if (centerKnob) {
+                        KnobDoubleBasePtr dbl2D = std::dynamic_pointer_cast<KnobDoubleBase>(centerKnob);
+                        if (dbl2D) {
+                            dbl2D->setValue(cx, ViewSpec::all(), 0);
+                            dbl2D->setValue(cy, ViewSpec::all(), 1);
+                        }
+                    }
+                }
+
                 layer.originalFirstFrame = projectFirst;
                 layer.originalLastFrame = projectLast;
                 layer.inPoint = projectFirst;
@@ -1742,6 +1837,17 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             KnobIPtr skewYKnob = transformNode->getKnobByName(isTextLayer ? "Text1skewY" : "skewY");
             KnobIPtr skewOrderKnob = transformNode->getKnobByName(isTextLayer ? "Text1skewOrder" : "skewOrder");
             KnobIPtr interactiveKnob = transformNode->getKnobByName(isTextLayer ? "Text1interactive" : "interactive");
+            if (isTextLayer && (!translateKnob || !scaleKnob || !rotateKnob || !centerKnob)) {
+                translateKnob = transformNode->getKnobByName("translate");
+                scaleKnob = transformNode->getKnobByName("scale");
+                rotateKnob = transformNode->getKnobByName("rotate");
+                centerKnob = transformNode->getKnobByName("center");
+                uniformKnob = transformNode->getKnobByName("uniform");
+                skewXKnob = transformNode->getKnobByName("skewX");
+                skewYKnob = transformNode->getKnobByName("skewY");
+                skewOrderKnob = transformNode->getKnobByName("skewOrder");
+                interactiveKnob = transformNode->getKnobByName("interactive");
+            }
 
             KnobDoublePtr translateDbl = std::dynamic_pointer_cast<KnobDouble>(translateKnob);
             KnobDoublePtr scaleDbl = std::dynamic_pointer_cast<KnobDouble>(scaleKnob);
@@ -2097,7 +2203,8 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
         NodePtr viewerNode = viewerTab->getInternalNode()->getNode();
         if (viewerNode) {
             viewerNode->disconnectInput(0);
-            viewerNode->connectInput(lastOutput, 0);
+            bool connected = viewerNode->connectInput(lastOutput, 0);
+            (void)connected;
         }
     } else if (!lastOutput) {
         fprintf(stderr, "FLUX WARNING: No compositing output produced for %d layers\n",
@@ -2130,6 +2237,21 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             }
         }
         timeline->refreshVisibleRows();
+    }
+
+    // Rebind the Text panel for the selected text layer after rebuild,
+    // in case the gizmoNode was just created and layerSelected already
+    // fired with a null gizmoNode (e.g. from addTextLayer signal order).
+    {
+        int selected = timeline->getSelectedLayerIndex();
+        if (selected >= 0 && selected < (int)layers.size() &&
+            layers[selected].type == QString::fromUtf8("text") &&
+            layers[selected].gizmoNode && _imp->_fluxTextPanel) {
+            _imp->_fluxTextPanel->setActiveNode(layers[selected].gizmoNode);
+            if (_imp->_fluxTextAnimatorPanel) {
+                _imp->_fluxTextAnimatorPanel->setActiveNode(layers[selected].gizmoNode);
+            }
+        }
     }
 
     fprintf(stderr, "FLUX: Compositing graph rebuilt with %d layers, %d nodes (gizmos + merges)\n",

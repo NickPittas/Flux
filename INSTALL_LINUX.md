@@ -41,7 +41,7 @@ This file is supposed to guide you step by step to have working (compiling) vers
 If you have `docker` installed, the installation procedure is very simple. Simply create a directory called `builds`, and then run the following command:
 
 ```bash
-docker run -it --rm --mount src="$(pwd)/builds",target=/home/builds_archive,type=bind natrongithub/natron-sdk:latest
+docker run -it --rm --mount src="$(pwd)/builds",target=/builds_archive,type=bind natrongithub/natron-sdk:latest
 ```
 
 Docker will automatically do the rest for you, and you should have a complete Natron binary in `./builds` (as a tgz archive).
@@ -214,7 +214,8 @@ Natron's nodes are contained in separate repositories. To use the default nodes,
 
 You'll find installation instructions in the README of both these repositories. Both openfx-misc and openfx-io have submodules as well.
 
-Plugins can be installed in /usr/OFX/Plugins on Linux
+Plugins can be installed in a standard OpenFX plugin directory on Linux. Flux's
+Linux runbook defaults to `$OFX_USER_PLUGIN_DIR`.
 Or in a directory named "Plugins" located in the parent directory where the binary lies, e.g.:
 
 ```

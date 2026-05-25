@@ -7,6 +7,7 @@
 #include "Gui/FluxKeyframeModel.h"
 
 #include "Gui/FluxTimeline.h"
+#include "Gui/FluxTextAnimatorModel.h"
 #include "Engine/Knob.h"
 #include "Engine/KnobTypes.h"
 #include "Engine/Node.h"
@@ -52,10 +53,31 @@ static const char* kInternalTextPrefixes[] = {
 // Promoted Text1 knob name prefix (the only ones we expose for text layers).
 static const char* kPromotedTextPrefix = "Text1";
 
-// Public FluxText gizmo controls that are not prefixed with Text1 but should
-// still appear as keyframe property rows for text layers.
+// Public Flux text controls that are not prefixed with Text1 but should
+// still appear as keyframe property rows for text layers. This covers the
+// new FluxMotionText direct group-level knob names while preserving legacy
+// FluxText's Text1-prefixed controls.
 static const char* kFluxTextPublicControls[] = {
+    "text",
+    "font",
+    "fontStyle",
+    "fontSize",
+    "fillColor",
+    "tracking",
+    "leading",
+    "alignment",
     "opacity",
+    "translate",
+    "scale",
+    "uniform",
+    "rotate",
+    "skewX",
+    "skewY",
+    "skewOrder",
+    "center",
+    "motionBlur",
+    "shutter",
+    "interactive",
     nullptr
 };
 
@@ -148,6 +170,9 @@ shouldShowKnob(const KnobIPtr& knob,
         // Internal native Text node duplicates and generic implementation knobs
         // stay hidden from the FluxTimeline keyframe rows.
         if (isFluxTextPublicControl(scriptName)) {
+            return true;
+        }
+        if (FluxTextAnimatorModel::isAnimatorKnobName(scriptName)) {
             return true;
         }
         return isPromotedTextKnob(scriptName) && !isInternalTextKnob(scriptName);

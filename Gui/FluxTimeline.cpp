@@ -23,6 +23,7 @@
 #include "Gui/Gui.h"
 #include "Gui/GuiAppInstance.h"
 #include "Gui/FluxEffectsPanel.h"
+#include "Gui/FluxTextAnimatorModel.h"
 #include "Gui/NodeGraph.h"
 #include "Gui/NodeCreationDialog.h"
 #include "Gui/NodeClipBoard.h"
@@ -49,6 +50,17 @@
 #include "Gui/FluxKeyframeModel.h"
 
 NATRON_NAMESPACE_ENTER
+
+namespace {
+
+void syncTextAnimatorPropertyIfNeeded(const FluxKeyframeProperty& prop)
+{
+    if (prop.ownerNode && prop.knob && FluxTextAnimatorModel::isAnimatorKnobName(prop.knob->getName())) {
+        FluxTextAnimatorModel::syncAnimatorStackToRenderer(prop.ownerNode);
+    }
+}
+
+}
 
 FluxTimeline::FluxTimeline(Gui* gui,
                            QWidget* parent)
@@ -175,9 +187,20 @@ FluxTimeline::addTextLayer()
     layer.outPoint = _lastFrame;
     layer.color = QColor(200, 130, 80);
 
+    int newIndex = _layers.size();
     _layers.append(layer);
+
+    // Auto-select the new text layer so the GUI (Text panel, Properties)
+    // can bind to it once rebuildCompositingGraph creates the gizmoNode.
+    _selectedType = eFluxSelectionLayer;
+    _selectedLayer = newIndex;
+    _selectedEffectIndex = -1;
+    _selectedMaskIndex = -1;
+    _selectedPropertyIndex = -1;
+
     rebuildVisibleRows();
     Q_EMIT compositingChanged();
+    Q_EMIT layerSelected(newIndex);
     update();
 }
 
@@ -1689,6 +1712,38 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             painter.setPen(QColor(55, 55, 60));
             painter.drawLine(0, y + rowHeight, width(), y + rowHeight);
 
+        } else if (visibleRow.type == eFluxVisibleRowTextAnimator) {
+            int li = visibleRow.layerIndex;
+            if (li < 0 || li >= _layers.size()) {
+                continue;
+            }
+            QString label = QString::fromUtf8("Text Animator %1").arg(visibleRow.childIndex);
+            for (const FluxTextAnimatorSummary& a : FluxTextAnimatorModel::animators(_layers[li].gizmoNode)) {
+                if (a.id == visibleRow.childIndex) {
+                    label = a.name;
+                    break;
+                }
+            }
+
+            const bool isAnimatorSelected = (_selectedType == eFluxSelectionTextAnimator &&
+                                             _selectedLayer == li &&
+                                             _selectedEffectIndex == visibleRow.childIndex);
+            painter.fillRect(0, y, width(), rowHeight, isAnimatorSelected ? QColor(46, 93, 174) : QColor(34, 35, 42));
+            painter.setPen(QColor(76, 76, 86));
+            painter.drawLine(_layerLabelWidth, y + rowHeight, width(), y + rowHeight);
+
+            int labelX = kControlColumnWidth + kEffectIndent;
+            QRect labelRect(labelX, y, _layerLabelWidth - labelX - 4, rowHeight);
+            QFont font;
+            font.setPointSize(8);
+            painter.setFont(font);
+            QFontMetrics fm(font);
+            painter.setPen(QColor(185, 190, 215));
+            painter.drawText(labelRect, Qt::AlignVCenter | Qt::AlignLeft,
+                             QString::fromUtf8("A ") + fm.elidedText(label, Qt::ElideRight, qMax(0, labelRect.width() - 16)));
+            painter.setPen(QColor(48, 48, 52));
+            painter.drawLine(kControlColumnWidth, y, kControlColumnWidth, y + rowHeight);
+
         } else if (visibleRow.type == eFluxVisibleRowEffect) {
             int li = visibleRow.layerIndex;
             int ei = visibleRow.childIndex;
@@ -2089,6 +2144,22 @@ FluxTimeline::rebuildVisibleRows()
         y += row.height;
 
         if (_layers[i].expanded) {
+            if (_layers[i].type == QString::fromUtf8("text")) {
+                QList<FluxTextAnimatorSummary> textAnimators = FluxTextAnimatorModel::animators(_layers[i].gizmoNode);
+                for (int a = 0; a < textAnimators.size(); ++a) {
+                    FluxVisibleRow animRow;
+                    animRow.type = eFluxVisibleRowTextAnimator;
+                    animRow.layerIndex = i;
+                    animRow.childIndex = textAnimators[a].id;
+                    animRow.effectIndex = -1;
+                    animRow.maskIndex = -1;
+                    animRow.y = y;
+                    animRow.height = kEffectRowHeight;
+                    _visibleRows.append(animRow);
+                    y += animRow.height;
+                }
+            }
+
             // Layer-level animated property rows
             {
                 QList<FluxKeyframeProperty> props = buildLayerProperties(_layers[i], _ungroupedKeyframeProperties);
@@ -2249,6 +2320,9 @@ FluxTimeline::refreshKeyframeSignalConnections()
             const std::vector<KnobIPtr>& knobs = layer.gizmoNode->getKnobs();
             for (const KnobIPtr& knob : knobs) {
                 if (!knob || !knob->canAnimate()) {
+                    continue;
+                }
+                if (knob->getName() == std::string("animatorTimeDependency")) {
                     continue;
                 }
                 KnobSignalSlotHandlerPtr handler = knob->getSignalSlotHandler();
@@ -2419,6 +2493,11 @@ FluxTimeline::refreshKeyframeSignalConnections()
 void
 FluxTimeline::onNativeKeyframeChanged()
 {
+    for (const FluxLayer& layer : _layers) {
+        if (layer.type == QString::fromUtf8("text") && layer.gizmoNode) {
+            FluxTextAnimatorModel::syncAnimatorStackToRenderer(layer.gizmoNode);
+        }
+    }
     // A native knob keyframe was added/removed/moved outside FluxTimeline
     // (e.g. via DopeSheet, CurveEditor, or property panel). Mark rows dirty
     // so the next paint rebuilds property rows from current animation state.
@@ -2433,6 +2512,10 @@ FluxTimeline::layerHasExpandableChildren(int layerIndex) const
         return false;
     }
     const FluxLayer& layer = _layers[layerIndex];
+    if (layer.type == QString::fromUtf8("text") &&
+        !FluxTextAnimatorModel::animators(layer.gizmoNode).isEmpty()) {
+        return true;
+    }
     if (!layer.effects.isEmpty() || !layer.masks.isEmpty()) {
         return true;
     }
@@ -2831,6 +2914,17 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             return;
         }
 
+        if (clickRow->type == eFluxVisibleRowTextAnimator) {
+            _selectedType = eFluxSelectionTextAnimator;
+            _selectedLayer = clickRow->layerIndex;
+            _selectedEffectIndex = clickRow->childIndex;
+            _selectedMaskIndex = -1;
+            _selectedPropertyIndex = -1;
+            Q_EMIT textAnimatorSelected(_selectedLayer, _selectedEffectIndex);
+            update();
+            return;
+        }
+
         if (clickRow->type == eFluxVisibleRowMask) {
             // Select mask sub-row in label area
             _selectedType = eFluxSelectionMask;
@@ -2933,6 +3027,16 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             _selectedMaskIndex = -1;
             _selectedPropertyIndex = -1;
             Q_EMIT effectSelected(_selectedLayer, _selectedEffectIndex);
+            update();
+            return;
+        }
+        if (clickRow && clickRow->type == eFluxVisibleRowTextAnimator) {
+            _selectedType = eFluxSelectionTextAnimator;
+            _selectedLayer = clickRow->layerIndex;
+            _selectedEffectIndex = clickRow->childIndex;
+            _selectedMaskIndex = -1;
+            _selectedPropertyIndex = -1;
+            Q_EMIT textAnimatorSelected(_selectedLayer, _selectedEffectIndex);
             update();
             return;
         }
@@ -3260,6 +3364,7 @@ FluxTimeline::mouseReleaseEvent(QMouseEvent* /*event*/)
             if (std::abs(roundedNew - roundedOld) > 0.5) {
                 const FluxKeyframeProperty& prop = _propertyRows[_dragPropertyIndex];
                 if (moveKeysAtTime(prop, roundedOld, roundedNew)) {
+                    syncTextAnimatorPropertyIfNeeded(prop);
                     rebuildVisibleRows();
                     Q_EMIT compositingChanged();
                     Q_EMIT frameChanged(_currentFrame);
@@ -3503,6 +3608,7 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                     }
                     const FluxKeyframeProperty& prop = _propertyRows[propIdx];
                     if (addKeyAtTime(prop, _currentFrame)) {
+                        syncTextAnimatorPropertyIfNeeded(prop);
                         rebuildVisibleRows();
                         Q_EMIT compositingChanged();
                         Q_EMIT frameChanged(_currentFrame);
@@ -3518,6 +3624,7 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                     }
                     const FluxKeyframeProperty& prop = _propertyRows[propIdx];
                     if (deleteKeysAtTime(prop, _currentFrame)) {
+                        syncTextAnimatorPropertyIfNeeded(prop);
                         rebuildVisibleRows();
                         Q_EMIT compositingChanged();
                         Q_EMIT frameChanged(_currentFrame);
@@ -3541,6 +3648,7 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                     }
                     const FluxKeyframeProperty& prop = _propertyRows[propIdx];
                     if (deleteKeysAtTime(prop, _selectedKeyTime)) {
+                        syncTextAnimatorPropertyIfNeeded(prop);
                         rebuildVisibleRows();
                         Q_EMIT compositingChanged();
                         Q_EMIT frameChanged(_currentFrame);
@@ -3557,6 +3665,7 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                         }
                         const FluxKeyframeProperty& prop = _propertyRows[propIdx];
                         if (deleteKeysAtTime(prop, nearestTime)) {
+                            syncTextAnimatorPropertyIfNeeded(prop);
                             rebuildVisibleRows();
                             Q_EMIT compositingChanged();
                             Q_EMIT frameChanged(_currentFrame);
@@ -3589,19 +3698,29 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
         });
 
         QAction* textAction = addMenu->addAction(QString::fromUtf8("Text"));
-        bool textProviderAvailable = false;
+        bool motionTextProviderAvailable = false;
+        bool textRenderProviderAvailable = false;
         if (appPTR) {
-            const std::list<std::string> textPlugins = appPTR->getPluginIDs("Text");
-            for (std::list<std::string>::const_iterator it = textPlugins.begin(); it != textPlugins.end(); ++it) {
-                if (*it == std::string("net.fxarena.openfx.Text")) {
-                    textProviderAvailable = true;
-                    break;
+            const std::list<std::string> pluginIDs = appPTR->getPluginIDs();
+            for (std::list<std::string>::const_iterator it = pluginIDs.begin(); it != pluginIDs.end(); ++it) {
+                if (*it == std::string("net.sf.openfx.FluxMotionText")) {
+                    motionTextProviderAvailable = true;
+                } else if (*it == std::string("net.flux.openfx.TextRender")) {
+                    textRenderProviderAvailable = true;
                 }
             }
         }
+        const bool textProviderAvailable = motionTextProviderAvailable && textRenderProviderAvailable;
         textAction->setEnabled(textProviderAvailable);
         if (!textProviderAvailable) {
-            textAction->setToolTip(QString::fromUtf8("Text.ofx provider is not available."));
+            QStringList missingProviders;
+            if (!motionTextProviderAvailable) {
+                missingProviders << QString::fromUtf8("net.sf.openfx.FluxMotionText");
+            }
+            if (!textRenderProviderAvailable) {
+                missingProviders << QString::fromUtf8("net.flux.openfx.TextRender");
+            }
+            textAction->setToolTip(QString::fromUtf8("Text layer unavailable. Missing provider(s): %1.").arg(missingProviders.join(QString::fromUtf8(", "))));
         }
         connect(textAction, &QAction::triggered, this, [this]() {
             addTextLayer();
@@ -3709,6 +3828,22 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                 showNodeCreationDialog();
             });
 
+            if (_layers[layerIdx].type == QString::fromUtf8("text")) {
+                QAction* addTextAnimatorAction = menu.addAction(QString::fromUtf8("Add Text Animator"));
+                addTextAnimatorAction->setEnabled(!_layers[layerIdx].locked && _layers[layerIdx].gizmoNode);
+                connect(addTextAnimatorAction, &QAction::triggered, this, [this, layerIdx]() {
+                    if (layerIdx < 0 || layerIdx >= _layers.size() || !_layers[layerIdx].gizmoNode) {
+                        return;
+                    }
+                    FluxTextAnimatorModel::addAnimator(_layers[layerIdx].gizmoNode, QString());
+                    _layers[layerIdx].expanded = true;
+                    rebuildVisibleRows();
+                    Q_EMIT compositingChanged();
+                    Q_EMIT frameChanged(_currentFrame);
+                    update();
+                });
+            }
+
             QAction* addLayerMaskAction = menu.addAction(QString::fromUtf8("Add Layer Mask"));
             addLayerMaskAction->setEnabled(!_layers[layerIdx].locked);
             connect(addLayerMaskAction, &QAction::triggered, this, [this, layerIdx]() {
@@ -3776,6 +3911,7 @@ FluxTimeline::keyPressEvent(QKeyEvent* event)
             _selectedKeyPropertyIndex < _propertyRows.size()) {
             const FluxKeyframeProperty& prop = _propertyRows[_selectedKeyPropertyIndex];
             if (deleteKeysAtTime(prop, _selectedKeyTime)) {
+                syncTextAnimatorPropertyIfNeeded(prop);
                 rebuildVisibleRows();
                 Q_EMIT compositingChanged();
                 Q_EMIT frameChanged(_currentFrame);

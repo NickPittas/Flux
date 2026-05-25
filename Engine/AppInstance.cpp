@@ -910,7 +910,7 @@ AppInstance::createNodeFromPythonModule(Plugin* plugin,
         if (istoolsetScript) {
             ss << ",\"\"";
         } else {
-            ss << ", app" << appID << "." << containerFullySpecifiedName;
+            ss << ", app" << appID << ".getNode(\"" << containerFullySpecifiedName << "\")";
         }
         ss << ")\n";
         std::string err;

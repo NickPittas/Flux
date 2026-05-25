@@ -50,6 +50,7 @@ NATRON_NAMESPACE_ENTER
 
 enum FluxVisibleRowType {
     eFluxVisibleRowLayer,
+    eFluxVisibleRowTextAnimator,
     eFluxVisibleRowEffect,
     eFluxVisibleRowMask,
     eFluxVisibleRowProperty
@@ -58,6 +59,7 @@ enum FluxVisibleRowType {
 enum FluxSelectionType {
     eFluxSelectionNone,
     eFluxSelectionLayer,
+    eFluxSelectionTextAnimator,
     eFluxSelectionEffect,
     eFluxSelectionMask,
     eFluxSelectionProperty
@@ -256,6 +258,9 @@ Q_SIGNALS:
 
     /** @brief Emitted when a layer is selected. */
     void layerSelected(int index);
+
+    /** @brief Emitted when a text animator row is selected. */
+    void textAnimatorSelected(int layerIndex, int animatorId);
 
     /** @brief Emitted when a layer is double-clicked (open properties). */
     void layerDoubleClicked(int index);

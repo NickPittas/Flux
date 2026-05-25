@@ -30,6 +30,7 @@
 #include <algorithm> // min, max
 #include <limits>
 #include <cstring> // for std::memcpy, std::memset, std::strcmp, std::strchr
+#include <cmath>
 #include <stdexcept>
 
 #include "Global/GLIncludes.h" //!<must be included before QGlWidget because of gl.h and glew.h
@@ -37,6 +38,7 @@
 #include <QMenu>
 #include <QToolButton>
 #include <QApplication> // qApp
+#include <QtGlobal>
 #include <QScreen>
 #include <QWindow>
 
@@ -51,6 +53,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include <QOpenGLShaderProgram>
 
 #include "Engine/Lut.h"
+#include "Engine/Image.h"
 #include "Engine/Node.h"
 #include "Engine/NodeGuiI.h"
 #include "Engine/Project.h"
@@ -329,7 +332,6 @@ ViewerGL::paintGL()
              (compOperator != eViewerCompositingOperatorStackMinus) ) {
             drawTexture[1] = false;
         }
-
         double wipeMix;
         {
             QMutexLocker l(&_imp->wipeControlsMutex);
@@ -1601,7 +1603,7 @@ ViewerGL::transferBufferFromRAMtoGPU(const unsigned char* ramBuffer,
     } else {
         // re-use the existing texture if possible
         tex = _imp->displayTextures[textureIndex].texture;
-        if (tex->type() != dataType) {
+        if (!tex || tex->type() != dataType) {
             int format, internalFormat, glType;
             if (dataType == Texture::eDataTypeFloat) {
                 Texture::getRecommendedTexParametersForRGBAFloatTexture(&format, &internalFormat, &glType);
@@ -1609,6 +1611,7 @@ ViewerGL::transferBufferFromRAMtoGPU(const unsigned char* ramBuffer,
                 Texture::getRecommendedTexParametersForRGBAByteTexture(&format, &internalFormat, &glType);
             }
             _imp->displayTextures[textureIndex].texture.reset( new Texture(GL_TEXTURE_2D, GL_LINEAR, GL_NEAREST, GL_CLAMP_TO_EDGE, dataType, format, internalFormat, glType) );
+            tex = _imp->displayTextures[textureIndex].texture;
         }
         textureRectangle.set(roiRoundedToTileSize);
         _imp->displayTextures[textureIndex].roiNotRoundedToTileSize.set(roi);
@@ -2705,20 +2708,37 @@ ViewerGL::updateColorPicker(int textureIndex,
 void
 ViewerGL::setParametricParamsPickerColor(const OfxRGBAColourD& color, bool setColor, bool hasColor)
 {
-    if (!_imp->viewerTab->getGui()) {
+    Gui* gui = _imp->viewerTab->getGui();
+    if (!gui) {
         return;
     }
-    const std::list<DockablePanel*>& panels = _imp->viewerTab->getGui()->getVisiblePanels();
-    for (std::list<DockablePanel*>::const_iterator it = panels.begin(); it != panels.end(); ++it) {
-        NodeSettingsPanel* nodePanel = dynamic_cast<NodeSettingsPanel*>(*it);
-        if (!nodePanel) {
+    // Guard: skip if the project is currently loading — widgets are being
+    // hidden/shown by restoreLayout() and the panel list is mutating.
+    if ( gui->getApp() && gui->getApp()->getProject()->isLoadingProject() ) {
+        return;
+    }
+    // Enumerate live Qt-owned panels instead of using getVisiblePanels_mt_safe()
+    // which can return stale DockablePanel* pointers during FileDialog hide/show
+    // transitions that trigger synthetic enter/leave events via Qt internal
+    // hideChildren / sendSyntheticEnterLeave.
+    const QList<NodeSettingsPanel*> panels = gui->findChildren<NodeSettingsPanel*>();
+    for (NodeSettingsPanel* nodePanel : panels) {
+        if (!nodePanel || !nodePanel->isVisible()) {
             continue;
         }
         NodeGuiPtr node = nodePanel->getNode();
         if (!node) {
             continue;
         }
-        node->getNode()->getEffectInstance()->setInteractColourPicker_public(color, setColor, hasColor);
+        NodePtr internalNode = node->getNode();
+        if (!internalNode) {
+            continue;
+        }
+        EffectInstancePtr effect = internalNode->getEffectInstance();
+        if (!effect) {
+            continue;
+        }
+        effect->setInteractColourPicker_public(color, setColor, hasColor);
     }
 }
 
@@ -2728,13 +2748,18 @@ ViewerGL::checkIfViewPortRoIValidOrRenderForInput(int texIndex)
 
     unsigned int mipmapLevel = std::max(getInternalNode()->getMipmapLevelFromZoomFactor(), getInternalNode()->getMipmapLevel());
     int closestPo2 = 1 << mipmapLevel;
-    if (closestPo2 != _imp->displayTextures[texIndex].texture->getTextureRect().closestPo2) {
+    const TextureInfo& info = _imp->displayTextures[texIndex];
+    if (!info.texture) {
+        return false;
+    }
+    const TextureRect& currentTexRoi = info.texture->getTextureRect();
+    if (closestPo2 != currentTexRoi.closestPo2) {
         return false;
     }
     RectI roiNotRounded;
     RectI roi = getImageRectangleDisplayedRoundedToTileSize(texIndex, _imp->displayTextures[texIndex].rod, _imp->displayTextures[texIndex].texture->getTextureRect().par, mipmapLevel, 0, 0, 0, &roiNotRounded);
-    const RectI& currentTexRoi = _imp->displayTextures[texIndex].texture->getTextureRect();
-    if (!currentTexRoi.contains(roi)) {
+    const bool containsRoi = currentTexRoi.contains(roi);
+    if (!containsRoi) {
         return false;
     }
     _imp->displayTextures[texIndex].roiNotRoundedToTileSize.set(roiNotRounded);
@@ -2840,7 +2865,6 @@ ViewerGL::wheelEvent(QWheelEvent* e)
     }
 
     checkIfViewPortRoIValidOrRender();
-
 
     ///Clear green cached line so the user doesn't expect to see things in the cache
     ///since we're changing the zoom factor
@@ -3064,7 +3088,8 @@ ViewerGL::setFormat(const std::string& formatName, const RectD& format, double p
     if ( !_imp->viewerTab->getGui() ) {
         return;
     }
-    if (_imp->displayTextures[textureIndex].format != format || _imp->displayTextures[textureIndex].pixelAspectRatio != par) {
+    const bool changed = _imp->displayTextures[textureIndex].format != format || _imp->displayTextures[textureIndex].pixelAspectRatio != par;
+    if (changed) {
         _imp->displayTextures[textureIndex].format = format;
         _imp->displayTextures[textureIndex].pixelAspectRatio = par;
         if (!getZoomOrPannedSinceLastFit() && _imp->zoomCtx.screenWidth() != 0 && _imp->zoomCtx.screenHeight() != 0) {

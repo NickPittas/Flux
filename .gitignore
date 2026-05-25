@@ -310,6 +310,7 @@ plugins/*
 !plugins/FluxLayer.py
 !plugins/FluxSolid.py
 !plugins/FluxText.py
+!plugins/FluxMotionText.py
 !plugins/IO.ofx.bundle/
 !plugins/IO.ofx.bundle/**
 !plugins/Misc.ofx.bundle/
