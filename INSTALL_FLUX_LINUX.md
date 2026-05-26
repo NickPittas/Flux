@@ -42,12 +42,51 @@ PyPlug submodule.
 
 ## 2. Fedora bootstrap
 
+Start the installer from an interactive terminal with no arguments. The default
+interactive path is a pure Bash guided menu: it probes the workstation, explains
+current status, offers bootstrap/deploy/build/validation choices, and asks for
+confirmation before any mutating action.
+
+```bash
+"${FLUX_ROOT}/tools/linux/flux-linux-setup.sh"
+```
+
+For testing or scripted menu smoke checks, force the same menu with `--tui`.
+When stdin/stdout are not terminals and no arguments are given, the helper stays
+safe and falls back to the existing non-mutating check behavior.
+
+CLI alternatives remain available:
+
+```bash
+"${FLUX_ROOT}/tools/linux/flux-linux-setup.sh" --check
+"${FLUX_ROOT}/tools/linux/flux-linux-setup.sh" --print-commands
+```
+
+Typical guidance includes:
+
+```bash
+sudo dnf install -y https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
+sudo dnf install -y --allowerasing <Flux Fedora package list>
+"${FLUX_ROOT}/tools/linux/flux-linux-setup.sh" --enable-rpmfusion
+"${FLUX_ROOT}/tools/linux/flux-linux-setup.sh" --install-deps
+"${FLUX_ROOT}/tools/linux/flux-linux-setup.sh" --bootstrap
+```
+
+If `sudo` is unavailable or non-interactive, the helper stops and prints the
+commands to run manually instead of failing cryptically. In toolbox/distrobox or
+other containers, run those package commands inside the container. For NVIDIA GUI
+validation in containers, prefer `distrobox --nvidia` and confirm `nvidia-smi`
+and `glxinfo -B` inside the box.
+
 The bootstrap helper is the normal Fedora path once the required OpenFX payloads
 are present in `$PLUGIN_PREFIX` or `$PLUGIN_PREFIX/ofx-extras`, or supplied with
 `--extras-source`. The current source tree does not build IO/Misc/Arena extras
 from scratch during bootstrap.
 
-Run the Flux bootstrap helper:
+Run the Flux bootstrap helper from a post-clone shell where `git` is already
+available. Minimal Fedora containers may need `git`/`sudo` installed in the
+container before they can exercise the exact bootstrap path; do not install
+those on the production host just for T070 validation.
 
 ```bash
 "${FLUX_ROOT}/tools/linux/flux-linux-setup.sh" --bootstrap
@@ -74,6 +113,7 @@ should be refreshed in-place, use:
 10. scoped OFX cache clear
 11. user launcher install
 12. `ldd` validation of installed OFX binaries
+13. cold-cache `net.flux.openfx.TextRender` discovery validation via `NatronRenderer`
 
 Mutating actions do not run the full checker unless `--check` is also passed,
 because the OFX registry cache cannot be validated until Flux has launched once.
@@ -95,19 +135,22 @@ that is expected because the runtime registry cache is created on first launch.
 
 ## 3. What bootstrap installs on Fedora
 
-Manual package list, if needed:
+Manual package list, if needed. The helper prints this exact command with
+`--print-commands` and repeats it when Fedora package checks fail:
 
 ```bash
-sudo dnf install -y \
-  cmake extra-cmake-modules gcc gcc-c++ make ninja-build git boost-devel \
+sudo dnf install -y --allowerasing \
+  cmake extra-cmake-modules gcc gcc-c++ clang make ninja-build git boost-devel \
   qt6-qtbase-devel qt6-qtbase-gui \
-  python3 python3-devel python3-pyside6 python3-shiboken6 shiboken6 \
+  python3 python3-devel python3-pyside6 python3-pyside6-devel \
+  python3-shiboken6 python3-shiboken6-devel shiboken6 \
   libX11-devel libXext-devel libXrender-devel mesa-libGL mesa-libGL-devel mesa-libGLU \
   glew-devel expat-devel cairo-devel pango-devel glib2-devel \
   fontconfig-devel freetype-devel \
   libpng-devel libjpeg-turbo-devel libtiff-devel openexr-devel \
   openjpeg-devel libwebp-devel LibRaw-devel \
   ffmpeg-devel OpenColorIO-devel OpenImageIO-devel \
+  ImageMagick-c++ libraqm liblqr-1 \
   libzip-devel minizip-ng-devel eigen3-devel glog-devel ceres-solver-devel
 ```
 
@@ -215,6 +258,7 @@ QT_PLUGIN_PATH=<detected from qtpaths6, qtpaths-qt6, qmake6, or common distro pa
 QT_QPA_PLATFORM=xcb
 NATRON_PLUGIN_PATH=$HOME/.Natron/PyPlugs:$FLUX_ROOT/Gui/Resources/PyPlugs:$PLUGIN_PREFIX/natron-plugins
 OFX_PLUGIN_PATH=$OFX_USER_PLUGIN_DIR:$PLUGIN_PREFIX
+LD_LIBRARY_PATH=$OFX_USER_PLUGIN_DIR/SeExpr.ofx.bundle/Contents/Linux-x86-64/seexpr-deps/lib:$OFX_USER_PLUGIN_DIR/Magick.ofx.bundle/Contents/Linux-x86-64/magick-deps/lib:$LD_LIBRARY_PATH
 ```
 
 Run:
@@ -230,6 +274,7 @@ unless your distro requires `QT_PLUGIN_PATH` explicitly:
 QT_QPA_PLATFORM=xcb \
 NATRON_PLUGIN_PATH="$HOME/.Natron/PyPlugs:$FLUX_ROOT/Gui/Resources/PyPlugs:$PLUGIN_PREFIX/natron-plugins" \
 OFX_PLUGIN_PATH="$OFX_USER_PLUGIN_DIR:$PLUGIN_PREFIX" \
+LD_LIBRARY_PATH="$OFX_USER_PLUGIN_DIR/SeExpr.ofx.bundle/Contents/Linux-x86-64/seexpr-deps/lib:$OFX_USER_PLUGIN_DIR/Magick.ofx.bundle/Contents/Linux-x86-64/magick-deps/lib:${LD_LIBRARY_PATH:-}" \
 "$BUILD_DIR/App/Natron"
 ```
 
@@ -252,10 +297,15 @@ Do not delete autosaves as part of plugin maintenance.
 
 ## 8. Validation checklist
 
-Run the non-mutating checker:
+Run the TUI first on an interactive workstation, or the non-mutating checker in
+CI/non-interactive shells. Add `--print-commands` when you want the actionable
+Fedora command/options block even if only part of the check fails:
 
 ```bash
+"${FLUX_ROOT}/tools/linux/flux-linux-setup.sh"
+"${FLUX_ROOT}/tools/linux/flux-linux-setup.sh" --tui
 "${FLUX_ROOT}/tools/linux/flux-linux-setup.sh" --check --validate-ldd
+"${FLUX_ROOT}/tools/linux/flux-linux-setup.sh" --check --print-commands
 ```
 
 On the first run after clearing the OFX cache, the checker may report that the

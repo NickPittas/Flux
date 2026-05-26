@@ -30,6 +30,8 @@ PYTHON_RUNTIME_DIR="${PYTHON_RUNTIME_DIR:-${FLUX_PYTHON_RUNTIME_DIR:-${BUILD_DIR
 DO_CHECK=0
 CHECK_EXPLICIT=0
 ACTION_REQUESTED=0
+DO_PRINT_COMMANDS=0
+DO_TUI=0
 DO_BOOTSTRAP=0
 DO_UPDATE_SUBMODULES=0
 DO_ENABLE_RPMFUSION=0
@@ -51,6 +53,7 @@ FEDORA_PACKAGES=(
   extra-cmake-modules
   gcc
   gcc-c++
+  clang
   make
   ninja-build
   git
@@ -60,7 +63,9 @@ FEDORA_PACKAGES=(
   python3
   python3-devel
   python3-pyside6
+  python3-pyside6-devel
   python3-shiboken6
+  python3-shiboken6-devel
   shiboken6
   libX11-devel
   libXext-devel
@@ -85,6 +90,9 @@ FEDORA_PACKAGES=(
   ffmpeg-devel
   OpenColorIO-devel
   OpenImageIO-devel
+  ImageMagick-c++
+  libraqm
+  liblqr-1
   libzip-devel
   minizip-ng-devel
   eigen3-devel
@@ -159,6 +167,8 @@ Checks and prepares a Linux workstation for Flux.
 
 Default:
   --check                    Check packages, build output, PyPlugs, OFX bundles.
+  --print-commands           Print exact Fedora setup commands and helper options.
+  --tui                      Show the interactive guided setup menu.
 
 Bootstrap setup:
   --bootstrap                Fedora path after required OFX payloads are staged:
@@ -204,6 +214,7 @@ Options:
 Examples:
   ${0##*/} --bootstrap
   ${0##*/} --check
+  ${0##*/} --print-commands
   ${0##*/} --install-deps
   ${0##*/} --configure --build
   ${0##*/} --deploy-extras --install-launcher --validate-ldd --validate-ofx-discovery
@@ -221,6 +232,16 @@ parse_args() {
         ;;
       --no-check)
         DO_CHECK=0
+        shift
+        ;;
+      --print-commands)
+        DO_PRINT_COMMANDS=1
+        ACTION_REQUESTED=1
+        shift
+        ;;
+      --tui)
+        DO_TUI=1
+        ACTION_REQUESTED=1
         shift
         ;;
       --bootstrap)
@@ -369,8 +390,68 @@ parse_args() {
   fi
 
   if [[ "$ACTION_REQUESTED" -eq 0 && "$CHECK_EXPLICIT" -eq 0 ]]; then
-    DO_CHECK=1
+    if [[ -t 0 && -t 1 ]]; then
+      DO_TUI=1
+    else
+      DO_CHECK=1
+    fi
   fi
+}
+
+fedora_version_for_commands() {
+  if command -v rpm >/dev/null 2>&1; then
+    rpm -E %fedora 2>/dev/null || printf '<fedora-version>\n'
+  else
+    printf '<fedora-version>\n'
+  fi
+}
+
+print_fedora_guidance() {
+  local fedora_version rpmfusion_url
+  fedora_version="$(fedora_version_for_commands)"
+  rpmfusion_url="https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm"
+
+  cat <<EOF
+
+Flux Fedora setup commands/options:
+  Enable RPM Fusion free:
+    sudo dnf install -y ${rpmfusion_url}
+
+  Install Fedora dependencies:
+    sudo dnf install -y --allowerasing ${FEDORA_PACKAGES[*]}
+
+  Helper alternatives:
+    ${0} --enable-rpmfusion
+    ${0} --install-deps
+    ${0} --bootstrap
+
+  Non-mutating probes:
+    ${0} --check
+    ${0} --verify-fedora-repos --print-commands
+
+Notes:
+  - This helper is Fedora-first; package guidance is not validated for other distros.
+  - In toolbox/distrobox/containers, install inside the container, not on the host.
+  - For NVIDIA GUI validation in containers, prefer distrobox --nvidia and confirm nvidia-smi/glxinfo.
+EOF
+}
+
+sudo_can_run() {
+  command -v sudo >/dev/null 2>&1 || return 1
+  if [[ -t 0 ]]; then
+    return 0
+  fi
+  sudo -n true >/dev/null 2>&1
+}
+
+require_sudo_or_guidance() {
+  local action="$1"
+  if sudo_can_run; then
+    return 0
+  fi
+  warn "sudo is unavailable or non-interactive for ${action}."
+  print_fedora_guidance
+  return 1
 }
 
 detect_os() {
@@ -413,7 +494,7 @@ check_fedora_packages() {
   if [[ ${#missing[@]} -gt 0 ]]; then
     warn 'Missing Fedora packages:'
     printf '  %s\n' "${missing[@]}" >&2
-    warn "Install with: ${0} --install-deps"
+    print_fedora_guidance
     return 1
   fi
 
@@ -437,7 +518,7 @@ verify_fedora_repos() {
   if [[ ${#missing[@]} -gt 0 ]]; then
     warn 'Fedora packages not available from enabled repositories:'
     printf '  %s\n' "${missing[@]}" >&2
-    warn 'Enable Fedora updates and RPM Fusion free, then retry.'
+    print_fedora_guidance
     return 1
   fi
 
@@ -449,7 +530,7 @@ enable_rpmfusion_free() {
   os_id="$(detect_os)"
   [[ "$os_id" == "fedora" ]] || die "RPM Fusion setup only supports Fedora; detected '${os_id}'."
   command -v rpm >/dev/null 2>&1 || die 'rpm is required to check RPM Fusion.'
-  command -v sudo >/dev/null 2>&1 || die 'sudo is required to enable RPM Fusion.'
+  require_sudo_or_guidance '--enable-rpmfusion' || die 'sudo is required to enable RPM Fusion.'
   command -v dnf >/dev/null 2>&1 || die 'dnf is required to enable RPM Fusion.'
 
   if rpm -q rpmfusion-free-release >/dev/null 2>&1; then
@@ -467,11 +548,11 @@ install_fedora_packages() {
   local os_id
   os_id="$(detect_os)"
   [[ "$os_id" == "fedora" ]] || die "--install-deps currently supports Fedora only; detected '${os_id}'."
-  command -v sudo >/dev/null 2>&1 || die 'sudo is required for --install-deps.'
+  require_sudo_or_guidance '--install-deps' || die 'sudo is required for --install-deps.'
   command -v dnf >/dev/null 2>&1 || die 'dnf is required for --install-deps.'
 
   log 'Installing Fedora packages. RPM Fusion free must be enabled for ffmpeg-devel.'
-  sudo dnf install -y "${FEDORA_PACKAGES[@]}"
+  sudo dnf install -y --allowerasing "${FEDORA_PACKAGES[@]}"
 }
 
 update_submodules() {
@@ -732,6 +813,7 @@ fi
 export QT_QPA_PLATFORM="\${QT_QPA_PLATFORM:-xcb}"
 export NATRON_PLUGIN_PATH="\${NATRON_PLUGIN_PATH:-${USER_PYPLUG_DIR}:${FLUX_ROOT}/Gui/Resources/PyPlugs:${PLUGIN_PREFIX}/natron-plugins}"
 export OFX_PLUGIN_PATH="\${OFX_PLUGIN_PATH:-${USER_OFX_DIR}:${PLUGIN_PREFIX}}"
+export LD_LIBRARY_PATH="${USER_OFX_DIR}/SeExpr.ofx.bundle/Contents/Linux-x86-64/seexpr-deps/lib:${USER_OFX_DIR}/Magick.ofx.bundle/Contents/Linux-x86-64/magick-deps/lib:\${LD_LIBRARY_PATH:-}"
 
 exec "${BUILD_DIR}/App/Natron" "\$@"
 EOF
@@ -770,7 +852,7 @@ validate_ldd() {
       failed=1
       continue
     fi
-    output="$(ldd "$binary" 2>&1 || true)"
+    output="$(LD_LIBRARY_PATH="${USER_OFX_DIR}/SeExpr.ofx.bundle/Contents/Linux-x86-64/seexpr-deps/lib:${USER_OFX_DIR}/Magick.ofx.bundle/Contents/Linux-x86-64/magick-deps/lib:${LD_LIBRARY_PATH:-}" ldd "$binary" 2>&1 || true)"
     if [[ "$output" == *'not found'* ]]; then
       warn "Missing shared library for ${binary}:"
       printf '%s\n' "$output" >&2
@@ -919,9 +1001,206 @@ run_checks() {
   return "$status"
 }
 
+status_word() {
+  if "$@" >/dev/null 2>&1; then
+    printf 'ok'
+  else
+    printf 'missing/needs attention'
+  fi
+}
+
+rpmfusion_status() {
+  if command -v rpm >/dev/null 2>&1 && rpm -q rpmfusion-free-release >/dev/null 2>&1; then
+    printf 'enabled'
+  else
+    printf 'not detected'
+  fi
+}
+
+fedora_deps_status() {
+  local pkg
+  if ! command -v rpm >/dev/null 2>&1; then
+    printf 'not checked (rpm unavailable)'
+    return 0
+  fi
+  for pkg in "${FEDORA_PACKAGES[@]}"; do
+    if ! rpm -q "$pkg" >/dev/null 2>&1; then
+      printf 'missing packages'
+      return 0
+    fi
+  done
+  printf 'installed'
+}
+
+ofx_bundle_status() {
+  local bundle binary
+  for bundle in "${OFX_CORE_BUNDLES[@]}" "${OFX_EXTRA_BUNDLES[@]}"; do
+    binary="$(ofx_binary_path "$bundle")"
+    [[ -f "$binary" ]] || { printf 'missing bundles'; return 0; }
+  done
+  printf 'present'
+}
+
+pyplug_status() {
+  local pyplug
+  for pyplug in "${PYPLUG_FILES[@]}"; do
+    [[ -f "${USER_PYPLUG_DIR}/$(basename "$pyplug")" ]] || { printf 'missing'; return 0; }
+  done
+  printf 'present'
+}
+
+ofx_cache_status() {
+  local cache_file="${OFX_CACHE_DIR}/OFXCache_2.6_Devel_0.xml"
+  [[ -f "$cache_file" ]] && printf 'present' || printf 'not generated yet'
+}
+
+print_tui_summary() {
+  local os_id container_hint nvidia_hint gl_hint
+  os_id="$(detect_os)"
+  if [[ -f /.dockerenv || -n "${container:-}" ]]; then
+    container_hint='container detected'
+  else
+    container_hint='no container marker detected'
+  fi
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    nvidia_hint="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n 1 || true)"
+    [[ -n "$nvidia_hint" ]] || nvidia_hint='nvidia-smi present, no GPU reported'
+  elif [[ -e /dev/nvidia0 ]]; then
+    nvidia_hint='/dev/nvidia0 present, nvidia-smi missing'
+  else
+    nvidia_hint='not detected'
+  fi
+  if command -v glxinfo >/dev/null 2>&1; then
+    gl_hint="$(glxinfo -B 2>/dev/null | awk -F: '/OpenGL renderer string/ {sub(/^ /,"",$2); print $2; exit}')"
+    [[ -n "$gl_hint" ]] || gl_hint='glxinfo present, renderer unavailable'
+  else
+    gl_hint='glxinfo not installed'
+  fi
+
+  cat <<EOF
+
+Flux Linux setup summary
+  OS: ${os_id}
+  RPM Fusion free: $(rpmfusion_status)
+  Fedora deps: $(fedora_deps_status)
+  Build binary: $(status_word test -x "${BUILD_DIR}/App/Natron") (${BUILD_DIR}/App/Natron)
+  PyPlugs: $(pyplug_status) (${USER_PYPLUG_DIR})
+  OFX bundles: $(ofx_bundle_status) (${USER_OFX_DIR})
+  OFX cache: $(ofx_cache_status) (${OFX_CACHE_DIR})
+  NVIDIA: ${nvidia_hint}
+  OpenGL: ${gl_hint}
+  Container: ${container_hint}
+EOF
+}
+
+confirm_mutation() {
+  local prompt="$1" answer
+  printf '%s [y/N]: ' "$prompt"
+  read -r answer || return 1
+  [[ "$answer" == "y" || "$answer" == "Y" || "$answer" == "yes" || "$answer" == "YES" ]]
+}
+
+run_full_bootstrap() {
+  DO_BUILD=1
+  update_submodules || return
+  preflight_ofx_bundle_sources || return
+  enable_rpmfusion_free || return
+  verify_fedora_repos || return
+  install_fedora_packages || return
+  configure_flux || return
+  build_flux || return
+  build_ofx_flux || return
+  bootstrap_python_runtime || return
+  deploy_pyplugs || return
+  deploy_ofx_bundles || return
+  clear_ofx_cache || return
+  write_launcher || return
+  validate_ldd || return
+  validate_ofx_discovery || return
+}
+
+run_deploy_runtime() {
+  bootstrap_python_runtime || return
+  deploy_pyplugs || return
+  deploy_ofx_bundles || return
+  clear_ofx_cache || return
+  write_launcher || return
+  validate_ldd || return
+}
+
+run_build_all() {
+  build_flux || return
+  build_ofx_flux || return
+}
+
+run_tui_action() {
+  local label="$1"
+  shift
+  if "$@"; then
+    log "${label} completed."
+  else
+    warn "${label} failed; review the output above and choose the next step."
+  fi
+}
+
+launch_flux() {
+  if [[ -x "$LAUNCHER_PATH" ]]; then
+    "$LAUNCHER_PATH"
+  elif [[ -x "${BUILD_DIR}/App/Natron" ]]; then
+    "${BUILD_DIR}/App/Natron"
+  else
+    die "Flux binary not found: ${BUILD_DIR}/App/Natron. Build first."
+  fi
+}
+
+run_tui() {
+  local choice
+  while true; do
+    print_tui_summary
+    cat <<EOF
+
+Choose an action:
+  1) Run full bootstrap
+  2) Enable RPM Fusion
+  3) Install dependencies
+  4) Configure build
+  5) Build Flux
+  6) Deploy runtime plugins/launcher/cache/ldd
+  7) Launch Flux
+  8) Run validation checks
+  9) Print commands
+  q) Quit
+EOF
+    printf 'Selection: '
+    read -r choice || return 0
+    case "$choice" in
+      1) confirm_mutation 'Run full bootstrap (sudo/build/deploy/cache changes)?' && run_tui_action 'Full bootstrap' run_full_bootstrap ;;
+      2) confirm_mutation 'Enable RPM Fusion with sudo dnf?' && run_tui_action 'RPM Fusion setup' enable_rpmfusion_free ;;
+      3) confirm_mutation 'Install Fedora dependencies with sudo dnf?' && run_tui_action 'Dependency install' install_fedora_packages ;;
+      4) confirm_mutation 'Configure CMake build directory?' && run_tui_action 'Configure' configure_flux ;;
+      5) confirm_mutation 'Build Flux targets?' && run_tui_action 'Build' run_build_all ;;
+      6) confirm_mutation 'Deploy plugins, clear OFX cache, install launcher, run ldd?' && run_tui_action 'Runtime deploy' run_deploy_runtime ;;
+      7) confirm_mutation 'Launch Flux now?' && run_tui_action 'Launch Flux' launch_flux ;;
+      8) run_tui_action 'Validation checks' run_checks ;;
+      9) print_fedora_guidance ;;
+      q|Q) return 0 ;;
+      *) warn "Unknown menu choice: ${choice}" ;;
+    esac
+  done
+}
+
 main() {
   parse_args "$@"
   refresh_derived_paths
+
+  if [[ "$DO_TUI" -eq 1 ]]; then
+    run_tui
+    return 0
+  fi
+
+  if [[ "$DO_PRINT_COMMANDS" -eq 1 ]]; then
+    print_fedora_guidance
+  fi
 
   if [[ "$DO_UPDATE_SUBMODULES" -eq 1 ]]; then
     update_submodules
