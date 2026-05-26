@@ -288,6 +288,9 @@ tools/utils/generateGLIncludes.pro.user
 tools/utils/generateGLIncludes.xcodeproj/
 Gui/Resources/etc/fonts/fonts.conf
 
+# Pi local agent/codemap state
+.pi/
+
 # VS Code
 .vscode/
 
