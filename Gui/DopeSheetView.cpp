@@ -1125,6 +1125,12 @@ DopeSheetViewPrivate::drawNodeRow(const DSNodePtr dsNode) const
     glVertex2f( rowRect.right(), rowRect.bottom() );
     glVertex2f( rowRect.right(), rowRect.top() );
     glEnd();
+
+    glColor4f(1.f, 1.f, 1.f, 0.08f);
+    glBegin(GL_LINES);
+    glVertex2f( rowRect.left(), rowRect.bottom() );
+    glVertex2f( rowRect.right(), rowRect.bottom() );
+    glEnd();
 }
 
 /**
@@ -1158,6 +1164,12 @@ DopeSheetViewPrivate::drawKnobRow(const DSKnobPtr dsKnob) const
     glVertex2f( rowRect.right(), rowRect.bottom() );
     glVertex2f( rowRect.right(), rowRect.top() );
     glEnd();
+
+    glColor4f(0.f, 0.f, 0.f, 0.22f);
+    glBegin(GL_LINES);
+    glVertex2f( rowRect.left(), rowRect.bottom() );
+    glVertex2f( rowRect.right(), rowRect.bottom() );
+    glEnd();
 }
 
 void
@@ -1168,7 +1180,6 @@ DopeSheetViewPrivate::drawNodeRowSeparation(const DSNodePtr dsNode) const
     QRectF rowRect = nameItemRectToRowRect(nameItemRect);
     glLineWidth(appPTR->getCurrentSettings()->getDopeSheetEditorNodeSeparationWith() * _screenPixelRatio);
     glColor4f(0.f, 0.f, 0.f, 1.f);
-    glLineWidth(1. * _screenPixelRatio);
     glBegin(GL_LINES);
     glVertex2f( rowRect.left(), rowRect.top() );
     glVertex2f( rowRect.right(), rowRect.top() );
@@ -1493,6 +1504,20 @@ DopeSheetViewPrivate::drawTexturedKeyframe(DopeSheetViewPrivate::KeyframeTexture
     // Validate texture type and ID — fall back to plain diamond if unavailable
     bool textureValid = (textureType >= 0 && textureType < KF_TEXTURES_COUNT && kfTexturesIDs[textureType] != 0);
 
+    double cx = (rect.left() + rect.right()) * 0.5;
+    double cy = (rect.top() + rect.bottom()) * 0.5;
+    double hw = (rect.right() - rect.left()) * 0.5;
+    double hh = (rect.top() - rect.bottom()) * 0.5;
+    bool selectedTexture = (textureType == DopeSheetViewPrivate::kfTextureInterpConstantSelected ||
+                            textureType == DopeSheetViewPrivate::kfTextureInterpLinearSelected ||
+                            textureType == DopeSheetViewPrivate::kfTextureInterpCurveSelected ||
+                            textureType == DopeSheetViewPrivate::kfTextureInterpBreakSelected ||
+                            textureType == DopeSheetViewPrivate::kfTextureInterpCurveCSelected ||
+                            textureType == DopeSheetViewPrivate::kfTextureInterpCurveHSelected ||
+                            textureType == DopeSheetViewPrivate::kfTextureInterpCurveRSelected ||
+                            textureType == DopeSheetViewPrivate::kfTextureInterpCurveZSelected ||
+                            textureType == DopeSheetViewPrivate::kfTextureMasterSelected);
+
     if (textureValid) {
         glColor4f(1.f, 1.f, 1.f, 1.f);
         glEnable(GL_TEXTURE_2D);
@@ -1509,18 +1534,32 @@ DopeSheetViewPrivate::drawTexturedKeyframe(DopeSheetViewPrivate::KeyframeTexture
         glVertex2f( rect.right(), rect.top() );
         glEnd();
 
-        glColor4f(1.f, 1.f, 1.f, 1.f);
         glBindTexture(GL_TEXTURE_2D, 0);
         glDisable(GL_TEXTURE_2D);
+
+        glColor4f(0.f, 0.f, 0.f, selectedTexture ? 0.95f : 0.7f);
+        glBegin(GL_LINE_LOOP);
+        glVertex2f(cx, cy + hh);
+        glVertex2f(cx + hw, cy);
+        glVertex2f(cx, cy - hh);
+        glVertex2f(cx - hw, cy);
+        glEnd();
+
+        if (selectedTexture) {
+            glColor4f(1.f, 1.f, 1.f, 0.85f);
+            glBegin(GL_LINE_LOOP);
+            glVertex2f(cx, cy + hh - 1.5);
+            glVertex2f(cx + hw - 1.5, cy);
+            glVertex2f(cx, cy - hh + 1.5);
+            glVertex2f(cx - hw + 1.5, cy);
+            glEnd();
+        }
+
+        glColor4f(1.f, 1.f, 1.f, 1.f);
     } else {
         // Fallback: draw a simple non-textured diamond so keyframes remain visible
         glDisable(GL_TEXTURE_2D);
         glColor4f(0.9f, 0.9f, 0.9f, 1.f);
-
-        double cx = (rect.left() + rect.right()) * 0.5;
-        double cy = (rect.top() + rect.bottom()) * 0.5;
-        double hw = (rect.right() - rect.left()) * 0.5;
-        double hh = (rect.top() - rect.bottom()) * 0.5;
 
         glBegin(GL_POLYGON);
         glVertex2f(cx, cy + hh);       // top
@@ -1544,8 +1583,9 @@ DopeSheetViewPrivate::drawTexturedKeyframe(DopeSheetViewPrivate::KeyframeTexture
     if (drawTime) {
         QString text = QString::number(time);
         QPointF p = zoomContext.toWidgetCoordinates( rect.right(), rect.bottom() );
-        p.rx() += 3;
+        p.rx() += 4;
         p = zoomContext.toZoomCoordinates( p.x(), p.y() );
+        renderText(p.x() + 1., p.y() - 1., text, QColor(0, 0, 0, 220), *_textFont);
         renderText(p.x(), p.y(), text, textColor, *_textFont);
     }
 }
