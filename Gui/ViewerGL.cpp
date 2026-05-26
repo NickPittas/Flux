@@ -120,6 +120,7 @@ ViewerGL::ViewerGL(ViewerTab* parent,
     : QOpenGLWidget(parent)
     , _imp( new Implementation(this, parent) )
 {
+    Q_UNUSED(shareWidget);
     // always running in the main thread
     assert( qApp && qApp->thread() == QThread::currentThread() );
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);

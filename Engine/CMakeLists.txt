@@ -41,6 +41,12 @@ execute_process(COMMAND ${Python3_EXECUTABLE} ../tools/utils/sourceList.py types
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     OUTPUT_VARIABLE PyEngine_SOURCES)
 set_property(SOURCE ${PyEngine_SOURCES} PROPERTY SKIP_AUTOGEN ON)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set_property(SOURCE ${PyEngine_SOURCES} APPEND PROPERTY COMPILE_OPTIONS
+        -Wno-cast-function-type
+        -Wno-missing-declarations
+    )
+endif()
 add_custom_command(OUTPUT ${PyEngine_SOURCES}
     COMMAND $<TARGET_FILE:${SHIBOKEN_EXE}> ${shiboken_args}
     COMMAND ${Python3_EXECUTABLE} ../tools/utils/sourceCleanup.py typesystem_engine.xml ${PYENGINE_OUT}

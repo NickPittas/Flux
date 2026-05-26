@@ -459,8 +459,8 @@ FluxTimeline::duplicateLayer(int index)
             ++_selectedLayer;
         }
 
-        fprintf(stderr, "FLUX DUPLICATE: adjustment row '%s' duplicated with %d effects at index %d\n",
-                layer.name.toStdString().c_str(), newEffects.size(), index);
+        fprintf(stderr, "FLUX DUPLICATE: adjustment row '%s' duplicated with %lld effects at index %d\n",
+                layer.name.toStdString().c_str(), static_cast<long long>(newEffects.size()), index);
 
         rebuildVisibleRows();
         Q_EMIT compositingChanged();
@@ -767,8 +767,8 @@ FluxTimeline::duplicateLayer(int index)
         ++_selectedLayer;
     }
 
-    fprintf(stderr, "FLUX DUPLICATE: layer '%s' branch-aware duplicated with %d effects, %d masks at index %d\n",
-            layer.name.toStdString().c_str(), newEffects.size(), newMasks.size(), index);
+    fprintf(stderr, "FLUX DUPLICATE: layer '%s' branch-aware duplicated with %lld effects, %lld masks at index %d\n",
+            layer.name.toStdString().c_str(), static_cast<long long>(newEffects.size()), static_cast<long long>(newMasks.size()), index);
 
     // 11. Trigger rebuild to reconnect and reposition the node graph
     rebuildVisibleRows();
@@ -4420,6 +4420,11 @@ FluxTimeline::serializeForProject() const
             layerSer.masks.push_back(maskSer);
         }
 
+        // Text animator data
+        if (layer.type == QString::fromUtf8("text") && layer.gizmoNode) {
+            layerSer.animators = FluxTextAnimatorModel::captureAnimators(layer.gizmoNode);
+        }
+
         ser.layers.push_back(layerSer);
     }
 
@@ -4554,6 +4559,11 @@ FluxTimeline::restoreFromProjectSerialization(const FluxTimelineSerialization& s
             }
 
             layer.masks.append(mask);
+        }
+
+        // Restore text animator data (version 3+)
+        if (layer.type == QString::fromUtf8("text") && layer.gizmoNode && !layerSer.animators.empty()) {
+            FluxTextAnimatorModel::restoreAnimators(layer.gizmoNode, layerSer.animators);
         }
 
         _layers.append(layer);

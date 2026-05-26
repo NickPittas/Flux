@@ -321,10 +321,15 @@ CustomParamInteract::mousePressEvent(QMouseEvent* e)
 
     scale.x = scale.y = 1.;
     double time = _imp->knob.lock()->getKnob()->getHolder()->getApp()->getTimeLine()->currentFrame();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const QPoint eventPos = e->position().toPoint();
+#else
+    const QPoint eventPos = e->localPos().toPoint();
+#endif
     OfxPointD pos;
     OfxPointI viewportPos;
-    pos.x = e->x();
-    pos.y = height() - 1 - e->y();
+    pos.x = eventPos.x();
+    pos.y = height() - 1 - eventPos.y();
     viewportPos.x = pos.x;
     viewportPos.y = pos.y;
     OfxStatus stat = _imp->entryPoint->penDownAction(time, scale, /*view=*/ 0, _imp->entryPoint->hasColorPicker() ? &_imp->entryPoint->getLastColorPickerColor() : /*colourPicker=*/0, pos, viewportPos, /*pressure=*/ 1.);
@@ -340,10 +345,15 @@ CustomParamInteract::mouseMoveEvent(QMouseEvent* e)
 
     scale.x = scale.y = 1.;
     double time = _imp->knob.lock()->getKnob()->getHolder()->getApp()->getTimeLine()->currentFrame();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const QPoint eventPos = e->position().toPoint();
+#else
+    const QPoint eventPos = e->localPos().toPoint();
+#endif
     OfxPointD pos;
     OfxPointI viewportPos;
-    pos.x = e->x();
-    pos.y = height() - 1 - e->y();
+    pos.x = eventPos.x();
+    pos.y = height() - 1 - eventPos.y();
     viewportPos.x = pos.x;
     viewportPos.y = pos.y;
     OfxStatus stat = _imp->entryPoint->penMotionAction(time, scale, /*view=*/ 0, _imp->entryPoint->hasColorPicker() ? &_imp->entryPoint->getLastColorPickerColor() : /*colourPicker=*/0, pos, viewportPos, /*pressure=*/ 1.);
@@ -359,10 +369,15 @@ CustomParamInteract::mouseReleaseEvent(QMouseEvent* e)
 
     scale.x = scale.y = 1.;
     double time = _imp->knob.lock()->getKnob()->getHolder()->getApp()->getTimeLine()->currentFrame();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const QPoint eventPos = e->position().toPoint();
+#else
+    const QPoint eventPos = e->localPos().toPoint();
+#endif
     OfxPointD pos;
     OfxPointI viewportPos;
-    pos.x = e->x();
-    pos.y = height() - 1 - e->y();
+    pos.x = eventPos.x();
+    pos.y = height() - 1 - eventPos.y();
     viewportPos.x = pos.x;
     viewportPos.y = pos.y;
     OfxStatus stat = _imp->entryPoint->penUpAction(time, scale, /*view=*/ 0, _imp->entryPoint->hasColorPicker() ? &_imp->entryPoint->getLastColorPickerColor() : /*colourPicker=*/0, pos, viewportPos, /*pressure=*/ 1.);

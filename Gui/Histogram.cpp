@@ -287,6 +287,7 @@ Histogram::Histogram(Gui* gui,
     , PanelWidget(this, gui)
     , _imp( new HistogramPrivate(this) )
 {
+    Q_UNUSED(shareWidget);
     // always running in the main thread
     assert( qApp && qApp->thread() == QThread::currentThread() );
 

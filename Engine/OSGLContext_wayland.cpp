@@ -172,6 +172,7 @@ getProcAddress(const OSGLContext_egl_data* data,
 static void
 registry_handle_global(void* data, wl_registry* registry, uint32_t id, const char* interface, uint32_t version)
 {
+    Q_UNUSED(version);
     auto state = reinterpret_cast<WaylandData*>(data);
     if (std::strcmp(interface, wl_compositor_interface.name) == 0) {
         state->compositor = reinterpret_cast<wl_compositor*>(wl_registry_bind(registry, id, &wl_compositor_interface, 4));
@@ -181,6 +182,9 @@ registry_handle_global(void* data, wl_registry* registry, uint32_t id, const cha
 static void
 registry_handle_global_remove(void* data, wl_registry* registry, uint32_t id)
 {
+    Q_UNUSED(data);
+    Q_UNUSED(registry);
+    Q_UNUSED(id);
 }
 
 static const wl_registry_listener registry_listener = {
@@ -395,6 +399,7 @@ chooseFBConfig(const OSGLContext_egl_data* eglInfo,
 void
 OSGLContext_waylandPrivate::createWindow(OSGLContext_egl_data* eglInfo, const EGLConfig& native, int depth)
 {
+    Q_UNUSED(depth);
     const int width = 32;
     const int height = 32;
 
@@ -521,10 +526,8 @@ OSGLContext_wayland::OSGLContext_wayland(const FramebufferConfig& pixelFormatAtt
 
     EGLConfig native;
 
-    int depth;
-
     chooseFBConfig(eglInfo, pixelFormatAttrs, &native);
-    _imp->createWindow(eglInfo, native, depth);
+    _imp->createWindow(eglInfo, native, 0);
     _imp->createContextEGL(eglInfo, pixelFormatAttrs, major, minor, coreProfile, rendererID.renderID, shareContext);
 }
 

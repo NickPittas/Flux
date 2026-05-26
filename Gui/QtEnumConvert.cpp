@@ -569,7 +569,11 @@ QtEnumConvert::fromQtKey(Qt::Key k)
     case Qt::Key_acute:
 
         return Key_acute;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    case Qt::Key_micro:
+#else
     case Qt::Key_mu:
+#endif
 
         return Key_mu;
     case Qt::Key_paragraph:
@@ -1251,7 +1255,11 @@ QtEnumConvert::toQtKey(Key k)
         return Qt::Key_acute;
     case Key_mu:
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+        return Qt::Key_micro;
+#else
         return Qt::Key_mu;
+#endif
     case Key_paragraph:
 
         return Qt::Key_paragraph;

@@ -46,6 +46,10 @@
 NATRON_NAMESPACE_ENTER
 NATRON_PYTHON_NAMESPACE_ENTER
 
+#if PY_VERSION_HEX >= 0x030b0000
+static std::wstring gConfiguredPythonHome;
+#endif
+
 static bool fileExists(const std::string& path)
 {
     FStreamsSupport::ifstream ifile;
@@ -72,7 +76,9 @@ void setupPythonEnv(const std::string& binPath)
     //If this is set, Python won’t add the user site-packages directory to sys.path.
     //See https://www.python.org/dev/peps/pep-0370/
     ProcInfo::putenv_wrapper("PYTHONNOUSERSITE", "1");
+#if PY_VERSION_HEX < 0x030b0000
     ++Py_NoUserSiteDirectory;
+#endif
 
     //
     // set up paths, clear those that don't exist or are not valid
@@ -148,9 +154,13 @@ void setupPythonEnv(const std::string& binPath)
 
     if ( !pythonHome.empty() ) {
 #     if defined(NATRON_CONFIG_SNAPSHOT) || defined(DEBUG)
-        printf( "Py_SetPythonHome(\"%s\")\n", pythonHome.c_str() );
+        printf( "Configured Python home: \"%s\"\n", pythonHome.c_str() );
 #     endif
+#if PY_VERSION_HEX >= 0x030b0000
+        gConfiguredPythonHome = pythonHomeW;
+#else
         Py_SetPythonHome( const_cast<wchar_t*>( pythonHomeW.c_str() ) );
+#endif
     }
 
 
@@ -256,10 +266,12 @@ PyObject* initializePython3(const std::vector<wchar_t*>& commandLineArgsWide)
         return nullptr;
     }
 
-    // Set python home if available
-    const wchar_t* home = Py_GetPythonHome();
-    if (home) {
-        status = PyConfig_SetString(&config, &config.home, home);
+    // Keep user site-packages disabled without using deprecated Py_NoUserSiteDirectory.
+    config.user_site_directory = 0;
+
+    // Set python home if available from setupPythonEnv().
+    if (!gConfiguredPythonHome.empty()) {
+        status = PyConfig_SetString(&config, &config.home, gConfiguredPythonHome.c_str());
         if (PyStatus_Exception(status)) {
             PyConfig_Clear(&config);
             return nullptr;
@@ -355,7 +367,11 @@ PyObject* initializePython3(const std::vector<wchar_t*>& commandLineArgsWide)
         printf( "Py_GetExecPrefix is %ls\n", Py_GetPrefix() );
         printf( "Py_GetProgramFullPath is %ls\n", Py_GetProgramFullPath() );
         printf( "Py_GetPath is %ls\n", Py_GetPath() );
+#if PY_VERSION_HEX < 0x030b0000
         printf( "Py_GetPythonHome is %ls\n", Py_GetPythonHome() );
+#else
+        printf( "PyConfig.home is %ls\n", gConfiguredPythonHome.c_str() );
+#endif
 
 #define DUMP_SYS(NAME) \
             do { \
@@ -408,6 +424,7 @@ PyObject* initializePython3(const std::vector<wchar_t*>& commandLineArgsWide)
     // Release the GIL, because PyEval_InitThreads acquires the GIL
     // see https://docs.python.org/3.7/c-api/init.html#c.PyEval_InitThreads
     PyThreadState *_save = PyEval_SaveThread();
+    (void)_save;
     // The lock should be released just before PyFinalize() using:
     // PyEval_RestoreThread(_save);
 

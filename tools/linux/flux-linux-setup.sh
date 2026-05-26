@@ -9,11 +9,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 FLUX_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd -P)"
 
-USER_PYPLUG_DIR="${USER_PYPLUG_DIR:-${FLUX_USER_PYPLUG_DIR:-${HOME}/.Natron/PyPlugs}}"
-OFX_USER_PLUGIN_DIR="${OFX_USER_PLUGIN_DIR:-${FLUX_USER_OFX_DIR:-${HOME}/.OFX/Plugins}}"
+XDG_BIN_HOME="${XDG_BIN_HOME:-${HOME}/.local/bin}"
+XDG_DATA_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}"
+FLUX_BIN_DIR="${FLUX_BIN_DIR:-${XDG_BIN_HOME}}"
+FLUX_DATA_DIR="${FLUX_DATA_DIR:-${XDG_DATA_HOME}}"
+FLUX_INSTALL_PREFIX="${FLUX_INSTALL_PREFIX:-${FLUX_DATA_DIR}/Flux}"
+FLUX_APP_BIN="${FLUX_INSTALL_PREFIX}/bin/flux"
+FLUX_RENDERER_BIN="${FLUX_INSTALL_PREFIX}/bin/FluxRenderer"
+INSTALL_MANIFEST="${FLUX_INSTALL_PREFIX}/install-manifest.txt"
+USER_PYPLUG_DIR="${USER_PYPLUG_DIR:-${FLUX_USER_PYPLUG_DIR:-${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs}}"
+OFX_USER_PLUGIN_DIR="${OFX_USER_PLUGIN_DIR:-${FLUX_USER_OFX_DIR:-${FLUX_INSTALL_PREFIX}/Plugins/OFX}}"
 USER_OFX_DIR="${OFX_USER_PLUGIN_DIR}"
 OFX_CACHE_DIR="${OFX_CACHE_DIR:-${FLUX_OFX_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME}/.cache}/INRIA/Natron/OFXLoadCache}}"
-LAUNCHER_PATH="${LAUNCHER_PATH:-${FLUX_LAUNCHER_PATH:-${HOME}/.local/bin/flux}}"
+LAUNCHER_PATH="${LAUNCHER_PATH:-${FLUX_LAUNCHER_PATH:-${FLUX_BIN_DIR}/flux}}"
 
 PLUGIN_PREFIX="${PLUGIN_PREFIX:-${FLUX_PLUGIN_PREFIX:-${FLUX_ROOT}/plugins}}"
 EXTRAS_SOURCE="${FLUX_OFX_EXTRAS:-${PLUGIN_PREFIX}/ofx-extras}"
@@ -25,7 +33,8 @@ PYTHON_RUNTIME_DIR_SET=0
 if [[ -n "${PYTHON_RUNTIME_DIR:-}" || -n "${FLUX_PYTHON_RUNTIME_DIR:-}" ]]; then
   PYTHON_RUNTIME_DIR_SET=1
 fi
-PYTHON_RUNTIME_DIR="${PYTHON_RUNTIME_DIR:-${FLUX_PYTHON_RUNTIME_DIR:-${BUILD_DIR}/Plugins}}"
+PYTHON_RUNTIME_DIR="${PYTHON_RUNTIME_DIR:-${FLUX_PYTHON_RUNTIME_DIR:-${FLUX_INSTALL_PREFIX}/Plugins/python}}"
+HOME_ABS="$(cd "$HOME" && pwd -P)"
 
 DO_CHECK=0
 CHECK_EXPLICIT=0
@@ -41,6 +50,8 @@ DO_CONFIGURE=0
 DO_BUILD=0
 DO_DEPLOY_EXTRAS=0
 DO_INSTALL_LAUNCHER=0
+DO_INSTALL_APP=0
+DO_UNINSTALL=0
 DO_CLEAR_OFX_CACHE=0
 DO_VALIDATE_LDD=0
 DO_VALIDATE_OFX_DISCOVERY=0
@@ -100,12 +111,14 @@ FEDORA_PACKAGES=(
   ceres-solver-devel
 )
 
-PYPLUG_FILES=(
-  "${PLUGIN_PREFIX}/FluxLayer.py"
-  "${PLUGIN_PREFIX}/FluxSolid.py"
-  "${PLUGIN_PREFIX}/FluxText.py"
-  "${PLUGIN_PREFIX}/FluxMotionText.py"
+REQUIRED_PYPLUG_FILES=(
+  "FluxLayer.py"
+  "FluxSolid.py"
+  "FluxText.py"
+  "FluxMotionText.py"
 )
+
+PYPLUG_FILES=()
 
 OFX_CORE_BUNDLES=(
   "IO.ofx.bundle"
@@ -136,14 +149,56 @@ EXPECTED_OFX_IDS=(
   "net.flux.openfx.TextRender"
 )
 
+append_unique() {
+  local value="$1"
+  shift
+  local existing
+  for existing in "$@"; do
+    [[ "$existing" == "$value" ]] && return 1
+  done
+  printf '%s\n' "$value"
+}
+
 refresh_derived_paths() {
   USER_OFX_DIR="${OFX_USER_PLUGIN_DIR}"
-  PYPLUG_FILES=(
-    "${PLUGIN_PREFIX}/FluxLayer.py"
-    "${PLUGIN_PREFIX}/FluxSolid.py"
-    "${PLUGIN_PREFIX}/FluxText.py"
-    "${PLUGIN_PREFIX}/FluxMotionText.py"
-  )
+  discover_plugin_payloads
+}
+
+discover_plugin_payloads() {
+  local file bundle name
+  local discovered_pyplugs=()
+  local discovered_ofx=()
+
+  for name in "${REQUIRED_PYPLUG_FILES[@]}"; do
+    discovered_pyplugs+=("${PLUGIN_PREFIX}/${name}")
+  done
+
+  if [[ -d "$PLUGIN_PREFIX" ]]; then
+    while IFS= read -r -d '' file; do
+      if append_unique "$file" "${discovered_pyplugs[@]}" >/dev/null; then
+        discovered_pyplugs+=("$file")
+      fi
+    done < <(find "$PLUGIN_PREFIX" -maxdepth 1 -type f -name '*.py' -print0 | sort -z)
+  fi
+
+  for bundle in "${OFX_EXTRA_BUNDLES[@]}"; do
+    if append_unique "$bundle" "${discovered_ofx[@]}" >/dev/null; then
+      discovered_ofx+=("$bundle")
+    fi
+  done
+
+  for file in "$PLUGIN_PREFIX" "$EXTRAS_SOURCE"; do
+    [[ -d "$file" ]] || continue
+    while IFS= read -r -d '' bundle; do
+      name="$(basename "$bundle")"
+      if append_unique "$name" "${OFX_CORE_BUNDLES[@]}" "${discovered_ofx[@]}" >/dev/null; then
+        discovered_ofx+=("$name")
+      fi
+    done < <(find "$file" -maxdepth 1 -type d -name '*.ofx.bundle' -print0 | sort -z)
+  done
+
+  PYPLUG_FILES=("${discovered_pyplugs[@]}")
+  OFX_EXTRA_BUNDLES=("${discovered_ofx[@]}")
 }
 
 log() {
@@ -185,8 +240,10 @@ Mutating actions:
   --install-deps             Install Fedora build/runtime packages with sudo dnf.
   --configure                Configure CMake for Flux Qt6 build.
   --build                    Build Natron/Flux GUI, Renderer, and Flux OFX bundle.
-  --deploy-extras            Install Flux PyPlugs and OFX bundles into user paths.
+  --deploy-extras            Install Flux PyPlugs and OFX bundles into install prefix.
+  --install-app, --deploy-app Copy built app binaries into ${FLUX_INSTALL_PREFIX}/bin.
   --install-launcher         Write ${LAUNCHER_PATH}.
+  --uninstall                Remove files listed in ${INSTALL_MANIFEST} and matching launcher.
   --clear-ofx-cache          Remove only ${OFX_CACHE_DIR}.
   --bootstrap-python         Install qtpy/packaging for embedded Python into
                              ${PYTHON_RUNTIME_DIR}.
@@ -197,6 +254,8 @@ Validation:
   --validate-ofx-discovery   Cold-cache validate Flux OFX discovery via Renderer.
 
 Options:
+  --install-prefix DIR       Install prefix. Default: ${FLUX_INSTALL_PREFIX}
+  --bin-dir DIR              Launcher directory. Default: ${FLUX_BIN_DIR}
   --extras-source DIR        Source directory for extra OFX bundles.
                              Default: ${EXTRAS_SOURCE}
                              Fallback during deploy: ${USER_OFX_DIR}
@@ -217,7 +276,7 @@ Examples:
   ${0##*/} --print-commands
   ${0##*/} --install-deps
   ${0##*/} --configure --build
-  ${0##*/} --deploy-extras --install-launcher --validate-ldd --validate-ofx-discovery
+  ${0##*/} --deploy-extras --install-app --install-launcher --validate-ldd --validate-ofx-discovery
   ${0##*/} --stage-extras dist/flux-linux-ofx-extras
 EOF
 }
@@ -289,6 +348,16 @@ parse_args() {
         ACTION_REQUESTED=1
         shift
         ;;
+      --install-app|--deploy-app)
+        DO_INSTALL_APP=1
+        ACTION_REQUESTED=1
+        shift
+        ;;
+      --uninstall)
+        DO_UNINSTALL=1
+        ACTION_REQUESTED=1
+        shift
+        ;;
       --clear-ofx-cache)
         DO_CLEAR_OFX_CACHE=1
         ACTION_REQUESTED=1
@@ -308,6 +377,26 @@ parse_args() {
         DO_BOOTSTRAP_PYTHON=1
         ACTION_REQUESTED=1
         shift
+        ;;
+      --install-prefix)
+        [[ $# -ge 2 ]] || die '--install-prefix requires a directory'
+        FLUX_INSTALL_PREFIX="$2"
+        FLUX_APP_BIN="${FLUX_INSTALL_PREFIX}/bin/flux"
+        FLUX_RENDERER_BIN="${FLUX_INSTALL_PREFIX}/bin/FluxRenderer"
+        INSTALL_MANIFEST="${FLUX_INSTALL_PREFIX}/install-manifest.txt"
+        USER_PYPLUG_DIR="${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs"
+        OFX_USER_PLUGIN_DIR="${FLUX_INSTALL_PREFIX}/Plugins/OFX"
+        USER_OFX_DIR="${OFX_USER_PLUGIN_DIR}"
+        if [[ "$PYTHON_RUNTIME_DIR_SET" -eq 0 ]]; then
+          PYTHON_RUNTIME_DIR="${FLUX_INSTALL_PREFIX}/Plugins/python"
+        fi
+        shift 2
+        ;;
+      --bin-dir)
+        [[ $# -ge 2 ]] || die '--bin-dir requires a directory'
+        FLUX_BIN_DIR="$2"
+        LAUNCHER_PATH="${FLUX_BIN_DIR}/flux"
+        shift 2
         ;;
       --extras-source)
         [[ $# -ge 2 ]] || die '--extras-source requires a directory'
@@ -383,6 +472,7 @@ parse_args() {
     DO_BUILD=1
     DO_DEPLOY_EXTRAS=1
     DO_CLEAR_OFX_CACHE=1
+    DO_INSTALL_APP=1
     DO_INSTALL_LAUNCHER=1
     DO_VALIDATE_LDD=1
     DO_VALIDATE_OFX_DISCOVERY=1
@@ -615,6 +705,78 @@ bootstrap_python_runtime() {
   mkdir -p "$PYTHON_RUNTIME_DIR"
   log "Installing embedded Python runtime deps into ${PYTHON_RUNTIME_DIR}."
   python3 -m pip install --upgrade --target "$PYTHON_RUNTIME_DIR" qtpy packaging
+  manifest_add_tree "$PYTHON_RUNTIME_DIR"
+}
+
+canonical_existing_parent() {
+  local path="$1"
+  local dir base
+  if [[ -e "$path" && ! -d "$path" ]]; then
+    dir="$(dirname "$path")"
+    base="/$(basename "$path")"
+  else
+    dir="$path"
+    while [[ ! -e "$dir" && "$dir" != "/" ]]; do
+      dir="$(dirname "$dir")"
+    done
+    base="${path#${dir}}"
+  fi
+  printf '%s%s\n' "$(cd "$dir" && pwd -P)" "$base"
+}
+
+validate_install_prefix() {
+  local prefix_abs flux_root_abs build_dir_abs
+  [[ -n "$FLUX_INSTALL_PREFIX" ]] || die 'Install prefix is empty.'
+  prefix_abs="$(canonical_existing_parent "$FLUX_INSTALL_PREFIX")"
+  flux_root_abs="$(cd "$FLUX_ROOT" && pwd -P)"
+  build_dir_abs="$(canonical_existing_parent "$BUILD_DIR")"
+
+  case "$prefix_abs" in
+    /|"$HOME_ABS"|"$flux_root_abs"|"$build_dir_abs") die "Refusing unsafe Flux install prefix: ${FLUX_INSTALL_PREFIX}" ;;
+    "$flux_root_abs"/*|"$build_dir_abs"/*) die "Refusing install prefix inside source/build tree: ${FLUX_INSTALL_PREFIX}" ;;
+  esac
+
+  FLUX_INSTALL_PREFIX="$prefix_abs"
+  FLUX_APP_BIN="${FLUX_INSTALL_PREFIX}/bin/flux"
+  FLUX_RENDERER_BIN="${FLUX_INSTALL_PREFIX}/bin/FluxRenderer"
+  INSTALL_MANIFEST="${FLUX_INSTALL_PREFIX}/install-manifest.txt"
+  USER_PYPLUG_DIR="${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs"
+  OFX_USER_PLUGIN_DIR="${FLUX_INSTALL_PREFIX}/Plugins/OFX"
+  USER_OFX_DIR="$OFX_USER_PLUGIN_DIR"
+  PYTHON_RUNTIME_DIR="${FLUX_INSTALL_PREFIX}/Plugins/python"
+}
+
+path_within_install_prefix() {
+  local path_abs="$1"
+  [[ "$path_abs" == "$FLUX_INSTALL_PREFIX" || "$path_abs" == "${FLUX_INSTALL_PREFIX}/"* ]]
+}
+
+manifest_reset() {
+  validate_install_prefix
+  mkdir -p "$FLUX_INSTALL_PREFIX"
+  : > "$INSTALL_MANIFEST"
+  printf '%s\n' "$INSTALL_MANIFEST" >> "$INSTALL_MANIFEST"
+}
+
+manifest_add_path() {
+  local path="$1"
+  [[ -n "$path" ]] || return 0
+  mkdir -p "$FLUX_INSTALL_PREFIX"
+  touch "$INSTALL_MANIFEST"
+  if ! grep -Fx -- "$path" "$INSTALL_MANIFEST" >/dev/null 2>&1; then
+    printf '%s
+' "$path" >> "$INSTALL_MANIFEST"
+  fi
+}
+
+manifest_add_tree() {
+  local path="$1"
+  manifest_add_path "$path"
+  if [[ -d "$path" ]]; then
+    while IFS= read -r -d '' item; do
+      manifest_add_path "$item"
+    done < <(find "$path" -mindepth 1 -print0 | sort -zr)
+  fi
 }
 
 replace_target() {
@@ -650,14 +812,68 @@ copy_or_symlink() {
   else
     cp -a "$source" "$target"
   fi
+  manifest_add_tree "$target"
   log "Installed ${target}"
+}
+
+copy_payload() {
+  local source="$1"
+  local target="$2"
+  [[ -e "$source" ]] || die "Missing source: ${source}"
+  mkdir -p "$(dirname "$target")"
+  replace_target "$target" || return 0
+  cp -aL "$source" "$target"
+  manifest_add_tree "$target"
+  log "Installed ${target}"
+}
+
+copy_dir_contents_filtered() {
+  local source_dir="$1"
+  local target_dir="$2"
+  [[ -d "$source_dir" ]] || return 0
+  mkdir -p "$target_dir"
+  while IFS= read -r -d '' item; do
+    local rel="${item#${source_dir}/}"
+    [[ "$rel" == .git* || "$rel" == *__pycache__* || "$rel" == *.pyc || "$rel" == *~ || "$rel" == *.tmp ]] && continue
+    if [[ -d "$item" ]]; then
+      mkdir -p "${target_dir}/${rel}"
+      manifest_add_path "${target_dir}/${rel}"
+    elif [[ -f "$item" ]]; then
+      mkdir -p "$(dirname "${target_dir}/${rel}")"
+      cp -aL "$item" "${target_dir}/${rel}"
+      manifest_add_path "${target_dir}/${rel}"
+    fi
+  done < <(find "$source_dir" -mindepth 1 -print0 | sort -z)
+}
+
+install_app() {
+  local source_app="${BUILD_DIR}/App/Natron"
+  local source_renderer="${BUILD_DIR}/Renderer/NatronRenderer"
+  [[ -x "$source_app" ]] || die "Flux build binary missing: ${source_app}. Run --build first or omit --install-app."
+  copy_payload "$source_app" "$FLUX_APP_BIN"
+  chmod 0755 "$FLUX_APP_BIN"
+  if [[ -x "$source_renderer" ]]; then
+    copy_payload "$source_renderer" "$FLUX_RENDERER_BIN"
+    chmod 0755 "$FLUX_RENDERER_BIN"
+  fi
+}
+
+install_runtime_payloads() {
+  mkdir -p "$USER_PYPLUG_DIR" "$USER_OFX_DIR"
+  manifest_add_path "${FLUX_INSTALL_PREFIX}/Plugins"
+  manifest_add_path "$USER_PYPLUG_DIR"
+  manifest_add_path "$USER_OFX_DIR"
+  deploy_pyplugs
+  copy_dir_contents_filtered "${FLUX_ROOT}/Gui/Resources/PyPlugs" "$USER_PYPLUG_DIR"
+  copy_dir_contents_filtered "${PLUGIN_PREFIX}/natron-plugins" "${USER_PYPLUG_DIR}/natron-plugins"
+  deploy_ofx_bundles
 }
 
 deploy_pyplugs() {
   local pyplug
   mkdir -p "$USER_PYPLUG_DIR"
   for pyplug in "${PYPLUG_FILES[@]}"; do
-    copy_or_symlink "$pyplug" "${USER_PYPLUG_DIR}/$(basename "$pyplug")"
+    copy_payload "$pyplug" "${USER_PYPLUG_DIR}/$(basename "$pyplug")"
   done
 }
 
@@ -738,7 +954,7 @@ deploy_ofx_bundles() {
 
   for bundle in "${OFX_CORE_BUNDLES[@]}" "${OFX_EXTRA_BUNDLES[@]}"; do
     source="$(bundle_source_for "$bundle")"
-    copy_or_symlink "$source" "${USER_OFX_DIR}/${bundle}"
+    copy_payload "$source" "${USER_OFX_DIR}/${bundle}"
   done
 }
 
@@ -787,40 +1003,55 @@ write_launcher() {
   cat > "$LAUNCHER_PATH" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-
+FLUX_INSTALL_PREFIX="${FLUX_INSTALL_PREFIX}"
 if [[ -z "\${QT_PLUGIN_PATH:-}" ]]; then
-  if command -v qtpaths6 >/dev/null 2>&1; then
-    QT_PLUGIN_PATH="\$(qtpaths6 --plugin-dir)"
-  elif command -v qtpaths-qt6 >/dev/null 2>&1; then
-    QT_PLUGIN_PATH="\$(qtpaths-qt6 --plugin-dir)"
-  elif command -v qmake6 >/dev/null 2>&1; then
-    QT_PLUGIN_PATH="\$(qmake6 -query QT_INSTALL_PLUGINS)"
-  else
-    for candidate in \
-      /usr/lib64/qt6/plugins \
-      /usr/lib/x86_64-linux-gnu/qt6/plugins \
-      /usr/lib/qt6/plugins; do
-      if [[ -d "\$candidate" ]]; then
-        QT_PLUGIN_PATH="\$candidate"
-        break
-      fi
-    done
-  fi
+  for tool in qtpaths6 qtpaths-qt6 qmake6; do
+    if command -v "\$tool" >/dev/null 2>&1; then
+      if [[ "\$tool" == qmake6 ]]; then QT_PLUGIN_PATH="\$(qmake6 -query QT_INSTALL_PLUGINS)"; else QT_PLUGIN_PATH="\$("\$tool" --plugin-dir)"; fi
+      break
+    fi
+  done
 fi
-if [[ -n "\${QT_PLUGIN_PATH:-}" ]]; then
-  export QT_PLUGIN_PATH
-fi
+export QT_PLUGIN_PATH="\${QT_PLUGIN_PATH:-/usr/lib64/qt6/plugins}"
 export QT_QPA_PLATFORM="\${QT_QPA_PLATFORM:-xcb}"
-export NATRON_PLUGIN_PATH="\${NATRON_PLUGIN_PATH:-${USER_PYPLUG_DIR}:${FLUX_ROOT}/Gui/Resources/PyPlugs:${PLUGIN_PREFIX}/natron-plugins}"
-export OFX_PLUGIN_PATH="\${OFX_PLUGIN_PATH:-${USER_OFX_DIR}:${PLUGIN_PREFIX}}"
-export LD_LIBRARY_PATH="${USER_OFX_DIR}/SeExpr.ofx.bundle/Contents/Linux-x86-64/seexpr-deps/lib:${USER_OFX_DIR}/Magick.ofx.bundle/Contents/Linux-x86-64/magick-deps/lib:\${LD_LIBRARY_PATH:-}"
-
-exec "${BUILD_DIR}/App/Natron" "\$@"
+export NATRON_PLUGIN_PATH="\${NATRON_PLUGIN_PATH:-\${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs:\${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs/natron-plugins}"
+export OFX_PLUGIN_PATH="\${OFX_PLUGIN_PATH:-\${FLUX_INSTALL_PREFIX}/Plugins/OFX}"
+export FLUX_OFX_STRICT_PATH="\${FLUX_OFX_STRICT_PATH:-1}"
+export PYTHONPATH="\${FLUX_INSTALL_PREFIX}/Plugins/python\${PYTHONPATH:+:\${PYTHONPATH}}"
+export LD_LIBRARY_PATH="\${FLUX_INSTALL_PREFIX}/Plugins/OFX/SeExpr.ofx.bundle/Contents/Linux-x86-64/seexpr-deps/lib:\${FLUX_INSTALL_PREFIX}/Plugins/OFX/Magick.ofx.bundle/Contents/Linux-x86-64/magick-deps/lib:\${LD_LIBRARY_PATH:-}"
+exec "\${FLUX_INSTALL_PREFIX}/bin/flux" "\$@"
 EOF
   chmod 0755 "$LAUNCHER_PATH"
+  manifest_add_path "$LAUNCHER_PATH"
   log "Installed launcher: ${LAUNCHER_PATH}"
 }
 
+uninstall_flux() {
+  local path path_abs launcher_abs
+  validate_install_prefix
+  [[ -f "$INSTALL_MANIFEST" ]] || die "Install manifest not found: ${INSTALL_MANIFEST}"
+  if [[ "$FORCE" -ne 1 ]]; then
+    confirm_mutation "Uninstall Flux files listed in ${INSTALL_MANIFEST}?" || die 'Uninstall cancelled.'
+  fi
+  mapfile -t paths < <(grep -v '^$' "$INSTALL_MANIFEST" | sort -ru)
+  for path in "${paths[@]}"; do
+    path_abs="$(canonical_existing_parent "$path")"
+    if path_within_install_prefix "$path_abs"; then
+      [[ -e "$path_abs" || -L "$path_abs" ]] && rm -rf "$path_abs"
+    else
+      warn "Skipping out-of-prefix manifest path: ${path}"
+    fi
+  done
+  launcher_abs="$(canonical_existing_parent "$LAUNCHER_PATH")"
+  if [[ -f "$launcher_abs" ]] && grep -F "$FLUX_INSTALL_PREFIX" "$launcher_abs" >/dev/null 2>&1; then
+    rm -f "$launcher_abs"
+  fi
+  if [[ -d "$FLUX_INSTALL_PREFIX" ]]; then
+    find "$FLUX_INSTALL_PREFIX" -depth -type d -empty -delete 2>/dev/null || true
+  fi
+  rmdir "$FLUX_INSTALL_PREFIX" 2>/dev/null || true
+  log "Uninstalled Flux prefix: ${FLUX_INSTALL_PREFIX}"
+}
 ofx_binary_path() {
   local bundle="$1"
   local bundle_dir
@@ -839,7 +1070,7 @@ ofx_binary_path() {
     IO.ofx.bundle) printf '%s\n' "${base}/IO.ofx" ;;
     Misc.ofx.bundle) printf '%s\n' "${base}/Misc.ofx" ;;
     FluxTextRender.ofx.bundle) printf '%s\n' "${base}/FluxTextRender.ofx" ;;
-    *) return 1 ;;
+    *) printf '%s\n' "${base}/${bundle%.ofx.bundle}.ofx" ;;
   esac
 }
 
@@ -1084,6 +1315,9 @@ Flux Linux setup summary
   RPM Fusion free: $(rpmfusion_status)
   Fedora deps: $(fedora_deps_status)
   Build binary: $(status_word test -x "${BUILD_DIR}/App/Natron") (${BUILD_DIR}/App/Natron)
+  Install prefix: ${FLUX_INSTALL_PREFIX}
+  Launcher: $(status_word test -x "${LAUNCHER_PATH}") (${LAUNCHER_PATH})
+  Installed app: $(status_word test -x "${FLUX_APP_BIN}") (${FLUX_APP_BIN})
   PyPlugs: $(pyplug_status) (${USER_PYPLUG_DIR})
   OFX bundles: $(ofx_bundle_status) (${USER_OFX_DIR})
   OFX cache: $(ofx_cache_status) (${OFX_CACHE_DIR})
@@ -1102,6 +1336,7 @@ confirm_mutation() {
 
 run_full_bootstrap() {
   DO_BUILD=1
+  validate_install_prefix || return
   update_submodules || return
   preflight_ofx_bundle_sources || return
   enable_rpmfusion_free || return
@@ -1110,9 +1345,10 @@ run_full_bootstrap() {
   configure_flux || return
   build_flux || return
   build_ofx_flux || return
+  manifest_reset || return
+  install_app || return
   bootstrap_python_runtime || return
-  deploy_pyplugs || return
-  deploy_ofx_bundles || return
+  install_runtime_payloads || return
   clear_ofx_cache || return
   write_launcher || return
   validate_ldd || return
@@ -1120,9 +1356,11 @@ run_full_bootstrap() {
 }
 
 run_deploy_runtime() {
+  validate_install_prefix || return
+  manifest_reset || return
+  install_app || return
   bootstrap_python_runtime || return
-  deploy_pyplugs || return
-  deploy_ofx_bundles || return
+  install_runtime_payloads || return
   clear_ofx_cache || return
   write_launcher || return
   validate_ldd || return
@@ -1165,10 +1403,11 @@ Choose an action:
   3) Install dependencies
   4) Configure build
   5) Build Flux
-  6) Deploy runtime plugins/launcher/cache/ldd
+  6) Install/repair app, Python runtime, plugins, launcher, cache, ldd
   7) Launch Flux
   8) Run validation checks
   9) Print commands
+  u) Uninstall Flux install prefix
   q) Quit
 EOF
     printf 'Selection: '
@@ -1179,10 +1418,11 @@ EOF
       3) confirm_mutation 'Install Fedora dependencies with sudo dnf?' && run_tui_action 'Dependency install' install_fedora_packages ;;
       4) confirm_mutation 'Configure CMake build directory?' && run_tui_action 'Configure' configure_flux ;;
       5) confirm_mutation 'Build Flux targets?' && run_tui_action 'Build' run_build_all ;;
-      6) confirm_mutation 'Deploy plugins, clear OFX cache, install launcher, run ldd?' && run_tui_action 'Runtime deploy' run_deploy_runtime ;;
+      6) confirm_mutation 'Install/repair app, Python runtime, plugins, launcher, clear OFX cache, run ldd?' && run_tui_action 'Runtime install/repair' run_deploy_runtime ;;
       7) confirm_mutation 'Launch Flux now?' && run_tui_action 'Launch Flux' launch_flux ;;
       8) run_tui_action 'Validation checks' run_checks ;;
       9) print_fedora_guidance ;;
+      u|U) run_tui_action 'Uninstall' uninstall_flux ;;
       q|Q) return 0 ;;
       *) warn "Unknown menu choice: ${choice}" ;;
     esac
@@ -1192,6 +1432,11 @@ EOF
 main() {
   parse_args "$@"
   refresh_derived_paths
+
+  if [[ "$DO_UNINSTALL" -eq 1 ]]; then
+    uninstall_flux
+    return 0
+  fi
 
   if [[ "$DO_TUI" -eq 1 ]]; then
     run_tui
@@ -1231,13 +1476,20 @@ main() {
     build_ofx_flux
   fi
 
+  if [[ "$DO_INSTALL_APP" -eq 1 || "$DO_BOOTSTRAP_PYTHON" -eq 1 || "$DO_DEPLOY_EXTRAS" -eq 1 || "$DO_INSTALL_LAUNCHER" -eq 1 ]]; then
+    manifest_reset
+  fi
+
+  if [[ "$DO_INSTALL_APP" -eq 1 ]]; then
+    install_app
+  fi
+
   if [[ "$DO_BOOTSTRAP_PYTHON" -eq 1 ]]; then
     bootstrap_python_runtime
   fi
 
   if [[ "$DO_DEPLOY_EXTRAS" -eq 1 ]]; then
-    deploy_pyplugs
-    deploy_ofx_bundles
+    install_runtime_payloads
   fi
 
   if [[ -n "$STAGE_EXTRAS_DIR" ]]; then

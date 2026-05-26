@@ -403,10 +403,17 @@ void Raster::colorAt(int x, int y, double* r, double* g, double* b, double* a) c
 
 std::shared_ptr<Raster> renderText(const RenderRequest& request, std::string* error)
 {
+    const OfxRectI outputBounds = (request.outputBounds.x2 > request.outputBounds.x1 && request.outputBounds.y2 > request.outputBounds.y1)
+        ? request.outputBounds
+        : request.bounds;
+    const OfxRectI layoutBounds = (request.layoutBounds.x2 > request.layoutBounds.x1 && request.layoutBounds.y2 > request.layoutBounds.y1)
+        ? request.layoutBounds
+        : outputBounds;
+
     std::shared_ptr<Raster> raster(new Raster());
-    raster->bounds = request.bounds;
-    raster->width = std::max(1, request.bounds.x2 - request.bounds.x1);
-    raster->height = std::max(1, request.bounds.y2 - request.bounds.y1);
+    raster->bounds = outputBounds;
+    raster->width = std::max(1, outputBounds.x2 - outputBounds.x1);
+    raster->height = std::max(1, outputBounds.y2 - outputBounds.y1);
     raster->alpha.assign(static_cast<size_t>(raster->width) * static_cast<size_t>(raster->height), 0.0f);
     raster->rgba.assign(static_cast<size_t>(raster->width) * static_cast<size_t>(raster->height) * 4u, 0.0f);
 
@@ -414,7 +421,12 @@ std::shared_ptr<Raster> renderText(const RenderRequest& request, std::string* er
         return raster;
     }
 
-    const double fontSize = std::max(1.0, request.fontSize);
+    const double scaleX = request.renderScaleX > 0.0 ? request.renderScaleX : 1.0;
+    const double scaleY = request.renderScaleY > 0.0 ? request.renderScaleY : 1.0;
+    const double fontSizeX = std::max(1.0, request.fontSize * scaleX);
+    const double fontSizeY = std::max(1.0, request.fontSize * scaleY);
+    const double tracking = request.tracking * scaleX;
+    const double leading = request.leading * scaleY;
     const std::string fontFile = resolveFontFile(request.font, request.fontStyle, error);
     if (fontFile.empty()) {
         return raster;
@@ -437,11 +449,13 @@ std::shared_ptr<Raster> renderText(const RenderRequest& request, std::string* er
         return raster;
     }
 
-    FT_Set_Pixel_Sizes(face, 0, static_cast<FT_UInt>(std::max(1.0, std::round(fontSize))));
+    FT_Set_Pixel_Sizes(face,
+                       static_cast<FT_UInt>(std::max(1.0, std::round(fontSizeX))),
+                       static_cast<FT_UInt>(std::max(1.0, std::round(fontSizeY))));
 
     hb_font_t* hbFont = hb_ft_font_create_referenced(face);
-    const double defaultLineHeight = std::max(fontSize * 1.2, face->size ? face->size->metrics.height / 64.0 : fontSize * 1.2);
-    const double lineHeight = request.leading > 0.0 ? request.leading : defaultLineHeight;
+    const double defaultLineHeight = std::max(fontSizeY * 1.2, face->size ? face->size->metrics.height / 64.0 : fontSizeY * 1.2);
+    const double lineHeight = leading > 0.0 ? leading : defaultLineHeight;
     const std::vector<std::string> lines = splitLines(request.text);
     std::vector<ShapedLine> shapedLines;
     shapedLines.reserve(lines.size());
@@ -451,7 +465,7 @@ std::shared_ptr<Raster> renderText(const RenderRequest& request, std::string* er
         ShapedLine shaped;
         shaped.text = lines[i];
         shaped.baseline = -static_cast<double>(i) * lineHeight;
-        shaped.glyphs = shapeLine(hbFont, lines[i], request.tracking, static_cast<int>(i), &charCounter, &noSpaceCounter, &shaped.advance);
+        shaped.glyphs = shapeLine(hbFont, lines[i], tracking, static_cast<int>(i), &charCounter, &noSpaceCounter, &shaped.advance);
         int word = -1;
         bool inWord = false;
         for (GlyphPlacement& glyph : shaped.glyphs) {
@@ -510,8 +524,10 @@ std::shared_ptr<Raster> renderText(const RenderRequest& request, std::string* er
     // reflow within that block — it does NOT shift the entire block to
     // the canvas edge. The node transform handles overall placement.
     const double textHeight = std::max(1.0, maxY - minY);
-    const double blockOffsetX = request.bounds.x1 + (raster->width - refAdvance) * 0.5 - minX;
-    const double offsetY = request.bounds.y1 + (raster->height - textHeight) * 0.5 - minY;
+    const double layoutWidth = std::max(1, layoutBounds.x2 - layoutBounds.x1);
+    const double layoutHeight = std::max(1, layoutBounds.y2 - layoutBounds.y1);
+    const double blockOffsetX = layoutBounds.x1 + (layoutWidth - refAdvance) * 0.5 - minX;
+    const double offsetY = layoutBounds.y1 + (layoutHeight - textHeight) * 0.5 - minY;
 
     std::vector<TextAnimator> animators = parseAnimators(request.animatorStackJson);
     std::map<int, BoundsD> charBounds, noSpaceBounds, wordBounds, lineBounds;
@@ -575,8 +591,8 @@ std::shared_ptr<Raster> renderText(const RenderRequest& request, std::string* er
             const double w = selectorWeight(a, idx, count, request.time);
             if (w <= 0.0) continue;
             anchor = a.anchor;
-            state.x += evalParam(a.position[0], request.time) * w + evalParam(a.tracking, request.time) * w * idx;
-            state.y += evalParam(a.position[1], request.time) * w;
+            state.x += evalParam(a.position[0], request.time) * scaleX * w + evalParam(a.tracking, request.time) * scaleX * w * idx;
+            state.y += evalParam(a.position[1], request.time) * scaleY * w;
             const double targetScaleX = std::max(0.0, evalParam(a.scale[0], request.time) / 100.0);
             const double targetScaleY = std::max(0.0, evalParam(a.scale[1], request.time) / 100.0);
             state.sx *= std::max(0.0, 1.0 + (targetScaleX - 1.0) * w);

@@ -70,6 +70,7 @@ RotoReplaceChannels::~RotoReplaceChannels()
 void
 RotoReplaceChannels::addAcceptedComponents(int inputNb, std::list<ImagePlaneDesc>* comps)
 {
+    Q_UNUSED(inputNb);
     comps->push_back( ImagePlaneDesc::getRGBAComponents() );
     comps->push_back( ImagePlaneDesc::getRGBComponents() );
     comps->push_back( ImagePlaneDesc::getAlphaComponents() );

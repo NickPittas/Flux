@@ -164,7 +164,7 @@ convertCharArray(const wchar_t *path)
 
 #elif defined(Q_OS_LINUX) || defined(Q_OS_FREEBSD)
 //static
-QString
+Q_DECL_UNUSED QString
 resolveUserName(uint userId)
 {
 #if !defined(QT_NO_THREAD) && defined(_POSIX_THREAD_SAFE_FUNCTIONS) && !defined(Q_OS_OPENBSD)

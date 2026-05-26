@@ -90,6 +90,128 @@ struct FluxMaskSerialization
     }
 };
 
+struct FluxAnimatorKeyframeSerialization
+{
+    double time;
+    double value;
+    double leftDerivative;
+    double rightDerivative;
+    int interpolation; // KeyframeTypeEnum as int
+
+    FluxAnimatorKeyframeSerialization()
+        : time(0), value(0), leftDerivative(0), rightDerivative(0), interpolation(0)
+    {}
+
+    friend class ::boost::serialization::access;
+    template<class Archive>
+    void serialize(Archive & ar, const unsigned int /*version*/)
+    {
+        ar & ::boost::serialization::make_nvp("Time", time);
+        ar & ::boost::serialization::make_nvp("Value", value);
+        ar & ::boost::serialization::make_nvp("LeftDerivative", leftDerivative);
+        ar & ::boost::serialization::make_nvp("RightDerivative", rightDerivative);
+        ar & ::boost::serialization::make_nvp("Interpolation", interpolation);
+    }
+};
+
+struct FluxAnimatorPropertySerialization
+{
+    double value;
+    std::vector<FluxAnimatorKeyframeSerialization> keyframes;
+
+    FluxAnimatorPropertySerialization()
+        : value(0)
+    {}
+
+    friend class ::boost::serialization::access;
+    template<class Archive>
+    void serialize(Archive & ar, const unsigned int /*version*/)
+    {
+        ar & ::boost::serialization::make_nvp("Value", value);
+        int numKeys = (int)keyframes.size();
+        ar & ::boost::serialization::make_nvp("NumKeys", numKeys);
+        if (Archive::is_loading::value) {
+            keyframes.resize(numKeys);
+        }
+        for (int i = 0; i < numKeys; ++i) {
+            ar & ::boost::serialization::make_nvp("Key", keyframes[i]);
+        }
+    }
+};
+
+struct FluxAnimatorSerialization
+{
+    int animatorId;
+    std::string name;
+    bool enabled;
+    int basedOn;
+    int shape;
+    int anchor;
+
+    // Range selector (1-dim each)
+    FluxAnimatorPropertySerialization start;
+    FluxAnimatorPropertySerialization end;
+    FluxAnimatorPropertySerialization offset;
+    FluxAnimatorPropertySerialization amount;
+
+    // Animated properties
+    FluxAnimatorPropertySerialization rotation;
+    FluxAnimatorPropertySerialization opacity;
+    FluxAnimatorPropertySerialization tracking;
+    std::vector<FluxAnimatorPropertySerialization> position;
+    std::vector<FluxAnimatorPropertySerialization> scale;
+    std::vector<FluxAnimatorPropertySerialization> fillColor;
+
+    bool scaleSeparated;
+
+    FluxAnimatorSerialization()
+        : animatorId(0), enabled(true), basedOn(0), shape(1), anchor(1)
+        , scaleSeparated(false)
+    {}
+
+    friend class ::boost::serialization::access;
+    template<class Archive>
+    void serialize(Archive & ar, const unsigned int /*version*/)
+    {
+        ar & ::boost::serialization::make_nvp("AnimatorId", animatorId);
+        ar & ::boost::serialization::make_nvp("Name", name);
+        ar & ::boost::serialization::make_nvp("Enabled", enabled);
+        ar & ::boost::serialization::make_nvp("BasedOn", basedOn);
+        ar & ::boost::serialization::make_nvp("Shape", shape);
+        ar & ::boost::serialization::make_nvp("Anchor", anchor);
+        ar & ::boost::serialization::make_nvp("Start", start);
+        ar & ::boost::serialization::make_nvp("End", end);
+        ar & ::boost::serialization::make_nvp("Offset", offset);
+        ar & ::boost::serialization::make_nvp("Amount", amount);
+        ar & ::boost::serialization::make_nvp("Rotation", rotation);
+        ar & ::boost::serialization::make_nvp("Opacity", opacity);
+        ar & ::boost::serialization::make_nvp("Tracking", tracking);
+
+        int numPos = (int)position.size();
+        ar & ::boost::serialization::make_nvp("NumPosition", numPos);
+        if (Archive::is_loading::value) { position.resize(numPos); }
+        for (int i = 0; i < numPos; ++i) {
+            ar & ::boost::serialization::make_nvp("Pos", position[i]);
+        }
+
+        int numScale = (int)scale.size();
+        ar & ::boost::serialization::make_nvp("NumScale", numScale);
+        if (Archive::is_loading::value) { scale.resize(numScale); }
+        for (int i = 0; i < numScale; ++i) {
+            ar & ::boost::serialization::make_nvp("Scl", scale[i]);
+        }
+
+        int numFill = (int)fillColor.size();
+        ar & ::boost::serialization::make_nvp("NumFillColor", numFill);
+        if (Archive::is_loading::value) { fillColor.resize(numFill); }
+        for (int i = 0; i < numFill; ++i) {
+            ar & ::boost::serialization::make_nvp("Fill", fillColor[i]);
+        }
+
+        ar & ::boost::serialization::make_nvp("ScaleSeparated", scaleSeparated);
+    }
+};
+
 struct FluxLayerSerialization
 {
     // Identity
@@ -135,6 +257,9 @@ struct FluxLayerSerialization
     bool hasPrecompBranch;
     std::string maskApplyNodeScriptName;
     std::vector<FluxMaskSerialization> masks;
+
+    // Text animator data (version 3+)
+    std::vector<FluxAnimatorSerialization> animators;
 
     // Expanded state (version 2)
     bool expanded;
@@ -229,6 +354,16 @@ struct FluxLayerSerialization
         if (version >= 2) {
             ar & ::boost::serialization::make_nvp("Expanded", expanded);
         }
+        if (version >= 3) {
+            int numAnimators = (int)animators.size();
+            ar & ::boost::serialization::make_nvp("NumAnimators", numAnimators);
+            if (Archive::is_loading::value) {
+                animators.resize(numAnimators);
+            }
+            for (int i = 0; i < numAnimators; ++i) {
+                ar & ::boost::serialization::make_nvp("Animator", animators[i]);
+            }
+        }
     }
 };
 
@@ -280,7 +415,7 @@ struct FluxTimelineSerialization
 NATRON_NAMESPACE_EXIT
 
 BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxTimelineSerialization, 2)
-BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxLayerSerialization, 2)
+BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxLayerSerialization, 3)
 BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxMaskSerialization, 1)
 
 #endif // FLUXTIMELINESERIALIZATION_H

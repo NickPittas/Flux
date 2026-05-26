@@ -109,7 +109,12 @@ FluxExportPanel::FluxExportPanel(Gui* gui, QWidget* parent)
     // --- Connections ---
     QObject::connect(_browseButton, &QPushButton::clicked, this, &FluxExportPanel::onBrowseClicked);
     QObject::connect(_outputPathEdit, &QLineEdit::editingFinished, this, &FluxExportPanel::onOutputPathChanged);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+    QObject::connect(_reformatToggle, &QCheckBox::checkStateChanged, this,
+                     [this](Qt::CheckState state) { onReformatToggleChanged(static_cast<int>(state)); });
+#else
     QObject::connect(_reformatToggle, &QCheckBox::stateChanged, this, &FluxExportPanel::onReformatToggleChanged);
+#endif
     QObject::connect(_renderButton, &QPushButton::clicked, this, &FluxExportPanel::onRenderClicked);
 }
 

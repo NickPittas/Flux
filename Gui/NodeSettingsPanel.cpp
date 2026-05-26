@@ -142,7 +142,12 @@ NodeSettingsPanel::initializeRotoPanel()
 TrackerPanel*
 NodeSettingsPanel::initializeTrackerPanel()
 {
-    if ( getNode()->getNode()->getEffectInstance()->isBuiltinTrackerNode() ) {
+    NodeGuiPtr nodeGui = getNode();
+    if (!nodeGui || !nodeGui->getNode()) {
+        return NULL;
+    }
+    EffectInstancePtr effect = nodeGui->getNode()->getEffectInstance();
+    if ( effect && effect->isBuiltinTrackerNode() ) {
         return new TrackerPanel(_nodeGUI.lock(), this);
     } else {
         return NULL;

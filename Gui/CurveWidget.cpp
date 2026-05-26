@@ -116,6 +116,7 @@ CurveWidget::CurveWidget(Gui* gui,
     : QOpenGLWidget(parent)
     , _imp( new CurveWidgetPrivate(gui, selection, timeline, this) )
 {
+    Q_UNUSED(shareWidget);
     // always running in the main thread
     assert( qApp && qApp->thread() == QThread::currentThread() );
 
@@ -2168,7 +2169,10 @@ CurveWidget::exportCurveToAscii()
         ///setup the file
         QString name = dialog.getFilePath();
         QFile file(name);
-        file.open(QIODevice::WriteOnly | QIODevice::Text);
+        if ( !file.open(QIODevice::WriteOnly | QIODevice::Text) ) {
+            Dialogs::errorDialog( tr("Curve Editor").toStdString(), tr("Failed to open file for writing.").toStdString() );
+            return;
+        }
         QTextStream ts(&file);
 
         for (int i = 0; i < count; ++i) {
@@ -2248,7 +2252,10 @@ CurveWidget::importCurveFromAscii()
         }
 
         QFile file( dialog.getFilePath() );
-        file.open(QIODevice::ReadOnly);
+        if ( !file.open(QIODevice::ReadOnly) ) {
+            Dialogs::errorDialog( tr("Curve Editor").toStdString(), tr("Failed to open file for reading.").toStdString() );
+            return;
+        }
         QTextStream ts(&file);
         std::map<CurveGuiPtr, std::vector<double> > curvesValues;
         ///scan the file to get the curve values

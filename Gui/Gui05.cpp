@@ -2367,7 +2367,6 @@ Gui::deferredInitGizmoParams(FluxTimeline* timeline)
         // Set the timeline bar and frameRange to match the actual media range.
         // inPoint = frameRange first, outPoint = frameRange last.
         // originalInPoint/originalOutPoint = same at creation (never change after this).
-        int mediaDuration = mediaLast - mediaFirst;
         layer.inPoint = mediaFirst;
         layer.outPoint = mediaLast;
         layer.originalInPoint = mediaFirst;

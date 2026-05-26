@@ -176,6 +176,7 @@ Footage layers have an external **Read** node connected to the gizmo input. Soli
 - **Transform** = translate, scale, rotate, center knobs on gizmo (aliased to internal Transform node)
 - **Legacy FluxText controls** = promoted group knobs named after the internal Text node (`Text1...`) and linked with `setAsAlias()`, matching Natron's PyPlug exporter style. These are legacy Text v1 implementation details, not a required implementation model for FluxMotionText.
 - **Legacy FluxText font selection** = promoted `Text1name` choice is synchronized to native `Text1font` in `Gui/Gui05.cpp` because the native Text renderer reads the font-family string. FluxMotionText must provide its own usable font-selection path backed by Flux-owned `TextRender` data.
+- **FluxMotionText rendering** = `TextRender` must lay out text in project/RoD space scaled by the host render scale, write only to the host-provided destination bounds, and remain invariant under Viewer zoom/proxy/cache changes. Viewer zoom must scale the finished image+alpha, not change text layout.
 - **Viewer overlay keyframes** = `Gui/HostOverlay.cpp` passes a `KeyFrame` object for 2D overlay writes so animated translate/center/scale edits author curve keys instead of only changing the current value.
 - **Precomps** = Natron Group nodes
 - **External Read** = footage layers own a Read node outside the gizmo; metadata/range probing uses this node.

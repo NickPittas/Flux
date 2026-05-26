@@ -29,3 +29,44 @@ endif()
 add_subdirectory(libmv)
 add_subdirectory(openMVG)
 add_subdirectory(qhttpserver)
+
+function(natron_suppress_third_party_warnings target_name)
+    if(TARGET ${target_name} AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${target_name} PRIVATE
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-sign-compare>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-unused-parameter>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-unused-but-set-variable>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-unused-function>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-unused-result>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-missing-declarations>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-deprecated-declarations>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-maybe-uninitialized>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-unknown-pragmas>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-comment>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-reorder>
+            $<$<COMPILE_LANGUAGE:CXX>:-Wno-class-memaccess>
+        )
+    endif()
+endfunction()
+
+function(natron_suppress_third_party_c_warnings target_name)
+    if(TARGET ${target_name} AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${target_name} PRIVATE
+            $<$<COMPILE_LANGUAGE:C>:-Wno-sign-compare>
+            $<$<COMPILE_LANGUAGE:C>:-Wno-unused-parameter>
+            $<$<COMPILE_LANGUAGE:C>:-Wno-unused-but-set-variable>
+            $<$<COMPILE_LANGUAGE:C>:-Wno-unused-function>
+            $<$<COMPILE_LANGUAGE:C>:-Wno-unused-result>
+            $<$<COMPILE_LANGUAGE:C>:-Wno-missing-prototypes>
+            $<$<COMPILE_LANGUAGE:C>:-Wno-unknown-pragmas>
+            $<$<COMPILE_LANGUAGE:C>:-Wno-comment>
+        )
+    endif()
+endfunction()
+
+foreach(target_name IN ITEMS gflags glog ceres mv openMVG qhttpserver)
+    natron_suppress_third_party_warnings(${target_name})
+endforeach()
+foreach(target_name IN ITEMS hoedown tess)
+    natron_suppress_third_party_c_warnings(${target_name})
+endforeach()

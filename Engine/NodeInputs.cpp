@@ -1256,18 +1256,20 @@ Node::disconnectOutput(bool useGuiValues,
     {
         QMutexLocker l(&_imp->outputsMutex);
         if (!useGuiValues) {
-            int ret = 0;
-            for (NodesWList::iterator it = _imp->outputs.begin(); it != _imp->outputs.end(); ++it, ++ret) {
+            int index = 0;
+            for (NodesWList::iterator it = _imp->outputs.begin(); it != _imp->outputs.end(); ++it, ++index) {
                 if (it->lock().get() == output) {
                     _imp->outputs.erase(it);
+                    ret = index;
                     break;
                 }
             }
         }
-        int ret = 0;
-        for (NodesWList::iterator it = _imp->guiOutputs.begin(); it != _imp->guiOutputs.end(); ++it, ++ret) {
+        int index = 0;
+        for (NodesWList::iterator it = _imp->guiOutputs.begin(); it != _imp->guiOutputs.end(); ++it, ++index) {
             if (it->lock().get() == output) {
                 _imp->guiOutputs.erase(it);
+                ret = index;
                 break;
             }
         }

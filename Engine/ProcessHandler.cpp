@@ -74,12 +74,16 @@ ProcessHandler::ProcessHandler(const QString & projectPath,
     {
 #if defined(Q_OS_UNIX)
         QTemporaryFile tmpf(tmpFileName);
-        tmpf.open();
+        if (!tmpf.open()) {
+            throw std::runtime_error("Failed to create temporary IPC socket path");
+        }
         tmpFileName = tmpf.fileName();
         tmpf.remove();
 #else
         QTemporaryFile tmpf;
-        tmpf.open();
+        if (!tmpf.open()) {
+            throw std::runtime_error("Failed to create temporary IPC socket path");
+        }
         QString tmpFilePath = tmpf.fileName();
         QString baseName;
         int lastSlash = tmpFilePath.lastIndexOf( QLatin1Char('/') );
@@ -394,12 +398,16 @@ ProcessInputChannel::initialize()
     {
 #if defined(Q_OS_UNIX)
         QTemporaryFile tmpf(tmpFileName);
-        tmpf.open();
+        if (!tmpf.open()) {
+            throw std::runtime_error("Failed to create temporary IPC socket path");
+        }
         tmpFileName = tmpf.fileName();
         tmpf.remove();
 #else
         QTemporaryFile tmpf;
-        tmpf.open();
+        if (!tmpf.open()) {
+            throw std::runtime_error("Failed to create temporary IPC socket path");
+        }
         QString tmpFilePath = tmpf.fileName();
         QString baseName;
         int lastSlash = tmpFilePath.lastIndexOf( QLatin1Char('/') );

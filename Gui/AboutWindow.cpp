@@ -127,9 +127,10 @@ AboutWindow::AboutWindow(QWidget* parent)
     {
         QString licenseStr;
         QFile license( QString::fromUtf8(":LICENSE_SHORT.txt") );
-        license.open(QIODevice::ReadOnly | QIODevice::Text);
-        licenseStr = NATRON_NAMESPACE::convertFromPlainText(QString::fromUtf8( license.readAll() ), NATRON_NAMESPACE::WhiteSpaceNormal);
-        aboutText.append(licenseStr);
+        if ( license.open(QIODevice::ReadOnly | QIODevice::Text) ) {
+            licenseStr = NATRON_NAMESPACE::convertFromPlainText(QString::fromUtf8( license.readAll() ), NATRON_NAMESPACE::WhiteSpaceNormal);
+            aboutText.append(licenseStr);
+        }
     }
     {
         QString endAbout = QString::fromUtf8("<p>%1</p>").arg( tr("See the <a href=\"%2\">%1 website</a> "
@@ -442,8 +443,9 @@ AboutWindow::AboutWindow(QWidget* parent)
     _changelogText->setOpenExternalLinks(true);
     {
         QFile changelogFile( QString::fromUtf8(":CHANGELOG.md") );
-        changelogFile.open(QIODevice::ReadOnly | QIODevice::Text);
-        _changelogText->setText( QString::fromUtf8( changelogFile.readAll() ) );
+        if ( changelogFile.open(QIODevice::ReadOnly | QIODevice::Text) ) {
+            _changelogText->setText( QString::fromUtf8( changelogFile.readAll() ) );
+        }
     }
     _tabWidget->addTab( _changelogText, tr("Changelog") );
 
@@ -457,8 +459,9 @@ AboutWindow::AboutWindow(QWidget* parent)
     _teamText->setOpenExternalLinks(false);
     {
         QFile team_file( QString::fromUtf8(":CONTRIBUTORS.txt") );
-        team_file.open(QIODevice::ReadOnly | QIODevice::Text);
-        _teamText->setText( QString::fromUtf8( team_file.readAll() ) );
+        if ( team_file.open(QIODevice::ReadOnly | QIODevice::Text) ) {
+            _teamText->setText( QString::fromUtf8( team_file.readAll() ) );
+        }
     }
     _tabWidget->addTab( _teamText, tr("Contributors") );
 
@@ -466,8 +469,9 @@ AboutWindow::AboutWindow(QWidget* parent)
     _licenseText->setOpenExternalLinks(false);
     {
         QFile license( QString::fromUtf8(":LICENSE.txt") );
-        license.open(QIODevice::ReadOnly | QIODevice::Text);
-        _licenseText->setText( QString::fromUtf8( license.readAll() ) );
+        if ( license.open(QIODevice::ReadOnly | QIODevice::Text) ) {
+            _licenseText->setText( QString::fromUtf8( license.readAll() ) );
+        }
     }
     _tabWidget->addTab( _licenseText, tr("License") );
 

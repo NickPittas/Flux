@@ -11,7 +11,7 @@
 | P4 | Effects + Properties | DONE | 2026-05-22 | 2026-05-22 | 100% |
 | P5 | Import/Export | DONE | 2026-05-22 | 2026-05-23 | 100% |
 | P6 | Timeline Tree + Masks | DONE | 2026-05-23 | 2026-05-23 | 100% |
-| P7 | Shapes + Text | IN_PROGRESS | 2026-05-24 | — | 35% |
+| P7 | Shapes + Text | IN_PROGRESS | 2026-05-24 | — | 45% |
 | P8 | Polish + Cache | PENDING | — | — | 0% |
 
 ---
@@ -258,7 +258,7 @@
 - T077: 🧱 FluxMotionText nodegroup scaffold — rejected scaffold only. Headless create/render/reload did not prove actual UI creation, viewer display, font UI, or text animator UX. See recovery source of truth.
 - T078: 🧱 Real glyph rendering for Flux TextRender — renderer groundwork only. Glyph output was proven only in controlled/headless paths and does not prove FluxMotionText product behavior. See recovery source of truth.
 - T079: ⛔ FluxMotionText layer integration — rejected/blocked. The real GUI path failed with `Failed to create TextRender1`, and the resulting UX lacks the required AE-style text animator system. See recovery source of truth.
-- T080: ✅ FluxMotionText full UI Text Animators — core task manually accepted by Nick as 100% working on 2026-05-26. Includes dynamic animator stacks, visible Animator panel, direct Add Animator action, selector shapes, range controls, per-character/word/line evaluation, playback/cache invalidation, and Flux-owned TextRender path. Finishing touches are tracked separately in T081.
+- T080: ✅ FluxMotionText full UI Text Animators — core task manually accepted by Nick as working on 2026-05-26. Includes dynamic animator stacks, visible Animator panel, direct Add Animator action, selector shapes, range controls, per-character/word/line evaluation, playback/cache invalidation, Flux-owned TextRender path, and viewer zoom/proxy-stable TextRender output. Finishing touches are tracked separately in T081.
 - T081: ✅ Text Animator finishing touches — build passed, Oracle-reviewed, and Nick manually validated all requested Natron GUI checks. Preserves target values during shape/keyframe workflow, adds selectable transform anchor dropdown, adds sliders for Scale/Start/End/Offset/Strength, and selecting animator rows opens/highlights the Animator panel.
 - T082: ⏳ Adobe Illustrator import with layered PDF-preview/vector path — research online and locally in Natron/OpenFX first, then import `.ai` files that include PDF-compatible preview data, keep artwork resolution-independent at arbitrary render scale, and split Illustrator layers into separate Flux layers/nodes when the PDF/AI structure allows. Editable shape/text conversion is desirable but secondary to crisp vector-backed import.
 - T083: ⏳ AI matte/mask generation and video depth tools — multi-model AI-assisted matte extraction/mask generation, with initial research candidates including SAM 3.1, MatAnyone/MatAnything-style video matting, BFRNet or similar helpers, and other current best video segmentation/matting models. Include video-stable depth estimation research; Depth Anything is not assumed good enough for video.
@@ -267,6 +267,7 @@
 - Native Text justification/alignment is broken in standalone Text too; track as a native Text OFX issue, not a FluxText v1 blocker.
 - Dope Sheet/keyframe readability and stability need separate polish work.
 - Text Animator finishing touches from Nick's 2026-05-26 acceptance are complete and manually validated: value preservation during keyframe/shape changes, selectable animator transform anchor, sliders for main animator numeric controls, and animator-row selection opening/highlighting in the Animator panel.
+- FluxMotionText/TextRender viewer zoom/proxy rendering is manually validated after fixing the layout/output-bounds split: layout uses scaled project/RoD bounds, output writes to the host destination bounds, and installed plugin hashes must match the build before GUI validation.
 - Adobe Illustrator import should target AE-like behavior: use embedded PDF preview when available, preserve crisp logos/text/shapes at any scale, support full-file import and layered import, and investigate a dedicated vector render path if existing PDF/SVG readers rasterize too early. Research must include online sources and local Natron/OpenFX/OIIO/PDF/SVG tooling already present in this repo/runtime.
 - AI-assisted matte/depth should be model-pluggable and video-oriented, not a one-model shortcut. Research must compare current online model options and local integration constraints before implementation.
 - Linux installer/docs must stay path-agnostic: user-facing commands use `$FLUX_ROOT`, `$BUILD_DIR`, `$PLUGIN_PREFIX`, `$OFX_USER_PLUGIN_DIR`, `$HOME`, and `$XDG_CACHE_HOME`; installer end-to-end testing belongs in a clean VM/container or distrobox pod, not on the production host.

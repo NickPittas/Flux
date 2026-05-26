@@ -34,9 +34,9 @@ OFXS_NAMESPACE_ANONYMOUS_ENTER
 #define kSupportsHalf false
 #define kSupportsFloat true
 
-#define kSupportsTiles 1
-#define kSupportsMultiResolution 1
-#define kSupportsRenderScale 1
+#define kSupportsTiles 0
+#define kSupportsMultiResolution 0
+#define kSupportsRenderScale 0
 #define kSupportsMultipleClipPARs false
 #define kSupportsMultipleClipDepths false
 #define kRenderThreadSafety eRenderFullySafe
@@ -228,7 +228,7 @@ private:
 
 void TextRenderPlugin::setupAndProcess(TextRenderProcessorBase& processor, const RenderArguments& args)
 {
-    std::auto_ptr<Image> dst(_dstClip->fetchImage(args.time));
+    std::unique_ptr<Image> dst(_dstClip->fetchImage(args.time));
     if (!dst.get()) {
         throwSuiteStatusException(kOfxStatFailed);
     }
@@ -260,7 +260,30 @@ void TextRenderPlugin::setupAndProcess(TextRenderProcessorBase& processor, const
     request.fillColor[2] = color.b;
     request.fillColor[3] = color.a;
     request.time = args.time;
-    request.bounds = dst->getBounds();
+    request.renderScaleX = args.renderScale.x;
+    request.renderScaleY = args.renderScale.y;
+    request.outputBounds = dst->getBounds();
+    request.bounds = request.outputBounds;
+
+    OfxRectD rod;
+    if (!getRegionOfDefinition(args.time, rod)) {
+        OfxPointD projectSize = getProjectSize();
+        OfxPointD projectOffset = getProjectOffset();
+        rod.x1 = projectOffset.x;
+        rod.y1 = projectOffset.y;
+        rod.x2 = projectOffset.x + projectSize.x;
+        rod.y2 = projectOffset.y + projectSize.y;
+    }
+    const double scaleX = args.renderScale.x > 0.0 ? args.renderScale.x : 1.0;
+    const double scaleY = args.renderScale.y > 0.0 ? args.renderScale.y : 1.0;
+    request.layoutBounds.x1 = static_cast<int>(std::floor(rod.x1 * scaleX));
+    request.layoutBounds.y1 = static_cast<int>(std::floor(rod.y1 * scaleY));
+    request.layoutBounds.x2 = static_cast<int>(std::ceil(rod.x2 * scaleX));
+    request.layoutBounds.y2 = static_cast<int>(std::ceil(rod.y2 * scaleY));
+    if (request.layoutBounds.x2 <= request.layoutBounds.x1 || request.layoutBounds.y2 <= request.layoutBounds.y1) {
+        request.layoutBounds = request.outputBounds;
+    }
+
     std::string rasterError;
     std::shared_ptr<FluxText::Raster> raster = FluxText::renderText(request, &rasterError);
     if (!rasterError.empty()) {
@@ -271,7 +294,7 @@ void TextRenderPlugin::setupAndProcess(TextRenderProcessorBase& processor, const
 
     processor.setDstImg(dst.get());
     processor.setDstBounds(dst->getBounds());
-    processor.setRenderWindow(args.renderWindow, args.renderScale);
+    processor.setRenderWindow(dst->getBounds(), args.renderScale);
     processor.setColor(color);
     processor.setRaster(raster);
     processor.process();

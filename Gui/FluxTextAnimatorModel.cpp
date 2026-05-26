@@ -4,6 +4,7 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "Gui/FluxTextAnimatorModel.h"
+#include "Gui/FluxTimelineSerialization.h"
 
 #include "Engine/ChoiceOption.h"
 #include "Engine/Curve.h"
@@ -474,6 +475,149 @@ void syncAnimatorStackToRenderer(const NodePtr& node)
     const QString json = QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact));
     setString(node, QString::fromUtf8("animatorStackJson"), json);
     syncAnimatorTimeDependency(node);
+}
+
+
+// --- Capture / Restore for serialization ---
+
+namespace {
+
+FluxAnimatorPropertySerialization captureProperty(const NodePtr& node, const QString& knobFullName, int dim)
+{
+    FluxAnimatorPropertySerialization prop;
+    KnobDoubleBasePtr dk = std::dynamic_pointer_cast<KnobDoubleBase>(knob(node, knobFullName));
+    if (dk) {
+        prop.value = dk->getValue(dim, ViewSpec::current());
+        CurvePtr curve = dk->getCurve(ViewSpec::current(), dim);
+        if (curve) {
+            KeyFrameSet kfSet = curve->getKeyFrames_mt_safe();
+            for (const KeyFrame& kf : kfSet) {
+                FluxAnimatorKeyframeSerialization ks;
+                ks.time = kf.getTime();
+                ks.value = kf.getValue();
+                ks.leftDerivative = kf.getLeftDerivative();
+                ks.rightDerivative = kf.getRightDerivative();
+                ks.interpolation = static_cast<int>(kf.getInterpolation());
+                prop.keyframes.push_back(ks);
+            }
+        }
+    }
+    return prop;
+}
+
+std::vector<FluxAnimatorPropertySerialization> captureVecProperty(const NodePtr& node, const QString& knobFullName, int dims)
+{
+    std::vector<FluxAnimatorPropertySerialization> result;
+    for (int d = 0; d < dims; ++d) {
+        result.push_back(captureProperty(node, knobFullName, d));
+    }
+    return result;
+}
+
+void restoreProperty(const NodePtr& node, const QString& knobFullName,
+                     int dim, const FluxAnimatorPropertySerialization& prop)
+{
+    KnobDoubleBasePtr dk = std::dynamic_pointer_cast<KnobDoubleBase>(knob(node, knobFullName));
+    if (!dk) return;
+
+    dk->removeAnimation(ViewSpec::all(), dim);
+    dk->setValue(prop.value, ViewSpec::all(), dim, eValueChangedReasonPluginEdited, 0);
+
+    for (const FluxAnimatorKeyframeSerialization& ks : prop.keyframes) {
+        KeyFrame kf(ks.time,
+                    ks.value,
+                    ks.leftDerivative,
+                    ks.rightDerivative,
+                    static_cast<KeyframeTypeEnum>(ks.interpolation));
+        dk->setKeyFrame(kf, ViewSpec::all(), dim, eValueChangedReasonNatronInternalEdited);
+    }
+}
+
+void restoreVecProperty(const NodePtr& node, const QString& knobFullName,
+                        const std::vector<FluxAnimatorPropertySerialization>& props)
+{
+    for (size_t d = 0; d < props.size(); ++d) {
+        restoreProperty(node, knobFullName, static_cast<int>(d), props[d]);
+    }
+}
+
+} // namespace
+
+std::vector<FluxAnimatorSerialization> captureAnimators(const NodePtr& node)
+{
+    std::vector<FluxAnimatorSerialization> result;
+    if (!node) return result;
+
+    QList<int> ids = animatorIds(node);
+    for (int id : ids) {
+        FluxAnimatorSerialization as;
+        as.animatorId = id;
+        as.name = stringValue(node, knobName(id, QString::fromUtf8("name")), QString::fromUtf8("Animator %1").arg(id)).toStdString();
+        as.enabled = boolValue(node, knobName(id, QString::fromUtf8("enabled")), true);
+        as.basedOn = intValue(node, knobName(id, QString::fromUtf8("basedOn")), 0);
+        as.shape = intValue(node, knobName(id, QString::fromUtf8("shape")), 1);
+        as.anchor = intValue(node, knobName(id, QString::fromUtf8("anchor")), 1);
+
+        as.start = captureProperty(node, knobName(id, QString::fromUtf8("start")), 0);
+        as.end = captureProperty(node, knobName(id, QString::fromUtf8("end")), 0);
+        as.offset = captureProperty(node, knobName(id, QString::fromUtf8("offset")), 0);
+        as.amount = captureProperty(node, knobName(id, QString::fromUtf8("amount")), 0);
+
+        as.rotation = captureProperty(node, knobName(id, QString::fromUtf8("rotation")), 0);
+        as.opacity = captureProperty(node, knobName(id, QString::fromUtf8("opacity")), 0);
+        as.tracking = captureProperty(node, knobName(id, QString::fromUtf8("tracking")), 0);
+        as.position = captureVecProperty(node, knobName(id, QString::fromUtf8("position")), 2);
+        as.scale = captureVecProperty(node, knobName(id, QString::fromUtf8("scale")), 2);
+        as.fillColor = captureVecProperty(node, knobName(id, QString::fromUtf8("fillColor")), 4);
+        as.scaleSeparated = boolValue(node, knobName(id, QString::fromUtf8("scaleSeparated")), false);
+
+        result.push_back(as);
+    }
+    return result;
+}
+
+void restoreAnimators(const NodePtr& node, const std::vector<FluxAnimatorSerialization>& serialized)
+{
+    if (!node) return;
+
+    for (const FluxAnimatorSerialization& as : serialized) {
+        if (!knob(node, knobName(as.animatorId, QString::fromUtf8("enabled")))) {
+            ensureAnimatorKnobs(node, as.animatorId, QString::fromStdString(as.name));
+        }
+
+        auto setBool = [&](const QString& suffix, bool val) {
+            KnobBoolPtr k = std::dynamic_pointer_cast<KnobBool>(knob(node, knobName(as.animatorId, suffix)));
+            if (k) k->setValue(val, ViewSpec::all(), 0, eValueChangedReasonPluginEdited, 0);
+        };
+        auto setInt = [&](const QString& suffix, int val) {
+            KnobIntBasePtr k = std::dynamic_pointer_cast<KnobIntBase>(knob(node, knobName(as.animatorId, suffix)));
+            if (k) k->setValue(val, ViewSpec::all(), 0, eValueChangedReasonNatronGuiEdited, 0);
+        };
+
+        setBool(QString::fromUtf8("enabled"), as.enabled);
+        setInt(QString::fromUtf8("basedOn"), as.basedOn);
+        setInt(QString::fromUtf8("shape"), as.shape);
+        setInt(QString::fromUtf8("anchor"), as.anchor);
+        setBool(QString::fromUtf8("scaleSeparated"), as.scaleSeparated);
+
+        KnobStringBasePtr nameK = std::dynamic_pointer_cast<KnobStringBase>(
+            knob(node, knobName(as.animatorId, QString::fromUtf8("name"))));
+        if (nameK) nameK->setValue(as.name, ViewSpec::all(), 0, eValueChangedReasonPluginEdited, 0);
+
+        restoreProperty(node, knobName(as.animatorId, QString::fromUtf8("start")), 0, as.start);
+        restoreProperty(node, knobName(as.animatorId, QString::fromUtf8("end")), 0, as.end);
+        restoreProperty(node, knobName(as.animatorId, QString::fromUtf8("offset")), 0, as.offset);
+        restoreProperty(node, knobName(as.animatorId, QString::fromUtf8("amount")), 0, as.amount);
+
+        restoreProperty(node, knobName(as.animatorId, QString::fromUtf8("rotation")), 0, as.rotation);
+        restoreProperty(node, knobName(as.animatorId, QString::fromUtf8("opacity")), 0, as.opacity);
+        restoreProperty(node, knobName(as.animatorId, QString::fromUtf8("tracking")), 0, as.tracking);
+        restoreVecProperty(node, knobName(as.animatorId, QString::fromUtf8("position")), as.position);
+        restoreVecProperty(node, knobName(as.animatorId, QString::fromUtf8("scale")), as.scale);
+        restoreVecProperty(node, knobName(as.animatorId, QString::fromUtf8("fillColor")), as.fillColor);
+    }
+
+    syncAnimatorStackToRenderer(node);
 }
 
 } // namespace FluxTextAnimatorModel

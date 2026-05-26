@@ -14,6 +14,7 @@
 
 #include <QList>
 #include <QString>
+#include <vector>
 
 NATRON_NAMESPACE_ENTER
 
@@ -27,6 +28,9 @@ struct FluxTextAnimatorSummary {
     FluxTextAnimatorSummary()
         : id(0), enabled(true), basedOn(0), shape(1) {}
 };
+
+// Forward declarations from FluxTimelineSerialization.h
+struct FluxAnimatorSerialization;
 
 namespace FluxTextAnimatorModel {
 
@@ -44,6 +48,12 @@ void syncAnimatorStackToRenderer(const NodePtr& node);
 
 bool isAnimatorKnobName(const std::string& name);
 QString targetLabel(const QString& target);
+
+// Capture all animator data from a text layer's gizmoNode into serializable form
+std::vector<FluxAnimatorSerialization> captureAnimators(const NodePtr& gizmoNode);
+
+// Restore animator data from serialization onto a text layer's gizmoNode
+void restoreAnimators(const NodePtr& gizmoNode, const std::vector<FluxAnimatorSerialization>& serialized);
 
 } // namespace FluxTextAnimatorModel
 

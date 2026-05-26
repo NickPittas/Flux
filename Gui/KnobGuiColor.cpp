@@ -112,6 +112,7 @@ ColorPickerLabel::enterEvent(QEnterEvent* e)
 ColorPickerLabel::enterEvent(QEvent* e)
 #endif
 {
+    Q_UNUSED(e);
     QToolTip::showText( QCursor::pos(), toolTip() );
 }
 

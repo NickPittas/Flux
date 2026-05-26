@@ -299,15 +299,16 @@ Project::loadProjectInternal(const QString & path,
         ///in the BezierCP class serialisation
         bool foundV = false;
         QFile f(filePath);
-        f.open(QIODevice::ReadOnly);
-        QTextStream fs(&f);
-        while ( !fs.atEnd() ) {
-            QString line = fs.readLine();
+        if ( f.open(QIODevice::ReadOnly) ) {
+            QTextStream fs(&f);
+            while ( !fs.atEnd() ) {
+                QString line = fs.readLine();
 
-            if ( (line.indexOf( QString::fromUtf8("Natron v1.0.0 RC2") ) != -1) || (line.indexOf( QString::fromUtf8("Natron v1.0.0 RC3") ) != -1) ) {
-                appPTR->setProjectCreatedDuringRC2Or3(true);
-                foundV = true;
-                break;
+                if ( (line.indexOf( QString::fromUtf8("Natron v1.0.0 RC2") ) != -1) || (line.indexOf( QString::fromUtf8("Natron v1.0.0 RC3") ) != -1) ) {
+                    appPTR->setProjectCreatedDuringRC2Or3(true);
+                    foundV = true;
+                    break;
+                }
             }
         }
         if (!foundV) {

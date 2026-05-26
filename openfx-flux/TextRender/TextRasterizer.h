@@ -31,7 +31,11 @@ struct RenderRequest
     double fillColor[4] = {0.1, 0.65, 1.0, 1.0};
     std::string animatorStackJson;
     double time = 0.0;
+    double renderScaleX = 1.0;
+    double renderScaleY = 1.0;
     OfxRectI bounds = {0, 0, 1, 1};
+    OfxRectI layoutBounds = {0, 0, 1, 1};
+    OfxRectI outputBounds = {0, 0, 1, 1};
 };
 
 struct Raster

@@ -53,12 +53,16 @@ NATRON_NAMESPACE_ENTER
 NATRON_PYTHON_NAMESPACE_ENTER
 
 /**
- * @brief Calls Py_SetPythonHome and set PYTHONPATH
+ * @brief Set PYTHONPATH and configure the Python home directory.
+ * On Python < 3.11 this calls Py_SetPythonHome(); on >= 3.11 the home is
+ * stored internally for use by initializePython3() via PyConfig.
  **/
 void setupPythonEnv(const std::string& binPath);
 
 /**
- * @brief Must be called after setupPythonEnv(), calls Py_SetProgramName and Py_Initialize, PySys_SetArgv
+ * @brief Must be called after setupPythonEnv().
+ * On Python >= 3.11 this uses PyConfig + Py_InitializeFromConfig().
+ * On older Python this calls Py_SetProgramName, Py_Initialize, PySys_SetArgv.
  * @returns A pointer to the main module
  **/
 PyObject* initializePython3(const std::vector<wchar_t*>& commandLineArgsWide);

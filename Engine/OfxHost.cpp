@@ -860,6 +860,9 @@ OfxHost::loadOFXPlugins(IOPluginsMap* readersMap,
     SettingsPtr settings = appPTR->getCurrentSettings();
     assert(settings);
     bool useStdOFXPluginsLocation = settings->getUseStdOFXPluginsLocation();
+    if (qgetenv("FLUX_OFX_STRICT_PATH") == QByteArray("1")) {
+        useStdOFXPluginsLocation = false;
+    }
     if (!useStdOFXPluginsLocation) {
         qDebug() << "Load OFX Plugins: do not use std plugins location";
         // only set if false, else use the previous value (which is set for example in BaseTest::SetUp())
@@ -1111,7 +1114,9 @@ OfxHost::writeOFXCache()
     QString ofxCacheFilePath = getCacheFilePath();
 
     QTemporaryFile tmpf;
-    tmpf.open();
+    if (!tmpf.open()) {
+        return;
+    }
     QString tmpFileName = tmpf.fileName();
     tmpf.remove();
 
