@@ -7,13 +7,13 @@ and writes per-frame grayscale alpha PNGs.
 
 VideoMaMa is CC BY-NC 4.0 licensed; visible non-commercial warning required.
 
-T083 policy: pipeline code and model weights are user-managed/manual downloads.
-The worker does NOT bundle or assume a bundled pipeline. It loads
-pipeline_svd_mask_numpy.py from:
+T083 installer policy: model weights are downloaded by the Flux model manager.
+The installer also ships the lightweight pipeline_svd_mask_numpy.py workflow
+adapter and places it next to the downloaded model weights. The worker loads it
+from:
   (a) next to model weights in the model directory,
   (b) FLUX_VIDEOMAMA_CODE_ROOT env var, or
   (c) importable via PYTHONPATH.
-Clear error if absent.
 """
 from __future__ import annotations
 
@@ -100,7 +100,7 @@ def _check_dependencies() -> list[str]:
             + ", ".join(str(r) for r in _model_search_roots())
         )
     else:
-        # Check pipeline code availability (user-managed, not bundled)
+        # Check pipeline code availability.
         pipeline_in_model = model_dir / "pipeline_svd_mask_numpy.py"
         code_root_env = os.environ.get("FLUX_VIDEOMAMA_CODE_ROOT")
         pipeline_in_env = Path(code_root_env) / "pipeline_svd_mask_numpy.py" if code_root_env else None
@@ -113,13 +113,10 @@ def _check_dependencies() -> list[str]:
         if not pipeline_in_model.is_file() and not pipeline_importable and (not pipeline_in_env or not pipeline_in_env.is_file()):
             blockers.append(
                 "VideoMaMa pipeline code (pipeline_svd_mask_numpy.py) not found. "
-                "Pipeline code is NOT bundled per T083 non-commercial policy — user must download it. "
-                "Options:\n"
-                "  1) Place pipeline_svd_mask_numpy.py next to model weights at "
-                + str(model_dir) + "/\n"
-                "  2) Set FLUX_VIDEOMAMA_CODE_ROOT to the VideoMaMa repo root "
-                "(https://github.com/SammyLim/VideoMaMa)\n"
-                "  3) Add the VideoMaMa repo to PYTHONPATH"
+                "Run the Flux model manager repair/install action so the bundled "
+                "pipeline adapter is installed next to the model weights at "
+                + str(model_dir) + "/, or set FLUX_VIDEOMAMA_CODE_ROOT / PYTHONPATH "
+                "to a directory containing pipeline_svd_mask_numpy.py."
             )
     return blockers
 
@@ -342,11 +339,11 @@ class Worker:
     def _resolve_pipeline_class(self, model_dir: Path) -> type:
         """Resolve the VideoInferencePipeline class.
 
-        T083 policy: pipeline code is user-managed, NOT bundled.
-        Search order:
-          1. Pipeline script co-located with model weights (user places it there)
-          2. FLUX_VIDEOMAMA_CODE_ROOT env var pointing to the videomama repo root
-          3. sys.path / PYTHONPATH import (pip install -e or PYTHONPATH)
+        The Flux installer places the bundled pipeline adapter next to the
+        downloaded model weights. Search order:
+          1. Pipeline script co-located with model weights
+          2. FLUX_VIDEOMAMA_CODE_ROOT env var
+          3. sys.path / PYTHONPATH import
         """
         # 1. Co-located with model weights
         pipeline_script = model_dir / "pipeline_svd_mask_numpy.py"
@@ -379,11 +376,9 @@ class Worker:
 
         raise ImportError(
             "Cannot find VideoInferencePipeline (pipeline_svd_mask_numpy.py). "
-            "VideoMaMa pipeline code is NOT bundled — it must be user-downloaded per "
-            "T083 non-commercial model/code policy. Place pipeline_svd_mask_numpy.py "
-            f"next to the model weights at {model_dir}/, set FLUX_VIDEOMAMA_CODE_ROOT "
-            "to the VideoMaMa repo root (https://github.com/SammyLim/VideoMaMa), "
-            "or add the videomama repo to PYTHONPATH."
+            f"Run the Flux model manager repair/install action so it is copied next to {model_dir}/, "
+            "set FLUX_VIDEOMAMA_CODE_ROOT to a directory containing it, "
+            "or add that directory to PYTHONPATH."
         )
 
     def unload(self, request: dict[str, Any]) -> dict[str, Any]:

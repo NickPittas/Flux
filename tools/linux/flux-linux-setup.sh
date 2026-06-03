@@ -40,6 +40,7 @@ CHECK_EXPLICIT=0
 ACTION_REQUESTED=0
 DO_PRINT_COMMANDS=0
 DO_TUI=0
+DO_GUI=0
 DO_BOOTSTRAP=0
 DO_UPDATE_SUBMODULES=0
 DO_ENABLE_RPMFUSION=0
@@ -71,6 +72,7 @@ FEDORA_PACKAGES=(
   qt6-qtbase-devel
   qt6-qtbase-gui
   python3
+  python3-tkinter
   python3-devel
   python3-pyside6
   python3-pyside6-devel
@@ -233,15 +235,20 @@ parse_args() {
     return 0
   fi
 
-  if [[ $# -gt 0 ]]; then
-    die "Flux installer is interactive-only; run tools/linux/flux-linux-setup.sh with no arguments."
+  if [[ $# -gt 1 ]]; then
+    die "Usage: tools/linux/flux-linux-setup.sh [--gui|--tui]"
   fi
 
-  if [[ -t 0 && -t 1 ]]; then
-    DO_TUI=1
-  else
-    die "Flux installer is interactive-only and requires a terminal; run tools/linux/flux-linux-setup.sh with no arguments from an interactive shell."
+  if [[ $# -eq 1 ]]; then
+    case "$1" in
+      --gui) DO_GUI=1 ;;
+      --tui) DO_TUI=1 ;;
+      *) die "Usage: tools/linux/flux-linux-setup.sh [--gui|--tui]" ;;
+    esac
+    return 0
   fi
+
+  DO_GUI=1
 }
 fedora_version_for_commands() {
   if command -v rpm >/dev/null 2>&1; then
@@ -626,11 +633,14 @@ install_ai_payloads() {
   copy_payload "${ai_source}/flux_model_manager.py" "${ai_target}/flux_model_manager.py"
   copy_payload "${ai_source}/flux_provider_runtime.py" "${ai_target}/flux_provider_runtime.py"
   copy_payload "${ai_source}/flux_ai_worker.py" "${ai_target}/flux_ai_worker.py"
+  copy_payload "${ai_source}/sam3_transformers_worker.py" "${ai_target}/sam3_transformers_worker.py"
   copy_payload "${ai_source}/matanyone2_worker.py" "${ai_target}/matanyone2_worker.py"
   copy_payload "${ai_source}/videomama_worker.py" "${ai_target}/videomama_worker.py"
+  copy_dir_contents_filtered "${ai_source}/videomama" "${ai_target}/videomama"
   copy_payload "${ai_source}/model_manifest.json" "${ai_target}/model_manifest.json"
   copy_payload "${ai_source}/provider_runtime_manifest.json" "${ai_target}/provider_runtime_manifest.json"
   copy_payload "${ai_source}/sam31_real_inference_probe.py" "${ai_target}/sam31_real_inference_probe.py"
+  copy_payload "${ai_source}/sam3_transformers_real_inference_probe.py" "${ai_target}/sam3_transformers_real_inference_probe.py"
 }
 
 ensure_ai_tools() {
@@ -699,16 +709,19 @@ run_ai_runtime_manager() {
 }
 
 run_ai_runtime_status() {
-  run_ai_runtime_manager status sam31
+  local runtime_id="${1:-sam31}"
+  run_ai_runtime_manager status "$runtime_id" --json
 }
 
 run_ai_runtime_install() {
-  log 'Installing SAM3.1 provider runtime into its isolated Flux/ai-envs/sam31 environment. This never uses Flux/Plugins/python.'
-  run_ai_runtime_manager install sam31 --cuda "${FLUX_AI_RUNTIME_CUDA:-cu128}"
+  local runtime_id="${1:-sam31}"
+  log "Installing ${runtime_id} provider runtime into its isolated Flux/ai-envs/${runtime_id} environment. This never uses Flux/Plugins/python or system Python for model execution."
+  run_ai_runtime_manager install "$runtime_id" --cuda "${FLUX_AI_RUNTIME_CUDA:-cu128}" --json
 }
 
 run_ai_runtime_self_check() {
-  run_ai_runtime_manager self-check sam31 --json
+  local runtime_id="${1:-sam31}"
+  run_ai_runtime_manager self-check "$runtime_id" --json
 }
 
 deploy_pyplugs() {
@@ -1279,6 +1292,82 @@ print_status_summary() {
   printf 'container=%s\n' "$container_hint"
 }
 
+run_installer_diagnostics_json() {
+  FLUX_ROOT="$FLUX_ROOT" \
+  BUILD_DIR="$BUILD_DIR" \
+  FLUX_INSTALL_PREFIX="$FLUX_INSTALL_PREFIX" \
+  FLUX_APP_BIN="$FLUX_APP_BIN" \
+  LAUNCHER_PATH="$LAUNCHER_PATH" \
+  USER_PYPLUG_DIR="$USER_PYPLUG_DIR" \
+  USER_OFX_DIR="$USER_OFX_DIR" \
+  OFX_CACHE_DIR="$OFX_CACHE_DIR" \
+  python3 - <<'PY'
+import json, os, platform, shutil
+from pathlib import Path
+
+def exists_file(path):
+    p = Path(path)
+    return {"path": str(p), "exists": p.is_file(), "executable": os.access(p, os.X_OK)}
+
+def exists_dir(path):
+    p = Path(path)
+    return {"path": str(p), "exists": p.is_dir()}
+
+root = Path(os.environ["FLUX_ROOT"])
+prefix = Path(os.environ["FLUX_INSTALL_PREFIX"])
+pyplug_dir = Path(os.environ["USER_PYPLUG_DIR"])
+ofx_dir = Path(os.environ["USER_OFX_DIR"])
+required_pyplugs = ["FluxLayer.py", "FluxSolid.py", "FluxText.py", "FluxMotionText.py"]
+required_ofx = ["IO.ofx.bundle", "Misc.ofx.bundle", "FluxTextRender.ofx.bundle"]
+ai_root = prefix / "tools" / "ai"
+runtime_root = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local/share")) / "Flux" / "ai-envs"
+model_root = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local/share")) / "Flux" / "models"
+payload = {
+    "schema": "org.flux.installer.diagnostics.v1",
+    "system": {
+        "platform": platform.platform(),
+        "python": shutil.which("python3"),
+        "cmake": shutil.which("cmake"),
+        "ninja": shutil.which("ninja"),
+        "git": shutil.which("git"),
+    },
+    "paths": {
+        "flux_root": str(root),
+        "build_dir": os.environ["BUILD_DIR"],
+        "install_prefix": str(prefix),
+        "ofx_cache": os.environ["OFX_CACHE_DIR"],
+    },
+    "app": {
+        "build_binary": exists_file(str(Path(os.environ["BUILD_DIR"]) / "App" / "Natron")),
+        "installed_app": exists_file(os.environ["FLUX_APP_BIN"]),
+        "launcher": exists_file(os.environ["LAUNCHER_PATH"]),
+    },
+    "plugins": {
+        "pyplug_dir": exists_dir(str(pyplug_dir)),
+        "required_pyplugs": [{"name": name, "installed": (pyplug_dir / name).is_file()} for name in required_pyplugs],
+        "ofx_dir": exists_dir(str(ofx_dir)),
+        "required_ofx": [{"name": name, "installed": (ofx_dir / name).is_dir()} for name in required_ofx],
+    },
+    "ai": {
+        "tools": {
+            "model_manager": (ai_root / "flux_model_manager.py").is_file(),
+            "runtime_manager": (ai_root / "flux_provider_runtime.py").is_file(),
+            "manifest": (ai_root / "model_manifest.json").is_file(),
+        },
+        "runtimes": [
+            {"id": rid, "venv_python": str(runtime_root / rid / "venv" / "bin" / "python"), "installed": (runtime_root / rid / "venv" / "bin" / "python").is_file()}
+            for rid in ("sam3", "matanyone2", "videomama", "sam31")
+        ],
+        "models": [
+            {"id": mid, "path": str(model_root / mid), "present": (model_root / mid).is_dir()}
+            for mid in ("sam3_transformers", "matanyone2", "videomama", "sam31_sam3plus")
+        ],
+    },
+}
+print(json.dumps(payload, indent=2, sort_keys=True))
+PY
+}
+
 run_private_action() {
   shift
   local action="${1:-}"; shift || true
@@ -1293,14 +1382,15 @@ run_private_action() {
     launch) launch_flux ;;
     uninstall) uninstall_flux ;;
     status-summary) print_status_summary ;;
+    diagnostics-json) run_installer_diagnostics_json ;;
     ai-list) run_ai_model_list ;;
     ai-status) run_ai_model_status ;;
     ai-install) run_ai_model_install "$@" ;;
     ai-remove) run_ai_model_remove "$@" ;;
     ai-token) run_ai_token_entry ;;
-    ai-runtime-status) run_ai_runtime_status ;;
-    ai-runtime-install) run_ai_runtime_install ;;
-    ai-runtime-self-check) run_ai_runtime_self_check ;;
+    ai-runtime-status) run_ai_runtime_status "$@" ;;
+    ai-runtime-install) run_ai_runtime_install "$@" ;;
+    ai-runtime-self-check) run_ai_runtime_self_check "$@" ;;
     *) die "Unknown private Flux setup action: ${action}" ;;
   esac
 }
@@ -1313,13 +1403,28 @@ PY
   exec python3 "${SCRIPT_DIR}/flux_linux_setup_tui.py"
 }
 
+launch_python_gui() {
+  command -v python3 >/dev/null 2>&1 || die 'python3 is required for the Flux graphical installer.'
+  if python3 "${SCRIPT_DIR}/flux_linux_setup_gui.py"; then
+    return 0
+  fi
+  if [[ -t 0 && -t 1 ]]; then
+    warn 'Graphical installer could not start; falling back to terminal installer.'
+    launch_curses_tui
+  else
+    die 'Graphical installer could not start and no terminal is available for fallback.'
+  fi
+}
+
 main() {
   parse_args "$@"
   refresh_derived_paths
   if is_private_dispatch "$@"; then
     run_private_action "$@"
-  else
+  elif [[ "$DO_TUI" -eq 1 ]]; then
     launch_curses_tui
+  else
+    launch_python_gui
   fi
 }
 

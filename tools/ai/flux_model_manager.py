@@ -187,12 +187,87 @@ def install_direct(m,args,paths):
         print(f"Downloading {m['id']} file {name}"); urllib.request.urlretrieve(url, dest/name); files.append(name)
     write_meta(m,dest,files); print(f"Installed {m['id']} -> {dest}"); return 0
 
+def validate_required_files(m,path):
+    required=[]
+    payload=m.get("multi_source_payload")
+    if isinstance(payload,dict):
+        required.extend(str(x) for x in payload.get("required_files",[]) if x)
+    source=m.get("source",{})
+    if isinstance(source,dict):
+        required.extend(str(x) for x in source.get("required_files",[]) if x)
+    missing=[rel for rel in sorted(set(required)) if not (path/rel).is_file()]
+    if missing:
+        raise ValueError(f"{m['id']} install is incomplete; missing required files: {', '.join(missing)}")
+
+def copy_bundled_files(m,dest):
+    source=m.get("source",{})
+    if not isinstance(source,dict):
+        return
+    for item in source.get("bundled_files",[]) or []:
+        rel=str(item.get("path","")) if isinstance(item,dict) else str(item)
+        if not rel:
+            continue
+        src=Path(__file__).resolve().parent/rel
+        if not src.is_file():
+            raise ValueError(f"{m['id']} bundled file missing from installer payload: {rel}")
+        target=dest/Path(rel).name
+        shutil.copy2(src,target)
+
+
+def install_composite(m,args,paths):
+    s=m["source"]
+    steps=s.get("steps",[])
+    if not isinstance(steps,list) or not steps:
+        raise ValueError(f"{m['id']} composite source has no steps")
+    if args.dry_run:
+        print(f"DRY-RUN COMPOSITE {m['id']}:")
+        for step in steps:
+            print(f"  - {step.get('type')}: {step.get('repo') or step.get('url')} -> {step.get('target_subdir','.')}")
+        for item in s.get("bundled_files",[]) or []:
+            rel=item.get("path") if isinstance(item,dict) else item
+            print(f"  - bundled: {rel} -> .")
+        return 0
+    try:
+        from huggingface_hub import snapshot_download
+    except Exception:
+        print("ERROR: composite install requires huggingface_hub.",file=sys.stderr)
+        return 1
+    req=str(m.get("gated_token_requirement","")).lower()
+    need=req.startswith("required") or req in {"token_required","required_for_download"}
+    tok=token_from_args(args,need)
+    dest=model_local_path(m,paths)
+    if dest.exists() and args.force:
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True,exist_ok=True)
+    paths["hub_cache"].mkdir(parents=True,exist_ok=True)
+    files=[]
+    for step in steps:
+        typ=step.get("type")
+        target=dest/str(step.get("target_subdir") or ".")
+        target.mkdir(parents=True,exist_ok=True)
+        if typ=="huggingface":
+            print(f"Downloading {m['id']} component {step.get('role',step.get('repo'))}")
+            snapshot_download(repo_id=step["repo"], revision=step.get("revision"), token=tok, cache_dir=str(paths["hub_cache"]), local_dir=str(target), allow_patterns=step.get("allow_patterns"))
+        elif typ=="url":
+            url=step["url"]; name=step.get("filename") or Path(url).name
+            print(f"Downloading {m['id']} file {name}")
+            urllib.request.urlretrieve(url, target/name)
+        else:
+            raise ValueError(f"{m['id']} unsupported composite step type: {typ}")
+    copy_bundled_files(m,dest)
+    validate_required_files(m,dest)
+    files=[str(p.relative_to(dest)) for p in dest.rglob("*") if p.is_file() and p.name!="flux_model_install.json"]
+    write_meta(m,dest,files)
+    print(f"Installed {m['id']} -> {dest}")
+    return 0
+
 def install_one(m,args,paths):
     if not m.get("default_installable",False) and not args.force: print(f"SKIP {m['id']}: not installable by default (use --force).",file=sys.stderr); return 1
     if m.get("warning_text") and not (args.yes or args.dry_run):
         print("WARNING: "+m["warning_text"]); input("Press Enter to continue or Ctrl-C to abort.")
     typ=m.get("source",{}).get("type")
     if typ=="huggingface": return install_hf(m,args,paths)
+    if typ=="huggingface_composite": return install_composite(m,args,paths)
     if typ=="url": return install_direct(m,args,paths)
     print(f"ERROR: {m['id']} has unsupported source type {typ}",file=sys.stderr); return 1
 

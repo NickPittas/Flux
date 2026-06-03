@@ -347,26 +347,40 @@ class Worker:
             "prompts": {"used": first_contract, "provided_count": len(prompts), "resolved_count": len(resolved_prompts)},
         }
 
-        # ── Seed each prompt into the session ──
-        session = call_supported(processor.init_video_session, {"video": frames, "inference_device": self.selected_device, "processing_device": self.selected_device})
-        seeded_frame_indices: set[int] = set()
-        for rp in resolved_prompts:
-            fi = rp["frame_idx"]
-            oid = rp["obj_id"]
-            pk: dict[str, Any] = {"inference_session": session, "frame_idx": fi, "obj_ids": [oid], "original_size": (source_size[1], source_size[0])}
-            if rp["kind"] == "point":
-                v = rp["value"]
-                pk.update({"input_points": [[[[v["x"], v["y"]]]]], "input_labels": [[[v["label"]]]]})
-            else:
-                pk.update({"input_boxes": [[[rp["value"]]]]})
-            call_supported(processor.add_inputs_to_inference_session, pk)
-            call_supported(model.forward, {"inference_session": session, "frame_idx": fi})
-            seeded_frame_indices.add(fi)
+        def seed_video_session() -> Any:
+            session = call_supported(processor.init_video_session, {"video": frames, "inference_device": self.selected_device, "processing_device": self.selected_device})
+            for rp in resolved_prompts:
+                fi = rp["frame_idx"]
+                oid = rp["obj_id"]
+                pk: dict[str, Any] = {"inference_session": session, "frame_idx": fi, "obj_ids": [oid], "original_size": (source_size[1], source_size[0])}
+                if rp["kind"] == "point":
+                    v = rp["value"]
+                    pk.update({"input_points": [[[[v["x"], v["y"]]]]], "input_labels": [[[v["label"]]]]})
+                else:
+                    pk.update({"input_boxes": [[[rp["value"]]]]})
+                call_supported(processor.add_inputs_to_inference_session, pk)
+                with self.torch.inference_mode():
+                    call_supported(model.forward, {"inference_session": session, "frame_idx": fi})
+            return session
+
+        session = seed_video_session()
+        seeded_frame_indices: set[int] = {int(rp["frame_idx"]) for rp in resolved_prompts}
         result["session"] = {"status": "initialized_and_prompted", "seeded_frame_indices": sorted(seeded_frame_indices)}
 
-        # ── Propagate from the earliest seeded frame ──
+        # ── Propagate in both temporal directions from the earliest prompt frame ──
+        #
+        # SAM3's tracker API only walks one direction per iterator call. Starting
+        # at the earliest prompt and walking forward lets later prompted frames
+        # act as corrections for the forward pass (e.g. prompts at 5 and 10 cover
+        # 5→20). A second reverse pass from that same earliest prompt covers the
+        # frames before the first reference (e.g. 5→1). For a single prompt at
+        # frame 10 this yields 10→20 and 10→1 instead of only 10→20.
         start_frame_idx = min(seeded_frame_indices)
-        iterator = call_supported(model.propagate_in_video_iterator, {"inference_session": session, "start_frame_idx": start_frame_idx, "max_frame_num_to_track": len(frames), "show_progress_bar": False})
+        propagation_passes: list[tuple[str, bool, int, int]] = [
+            ("forward", False, start_frame_idx, len(frames) - start_frame_idx),
+        ]
+        if start_frame_idx > 0:
+            propagation_passes.append(("reverse", True, start_frame_idx, start_frame_idx + 1))
 
         # ── Prepare per-object output directory ──
         multi_object = len(resolved_prompts) > 1
@@ -382,106 +396,123 @@ class Worker:
         selected_mask_path = None
         per_object_nonzero: dict[int, int] = {rp["obj_id"]: 0 for rp in resolved_prompts}
 
-        for sequence_index, item in enumerate(iterator):
-            absolute_frame_index = start_frame_idx + sequence_index
-            if absolute_frame_index >= len(frames):
-                break
-            timeline_frame = frame_numbers[absolute_frame_index]
-            masks_raw = normalize_video_masks_for_postprocess(extract_video_masks(item))
-            post_arg = masks_raw if isinstance(masks_raw, list) else [masks_raw]
-            try:
-                processed_masks = processor.post_process_masks(post_arg, original_sizes=[(source_size[1], source_size[0])], mask_threshold=0.0, binarize=True)
-                if processed_masks is not None:
-                    masks_raw = processed_masks
-            except TypeError:
-                processed_masks = processor.post_process_masks(post_arg, original_sizes=[(source_size[1], source_size[0])])
-                if processed_masks is not None:
-                    masks_raw = processed_masks
-
-            # ── Split per-object masks ──
-            arr_combined: Any = None
-            np = self.np
-            obj_masks_raw: dict[int, Any] = {}
-            if multi_object:
-                tensor = masks_raw
-                if isinstance(tensor, list):
-                    tensor = tensor[0] if len(tensor) == 1 else tensor
-                if hasattr(tensor, "detach"):
-                    arr_all = tensor.detach().cpu().numpy()
-                elif isinstance(tensor, list):
-                    arr_all = np.stack([np.asarray(t) for t in tensor]) if len(tensor) > 1 else np.asarray(tensor[0])
-                else:
-                    arr_all = np.asarray(tensor)
-                while arr_all.ndim > 4:
-                    arr_all = arr_all[0]
-                if arr_all.ndim == 4 and arr_all.shape[0] >= len(resolved_prompts):
-                    for rp in resolved_prompts:
-                        oid = rp["obj_id"]
-                        obj_arr = arr_all[oid - 1]
-                        while obj_arr.ndim > 2:
-                            obj_arr = obj_arr[0]
-                        obj_masks_raw[oid] = obj_arr
-                    combined_arr = np.zeros_like(arr_all[0])
-                    for oid in obj_masks_raw:
-                        combined_arr = np.logical_or(combined_arr, obj_masks_raw[oid] > 0)
-                    arr_combined = combined_arr
-                else:
-                    while arr_all.ndim > 2:
-                        arr_all = arr_all[0]
-                    obj_masks_raw[1] = arr_all
-                    arr_combined = arr_all
-            else:
-                obj_masks_raw[1] = masks_raw
-
-            # ── Save per-object masks ──
-            for oid, mask_data in obj_masks_raw.items():
-                if multi_object:
-                    obj_path = per_object_dir / f"mask_obj{oid}_{timeline_frame:06d}.png"
-                    if hasattr(mask_data, "detach"):
-                        mask_data = mask_data.detach().cpu().numpy()
-                    arr_obj = np.asarray(mask_data)
-                    while arr_obj.ndim > 2:
-                        arr_obj = arr_obj[0]
-                    obj_img = self.Image.fromarray((arr_obj.astype("uint8") * 255) if arr_obj.dtype == np.bool_ else (arr_obj > 0).astype("uint8") * 255, mode="L")
-                    if obj_img.size != source_size:
-                        obj_img = obj_img.resize(source_size, resample=self.Image.Resampling.NEAREST)
-                    obj_path.parent.mkdir(parents=True, exist_ok=True)
-                    obj_img.save(obj_path)
-                    per_object_nonzero[oid] = per_object_nonzero.get(oid, 0) + int(np.count_nonzero(arr_obj))
-
-            # ── Save combined mask ──
-            out_path = output_dir / f"mask_{timeline_frame:06d}.png"
-            if arr_combined is not None:
-                if hasattr(arr_combined, "detach"):
-                    arr_combined = arr_combined.detach().cpu().numpy()
-                arr_c = np.asarray(arr_combined)
-                while arr_c.ndim > 2:
-                    arr_c = arr_c[0]
-                if arr_c.dtype != np.bool_:
-                    arr_c = arr_c > 0
-                combined_img = self.Image.fromarray((arr_c.astype("uint8") * 255), mode="L")
-                if combined_img.size != source_size:
-                    combined_img = combined_img.resize(source_size, resample=self.Image.Resampling.NEAREST)
-                    arr_c = np.asarray(combined_img) > 0
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                combined_img.save(out_path)
-                nonzero = int(np.count_nonzero(arr_c))
-                if selected_mask_path is None and nonzero > 0:
-                    selected_mask_path = str(out_path)
-                proof_frames.append({"mask_path": str(out_path), "mask_size": list(combined_img.size), "nonzero_pixels": nonzero, "timeline_frame": timeline_frame, "source_frame": source_frames[absolute_frame_index]})
-            else:
-                saved = save_video_mask(masks_raw, out_path, source_size, np, self.Image)
-                saved["timeline_frame"] = timeline_frame
-                saved["source_frame"] = source_frames[absolute_frame_index]
-                proof_frames.append(saved)
-                if selected_mask_path is None:
-                    selected_mask_path = saved["mask_path"]
-
-            result["masks"][str(timeline_frame)] = str(out_path)
-            if progress:
-                progress({"message": f"Tracked SAM3 frame {sequence_index + 1}/{len(frames)}", "percent": 10 + int(((sequence_index + 1) / max(1, len(frames))) * 85), "total": len(frames), "completed": sequence_index + 1})
-            if len(proof_frames) >= len(frames):
-                break
+        emitted_frame_indices: set[int] = set()
+        completed_frames = 0
+        for pass_name, reverse, pass_start_frame_idx, max_frame_num_to_track in propagation_passes:
+            if pass_name != "forward":
+                session = seed_video_session()
+            with self.torch.inference_mode():
+                iterator = call_supported(model.propagate_in_video_iterator, {"inference_session": session, "start_frame_idx": pass_start_frame_idx, "max_frame_num_to_track": max_frame_num_to_track, "reverse": reverse, "show_progress_bar": False})
+                for sequence_index, item in enumerate(iterator):
+                    item_frame_idx = getattr(item, "frame_idx", None)
+                    if item_frame_idx is None and isinstance(item, dict):
+                        item_frame_idx = item.get("frame_idx")
+                        absolute_frame_index = int(item_frame_idx)
+                    else:
+                        absolute_frame_index = pass_start_frame_idx - sequence_index if reverse else pass_start_frame_idx + sequence_index
+                    if absolute_frame_index < 0 or absolute_frame_index >= len(frames):
+                        break
+                    if absolute_frame_index in emitted_frame_indices:
+                        continue
+                    emitted_frame_indices.add(absolute_frame_index)
+                    timeline_frame = frame_numbers[absolute_frame_index]
+                    masks_raw = normalize_video_masks_for_postprocess(extract_video_masks(item))
+                    post_arg = masks_raw if isinstance(masks_raw, list) else [masks_raw]
+                    try:
+                        processed_masks = processor.post_process_masks(post_arg, original_sizes=[(source_size[1], source_size[0])], mask_threshold=0.0, binarize=True)
+                        if processed_masks is not None:
+                            masks_raw = processed_masks
+                    except TypeError:
+                        processed_masks = processor.post_process_masks(post_arg, original_sizes=[(source_size[1], source_size[0])])
+                        if processed_masks is not None:
+                            masks_raw = processed_masks
+    
+                    # ── Split per-object masks ──
+                    arr_combined: Any = None
+                    np = self.np
+                    obj_masks_raw: dict[int, Any] = {}
+                    if multi_object:
+                        tensor = masks_raw
+                        if isinstance(tensor, list):
+                            tensor = tensor[0] if len(tensor) == 1 else tensor
+                        if hasattr(tensor, "detach"):
+                            arr_all = tensor.detach().cpu().numpy()
+                        elif isinstance(tensor, list):
+                            arr_all = np.stack([np.asarray(t) for t in tensor]) if len(tensor) > 1 else np.asarray(tensor[0])
+                        else:
+                            arr_all = np.asarray(tensor)
+                        while arr_all.ndim > 4:
+                            arr_all = arr_all[0]
+                        if arr_all.ndim == 4 and arr_all.shape[0] >= len(resolved_prompts):
+                            for rp in resolved_prompts:
+                                oid = rp["obj_id"]
+                                obj_arr = arr_all[oid - 1]
+                                while obj_arr.ndim > 2:
+                                    obj_arr = obj_arr[0]
+                                obj_masks_raw[oid] = obj_arr
+                            combined_arr = np.zeros_like(arr_all[0])
+                            for oid in obj_masks_raw:
+                                combined_arr = np.logical_or(combined_arr, obj_masks_raw[oid] > 0)
+                            arr_combined = combined_arr
+                        else:
+                            while arr_all.ndim > 2:
+                                arr_all = arr_all[0]
+                            obj_masks_raw[1] = arr_all
+                            arr_combined = arr_all
+                    else:
+                        obj_masks_raw[1] = masks_raw
+    
+                    # ── Save per-object masks ──
+                    for oid, mask_data in obj_masks_raw.items():
+                        if multi_object:
+                            obj_path = per_object_dir / f"mask_obj{oid}_{timeline_frame:06d}.png"
+                            if hasattr(mask_data, "detach"):
+                                mask_data = mask_data.detach().cpu().numpy()
+                            arr_obj = np.asarray(mask_data)
+                            while arr_obj.ndim > 2:
+                                arr_obj = arr_obj[0]
+                            obj_img = self.Image.fromarray((arr_obj.astype("uint8") * 255) if arr_obj.dtype == np.bool_ else (arr_obj > 0).astype("uint8") * 255, mode="L")
+                            if obj_img.size != source_size:
+                                obj_img = obj_img.resize(source_size, resample=self.Image.Resampling.NEAREST)
+                            obj_path.parent.mkdir(parents=True, exist_ok=True)
+                            obj_img.save(obj_path)
+                            per_object_nonzero[oid] = per_object_nonzero.get(oid, 0) + int(np.count_nonzero(arr_obj))
+    
+                    # ── Save combined mask ──
+                    out_path = output_dir / f"mask_{timeline_frame:06d}.png"
+                    if arr_combined is not None:
+                        if hasattr(arr_combined, "detach"):
+                            arr_combined = arr_combined.detach().cpu().numpy()
+                        arr_c = np.asarray(arr_combined)
+                        while arr_c.ndim > 2:
+                            arr_c = arr_c[0]
+                        if arr_c.dtype != np.bool_:
+                            arr_c = arr_c > 0
+                        combined_img = self.Image.fromarray((arr_c.astype("uint8") * 255), mode="L")
+                        if combined_img.size != source_size:
+                            combined_img = combined_img.resize(source_size, resample=self.Image.Resampling.NEAREST)
+                            arr_c = np.asarray(combined_img) > 0
+                        out_path.parent.mkdir(parents=True, exist_ok=True)
+                        combined_img.save(out_path)
+                        nonzero = int(np.count_nonzero(arr_c))
+                        if selected_mask_path is None and nonzero > 0:
+                            selected_mask_path = str(out_path)
+                        proof_frames.append({"mask_path": str(out_path), "mask_size": list(combined_img.size), "nonzero_pixels": nonzero, "timeline_frame": timeline_frame, "source_frame": source_frames[absolute_frame_index], "propagation_pass": pass_name})
+                    else:
+                        saved = save_video_mask(masks_raw, out_path, source_size, np, self.Image)
+                        saved["timeline_frame"] = timeline_frame
+                        saved["source_frame"] = source_frames[absolute_frame_index]
+                        saved["propagation_pass"] = pass_name
+                        proof_frames.append(saved)
+                        if selected_mask_path is None:
+                            selected_mask_path = saved["mask_path"]
+    
+                    result["masks"][str(timeline_frame)] = str(out_path)
+                    completed_frames = len(proof_frames)
+                    if progress:
+                        progress({"message": f"Tracked SAM3 {pass_name} frame {completed_frames}/{len(frames)}", "percent": 10 + int((completed_frames / max(1, len(frames))) * 85), "total": len(frames), "completed": completed_frames})
+                    if completed_frames >= len(frames):
+                        break
 
         total_nonzero = sum(int(frame["nonzero_pixels"]) for frame in proof_frames)
         result["proofs"]["video"] = {"status": "succeeded" if total_nonzero > 0 else "blocked", "frames": proof_frames, "nonzero_pixels": total_nonzero, "successful_frame_count": len(proof_frames)}

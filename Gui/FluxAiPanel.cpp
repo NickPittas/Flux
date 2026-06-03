@@ -2795,6 +2795,16 @@ void FluxAiPanel::runAIPaintLivePreview()
     if (_sam3Exporting) {
         return;
     }
+    if (!_livePreviewPendingRequestId.isEmpty()) {
+        appendLog(QString::fromUtf8("SAM3 live preview deferred: previous preview inference is still running."));
+        return;
+    }
+    for (QMap<QString, QString>::const_iterator it = _sam3WorkerPendingCommands.constBegin(); it != _sam3WorkerPendingCommands.constEnd(); ++it) {
+        if (it.value() == QString::fromUtf8("infer_still") && it.key() != _sam3RunPendingRequestId) {
+            appendLog(QString::fromUtf8("SAM3 live preview deferred: queued preview inference is still running."));
+            return;
+        }
+    }
     const int generation = _livePreviewGeneration;
     QString message;
     if (!hasSelectedSource() || !_sam3WorkerLoaded || !aipaintLivePreviewEnabled(_sourceAIPaintNode)) {
@@ -3479,8 +3489,15 @@ void FluxAiPanel::onRunClicked()
         updateUiState();
         return;
     }
-    // Free GPU by stopping MatAnyone2 and VideoMaMa workers before starting SAM3 for video
+    // Free GPU and drop queued/stale live-preview requests before a full SAM3
+    // video run. Live preview uses the same persistent worker stdin; without a
+    // fresh worker, stale infer_still requests can continue executing before the
+    // real video run and keep PyTorch allocations alive.
     if (videoRun) {
+        if (_livePreviewDebounceTimer) {
+            _livePreviewDebounceTimer->stop();
+        }
+        stopSam3PersistentWorker();
         stopMatAnyone2Worker();
         stopVideoMamaWorker();
     }
@@ -4390,7 +4407,7 @@ bool FluxAiPanel::ensureMatAnyone2WorkerStarted(QString* message)
 
     QProcess resolver;
     resolver.setWorkingDirectory(root);
-    resolver.start(QString::fromUtf8("python3"), QStringList() << runtimeScript << QString::fromUtf8("python") << QString::fromUtf8("sam3"));
+    resolver.start(QString::fromUtf8("python3"), QStringList() << runtimeScript << QString::fromUtf8("python") << QString::fromUtf8("matanyone2"));
     if (!resolver.waitForStarted(5000) || !resolver.waitForFinished(10000) || resolver.exitStatus() != QProcess::NormalExit || resolver.exitCode() != 0) {
         const QString stderrText = QString::fromUtf8(resolver.readAllStandardError()).trimmed();
         if (message) { *message = tr("MatAnyone2 worker startup failed: provider python resolution failed. stderr: %1").arg(stderrText); }

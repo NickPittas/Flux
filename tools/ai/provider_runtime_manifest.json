@@ -24,8 +24,7 @@
         "huggingface_hub",
         "pillow",
         "numpy",
-        "opencv-python-headless",
-        "matanyone2 @ git+https://github.com/pq-yang/MatAnyone2.git"
+        "opencv-python-headless"
       ],
       "cuda": {
         "default": "cu128",
@@ -40,15 +39,83 @@
         "args": [
           "--self-check",
           "--json"
-        ],
-        "extra_imports": [
-          "matanyone2"
         ]
       },
       "launch": {
         "python_kind": "venv",
         "venv_dir": "venv"
       }
+    },
+    {
+      "id": "matanyone2",
+      "display_name": "MatAnyone2 provider runtime",
+      "provider": "MatAnyone2",
+      "models": [
+        "matanyone2"
+      ],
+      "env_dir_name": "matanyone2",
+      "python": {
+        "supported_min": "3.10",
+        "supported_max_exclusive": "3.14",
+        "override_env": "FLUX_MATANYONE2_PYTHON"
+      },
+      "install_policy": "external_per_provider_venv_no_model_downloads",
+      "packages": [
+        "torch",
+        "torchvision",
+        "transformers",
+        "accelerate",
+        "huggingface_hub",
+        "pillow",
+        "numpy",
+        "opencv-python-headless",
+        "safetensors",
+        "hydra-core",
+        "omegaconf",
+        "easydict",
+        "einops",
+        "kornia",
+        "scipy",
+        "hickle",
+        "thinplate@git+https://github.com/cheind/py-thin-plate-spline",
+        "av",
+        "imageio==2.25.0",
+        "imageio[ffmpeg]",
+        "requests",
+        "xlsxwriter"
+      ],
+      "cuda": {
+        "default": "cu128",
+        "indices": {
+          "cu128": "https://download.pytorch.org/whl/cu128",
+          "cu126": "https://download.pytorch.org/whl/cu126",
+          "cpu": "https://download.pytorch.org/whl/cpu"
+        }
+      },
+      "self_check": {
+        "script": "tools/ai/matanyone2_worker.py",
+        "args": [
+          "--self-check"
+        ],
+        "extra_imports": [
+          "torch",
+          "matanyone2",
+          "numpy",
+          "PIL"
+        ]
+      },
+      "launch": {
+        "python_kind": "venv",
+        "venv_dir": "venv"
+      },
+      "source_checkouts": [
+        {
+          "module": "matanyone2",
+          "repo": "https://github.com/pq-yang/MatAnyone2.git",
+          "revision": "e3370127319c63a6dc8a49c69de2d41d90137f91",
+          "path": "src/MatAnyone2"
+        }
+      ]
     },
     {
       "id": "videomama",

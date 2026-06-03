@@ -246,47 +246,104 @@
       "install_policy": "user_download_noncommercial_warning",
       "bundling_policy": "not_bundled_noncommercial_user_download_only",
       "license_summary": "CC BY-NC 4.0; non-commercial use only. Commercial production use is not cleared. Both model weights and pipeline code are user-managed.",
-      "warning_text": "NON-COMMERCIAL: VideoMaMa is CC BY-NC 4.0 licensed. Visible warning required. Commercial production use is not cleared. Pipeline code and model weights are user-managed manual downloads — NOT bundled by default.",
+      "warning_text": "NON-COMMERCIAL/RESTRICTIVE: VideoMaMa/SVD payloads are downloaded by the user from upstream sources. Commercial production use is not cleared. Flux does not redistribute the multi-GB weights.",
       "gated_token_requirement": "not_required_expected",
       "default_enabled": false,
-      "default_installable": false,
+      "default_installable": true,
       "output_use_notes": "Generates video alpha matte sequences from source frames and a first-frame mask (or per-frame mask sequence) using SVD-based diffusion. Supports per-frame tracked masks via mask_sequence_pattern. Non-commercial license applies. Pipeline code and model weights must be manually downloaded and configured by the user.",
       "multi_source_payload": {
-        "description": "VideoMaMa requires TWO model sources merged into a single directory AND user-downloaded pipeline code. The model manager cannot auto-install multi-source; manual setup is required.",
+        "description": "VideoMaMa is installed as a composite payload: selected SVD base files plus VideoMaMa UNet files are downloaded from upstream repositories, then Flux installs the bundled pipeline_svd_mask_numpy.py workflow adapter into the final local model directory.",
         "sources": [
           {
             "role": "SVD base model",
             "repo": "stabilityai/stable-video-diffusion-img2vid-xt",
-            "provides": ["model_index.json", "vae/", "scheduler/", "feature_extractor/", "image_encoder/"],
+            "provides": [
+              "model_index.json",
+              "vae/",
+              "scheduler/",
+              "feature_extractor/",
+              "image_encoder/"
+            ],
             "url": "https://huggingface.co/stabilityai/stable-video-diffusion-img2vid-xt"
           },
           {
             "role": "VideoMaMa fine-tuned UNet",
             "repo": "SammyLim/VideoMaMa",
-            "provides": ["unet/"],
+            "provides": [
+              "unet/"
+            ],
             "url": "https://github.com/SammyLim/VideoMaMa"
           },
           {
             "role": "Pipeline code (NOT bundled)",
             "repo": "SammyLim/VideoMaMa",
-            "provides": ["pipeline_svd_mask_numpy.py"],
+            "provides": [
+              "pipeline_svd_mask_numpy.py"
+            ],
             "url": "https://github.com/SammyLim/VideoMaMa",
             "instructions": "User must download pipeline_svd_mask_numpy.py from the VideoMaMa repo and either place it next to model weights, set FLUX_VIDEOMAMA_CODE_ROOT, or add to PYTHONPATH."
           }
         ],
         "target_directory": "~/.local/share/Flux/models/videomama/<model_dir>/",
-        "required_files": ["model_index.json", "unet/config.json", "vae/config.json"]
+        "required_files": [
+          "model_index.json",
+          "scheduler/scheduler_config.json",
+          "vae/config.json",
+          "vae/diffusion_pytorch_model.fp16.safetensors",
+          "unet/config.json",
+          "unet/diffusion_pytorch_model.safetensors",
+          "pipeline_svd_mask_numpy.py"
+        ]
       },
       "source": {
-        "type": "multi_source_manual",
-        "revision": "unversioned",
-        "notes": "VideoMaMa cannot be installed by a single-source download. It requires merging SVD base model from stabilityai/stable-video-diffusion-img2vid-xt (provides vae/, scheduler/, feature_extractor/, image_encoder/, model_index.json) with the VideoMaMa fine-tuned UNet from SammyLim/VideoMaMa (provides unet/). Both must be placed under ~/.local/share/Flux/models/videomama/<dir>/ with model_index.json, unet/config.json, and vae/config.json present. Pipeline code (pipeline_svd_mask_numpy.py) is NOT bundled — user must download from https://github.com/SammyLim/VideoMaMa and place it next to model weights, set FLUX_VIDEOMAMA_CODE_ROOT, or add to PYTHONPATH.",
-        "fallback": {
-          "type": "github_release",
-          "repo": "SammyLim/VideoMaMa",
-          "url": "https://github.com/SammyLim/VideoMaMa",
-          "notes": "Download the VideoMaMa UNet weights and pipeline_svd_mask_numpy.py from the SammyLim/VideoMaMa repo and the SVD base model from stabilityai/stable-video-diffusion-img2vid-xt. Merge unet/ from VideoMaMa into the SVD base model directory. Place pipeline_svd_mask_numpy.py next to the merged model or set FLUX_VIDEOMAMA_CODE_ROOT."
-        }
+        "type": "huggingface_composite",
+        "revision": "upstream-composite",
+        "required_files": [
+          "model_index.json",
+          "scheduler/scheduler_config.json",
+          "vae/config.json",
+          "vae/diffusion_pytorch_model.fp16.safetensors",
+          "unet/config.json",
+          "unet/diffusion_pytorch_model.safetensors",
+          "pipeline_svd_mask_numpy.py"
+        ],
+        "notes": "Installer downloads redownloadable upstream payloads and merges them with the bundled VideoMaMa pipeline adapter into a local model directory.",
+        "steps": [
+          {
+            "type": "huggingface",
+            "role": "SVD base config, scheduler, and VAE",
+            "repo": "stabilityai/stable-video-diffusion-img2vid-xt",
+            "revision": "9e43909513c6714f1bc78bcb44d96e733cd242aa",
+            "target_subdir": ".",
+            "allow_patterns": [
+              "model_index.json",
+              "scheduler/scheduler_config.json",
+              "vae/config.json",
+              "vae/diffusion_pytorch_model.fp16.safetensors",
+              "LICENSE.md",
+              "README.md"
+            ]
+          },
+          {
+            "type": "huggingface",
+            "role": "VideoMaMa fine-tuned UNet",
+            "repo": "SammyLim/VideoMaMa",
+            "revision": "e289a7acc8403c4fbe4dea2a1de5a9749ebc9bf5",
+            "target_subdir": ".",
+            "allow_patterns": [
+              "unet/config.json",
+              "unet/diffusion_pytorch_model.safetensors",
+              "dino_projection_mlp.pth",
+              "README.md"
+            ]
+          }
+        ],
+        "bundled_files": [
+          {
+            "path": "videomama/pipeline_svd_mask_numpy.py",
+            "target": "pipeline_svd_mask_numpy.py"
+          }
+        ]
       }
     },
     {

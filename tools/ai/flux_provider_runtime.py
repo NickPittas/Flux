@@ -33,12 +33,48 @@ def py_ver(py:Path)->tuple[int,int,int]:
     a=json.loads(out); return int(a[0]),int(a[1]),int(a[2])
 def compatible(ver:tuple[int,int,int], r:dict[str,Any])->bool:
     return (3,10,0) <= ver < (3,14,0)
+def candidate_pythons(args,r):
+    seen=set()
+    raw=[]
+    override=args.python or os.environ.get(r.get("python",{}).get("override_env","")) or os.environ.get("FLUX_AI_PYTHON")
+    if override: raw.append(override)
+    raw.extend(["python3.12","python3.11","python3.10",sys.executable])
+    for other in load_manifest(args.manifest).get("runtimes",[]):
+        if other.get("id") != r.get("id"):
+            raw.append(str(env_python(other)))
+    for item in raw:
+        resolved=shutil.which(item) if not str(item).startswith("/") else item
+        if not resolved: continue
+        p=Path(resolved)
+        if p in seen or not p.exists(): continue
+        seen.add(p)
+        yield p
 def select_base(args,r):
-    p=Path(args.python or os.environ.get("FLUX_AI_PYTHON") or sys.executable)
-    if not p.exists(): raise ValueError(f"Python interpreter not found: {p}")
-    ver=py_ver(p)
-    if not compatible(ver,r): raise ValueError(f"Python {ver[0]}.{ver[1]} is not supported by current PyTorch wheels for {r['id']}; use --python /path/to/python3.12 or FLUX_AI_PYTHON.")
-    return p,ver
+    rejected=[]
+    for p in candidate_pythons(args,r):
+        try:
+            ver=py_ver(p)
+        except Exception as e:
+            rejected.append(f"{p}: {type(e).__name__}: {e}")
+            continue
+        if compatible(ver,r):
+            return p,ver
+        rejected.append(f"{p}: Python {ver[0]}.{ver[1]} unsupported")
+    detail="; ".join(rejected) if rejected else "no Python candidates found"
+    raise ValueError(f"No compatible Python 3.10-3.13 interpreter found for {r['id']}. Install python3.12/python3.11 or set {r.get('python',{}).get('override_env','FLUX_AI_PYTHON')}. Checked: {detail}")
+
+def runtime_modules(r):
+    packages=[p for p in r.get("packages",[]) if not p.startswith("--")]
+    module_names=[]
+    module_map={"opencv-python-headless":"cv2","huggingface-hub":"huggingface_hub","huggingface_hub":"huggingface_hub","pillow":"PIL","hydra-core":"hydra","thinplate":"thinplate"}
+    for pkg in packages:
+        base=pkg.split(" @ ",1)[0].split("@git+",1)[0].split("==",1)[0].split(">=",1)[0].split("<=",1)[0].split("[",1)[0]
+        module_names.append(module_map.get(base,base.replace("-","_")))
+    for name in r.get("self_check",{}).get("extra_imports",[]):
+        module_names.append({"PIL":"PIL"}.get(name,name))
+    for item in r.get("source_checkouts",[]) or []:
+        if isinstance(item,dict) and item.get("module"): module_names.append(str(item["module"]))
+    return sorted(set(module_names))
 
 def model_status(r):
     try:
@@ -50,14 +86,18 @@ def model_status(r):
     except Exception as e: return [{"error":f"{type(e).__name__}: {e}"}]
 
 def package_import_status(r, ep:Path)->dict[str,Any]:
-    packages=[p for p in r.get("packages",[]) if not p.startswith("--")]
-    module_names=[]
-    for pkg in packages:
-        name=pkg.split(" @ ",1)[0].split("==",1)[0].split(">=",1)[0].split("<=",1)[0].split("[",1)[0]
-        module_names.append({"opencv-python-headless":"cv2","huggingface-hub":"huggingface_hub","pillow":"PIL"}.get(name,name.replace("-","_")))
-    module_names=sorted(set(module_names))
+    module_names=runtime_modules(r)
     if not ep.exists(): return {"checked":False,"blockers":[f"provider env python missing: {ep}"],"modules":{}}
-    code="""import importlib, json\nmods=%r\nout={}\nfor m in mods:\n    try:\n        mod=importlib.import_module(m); out[m]={\"available\":True,\"version\":getattr(mod,\"__version__\",None)}\n    except Exception as e:\n        out[m]={\"available\":False,\"error\":type(e).__name__+\": \"+str(e)}\nprint(json.dumps(out))\n""" % module_names
+    code="""import importlib, json
+mods=%r
+out={}
+for m in mods:
+    try:
+        mod=importlib.import_module(m); out[m]={"available":True,"version":getattr(mod,"__version__",None)}
+    except Exception as e:
+        out[m]={"available":False,"error":type(e).__name__+": "+str(e)}
+print(json.dumps(out))
+""" % module_names
     try:
         p=subprocess.run([str(ep),"-c",code],text=True,capture_output=True,timeout=60)
         modules=json.loads(p.stdout) if p.stdout else {}
@@ -66,6 +106,28 @@ def package_import_status(r, ep:Path)->dict[str,Any]:
         return {"checked":True,"blockers":blockers,"modules":modules}
     except Exception as e:
         return {"checked":False,"blockers":[f"runtime import check failed: {type(e).__name__}: {e}"],"modules":{}}
+def install_source_checkouts(r, ep:Path):
+    checkouts=r.get("source_checkouts",[]) or []
+    if not checkouts: return []
+    site_code="import site,json; print(json.dumps(site.getsitepackages()))"
+    out=subprocess.check_output([str(ep),"-c",site_code],text=True)
+    site_dir=Path(json.loads(out)[0])
+    site_dir.mkdir(parents=True,exist_ok=True)
+    installed=[]
+    for item in checkouts:
+        repo=item["repo"]; rev=item.get("revision"); rel=item.get("path") or ("src/"+item["module"])
+        target=env_dir(r)/rel
+        if target.exists():
+            shutil.rmtree(target)
+        target.parent.mkdir(parents=True,exist_ok=True)
+        subprocess.check_call(["git","clone","--depth","1",repo,str(target)])
+        if rev:
+            subprocess.check_call(["git","fetch","--depth","1","origin",rev],cwd=str(target))
+            subprocess.check_call(["git","checkout",rev],cwd=str(target))
+        pth=site_dir/(str(item["module"])+"_flux_source.pth")
+        pth.write_text(str(target)+"\n",encoding="utf-8")
+        installed.append({"module":item["module"],"repo":repo,"revision":rev,"path":str(target),"pth":str(pth)})
+    return installed
 
 def status_payload(r):
     ep=env_python(r); meta=None
@@ -106,7 +168,8 @@ def cmd_install(args):
     subprocess.check_call([str(ep),"-m","pip","install","--index-url",indices[args.cuda],"torch","torchvision"])
     rest=[p for p in r.get("packages",[]) if p not in {"torch","torchvision"}]
     if rest: subprocess.check_call([str(ep),"-m","pip","install",*rest])
-    meta={"schema":SCHEMA,"provider_id":r["id"],"env_dir":str(ed),"venv_dir":str(vd),"python_executable":str(ep),"base_python":str(base),"requested_python_version":"%d.%d.%d"%ver,"packages":r.get("packages",[]),"torch_cuda_selector":args.cuda,"torch_index_url":indices[args.cuda],"installed_at":now(),"self_check_summary":None,"notes":"model weights are not downloaded by runtime install"}
+    sources=install_source_checkouts(r,ep)
+    meta={"schema":SCHEMA,"provider_id":r["id"],"env_dir":str(ed),"venv_dir":str(vd),"python_executable":str(ep),"base_python":str(base),"requested_python_version":"%d.%d.%d"%ver,"packages":r.get("packages",[]),"source_checkouts":sources,"torch_cuda_selector":args.cuda,"torch_index_url":indices[args.cuda],"installed_at":now(),"self_check_summary":None,"notes":"model weights are not downloaded by runtime install"}
     meta_path(r).write_text(json.dumps(meta,indent=2,sort_keys=True)+"\n",encoding="utf-8")
     jprint(meta) if args.json else print(f"Installed {r['id']} runtime -> {ed}"); return 0
 
