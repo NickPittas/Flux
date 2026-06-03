@@ -21,6 +21,7 @@ OFX_USER_PLUGIN_DIR="${OFX_USER_PLUGIN_DIR:-${FLUX_USER_OFX_DIR:-${FLUX_INSTALL_
 USER_OFX_DIR="${OFX_USER_PLUGIN_DIR}"
 OFX_CACHE_DIR="${OFX_CACHE_DIR:-${FLUX_OFX_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME}/.cache}/INRIA/Natron/OFXLoadCache}}"
 LAUNCHER_PATH="${LAUNCHER_PATH:-${FLUX_LAUNCHER_PATH:-${FLUX_BIN_DIR}/flux}}"
+NATRON_LAUNCHER_PATH="${NATRON_LAUNCHER_PATH:-${FLUX_BIN_DIR}/natron}"
 
 PLUGIN_PREFIX="${PLUGIN_PREFIX:-${FLUX_PLUGIN_PREFIX:-${FLUX_ROOT}/plugins}}"
 EXTRAS_SOURCE="${FLUX_OFX_EXTRAS:-${PLUGIN_PREFIX}/ofx-extras}"
@@ -496,6 +497,7 @@ validate_install_prefix() {
   FLUX_RENDERER_BIN="${FLUX_INSTALL_PREFIX}/bin/FluxRenderer"
   INSTALL_MANIFEST="${FLUX_INSTALL_PREFIX}/install-manifest.txt"
   USER_PYPLUG_DIR="${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs"
+  NATRON_LAUNCHER_PATH="${FLUX_BIN_DIR}/natron"
   OFX_USER_PLUGIN_DIR="${FLUX_INSTALL_PREFIX}/Plugins/OFX"
   USER_OFX_DIR="$OFX_USER_PLUGIN_DIR"
   PYTHON_RUNTIME_DIR="${FLUX_INSTALL_PREFIX}/Plugins/python"
@@ -874,15 +876,26 @@ export OFX_PLUGIN_PATH="\${OFX_PLUGIN_PATH:-\${FLUX_INSTALL_PREFIX}/Plugins/OFX}
 export FLUX_OFX_STRICT_PATH="\${FLUX_OFX_STRICT_PATH:-1}"
 export PYTHONPATH="\${FLUX_INSTALL_PREFIX}/Plugins/python\${PYTHONPATH:+:\${PYTHONPATH}}"
 export LD_LIBRARY_PATH="\${FLUX_INSTALL_PREFIX}/Plugins/OFX/SeExpr.ofx.bundle/Contents/Linux-x86-64/seexpr-deps/lib:\${FLUX_INSTALL_PREFIX}/Plugins/OFX/Magick.ofx.bundle/Contents/Linux-x86-64/magick-deps/lib:\${LD_LIBRARY_PATH:-}"
-exec "\${FLUX_INSTALL_PREFIX}/bin/flux" "\$@"
+if [[ "\${FLUX_VERBOSE_CONSOLE:-0}" == "1" || "\${1:-}" == "--help" || "\${1:-}" == "-h" ]]; then
+  exec "\${FLUX_INSTALL_PREFIX}/bin/flux" "\$@"
+fi
+LOG_DIR="\${XDG_STATE_HOME:-\${HOME}/.local/state}/Flux"
+mkdir -p "\${LOG_DIR}"
+exec "\${FLUX_INSTALL_PREFIX}/bin/flux" "\$@" >>"\${LOG_DIR}/flux-launch.log" 2>&1
 EOF
   chmod 0755 "$LAUNCHER_PATH"
+  if [[ "$NATRON_LAUNCHER_PATH" != "$LAUNCHER_PATH" ]]; then
+    cp "$LAUNCHER_PATH" "$NATRON_LAUNCHER_PATH"
+    chmod 0755 "$NATRON_LAUNCHER_PATH"
+    manifest_add_path "$NATRON_LAUNCHER_PATH"
+    log "Installed launcher alias: ${NATRON_LAUNCHER_PATH}"
+  fi
   manifest_add_path "$LAUNCHER_PATH"
   log "Installed launcher: ${LAUNCHER_PATH}"
 }
 
 uninstall_flux() {
-  local path path_abs launcher_abs
+  local path path_abs launcher_abs natron_launcher_abs
   validate_install_prefix
   [[ -f "$INSTALL_MANIFEST" ]] || die "Install manifest not found: ${INSTALL_MANIFEST}"
   if [[ "$FORCE" -ne 1 ]]; then
@@ -900,6 +913,10 @@ uninstall_flux() {
   launcher_abs="$(canonical_existing_parent "$LAUNCHER_PATH")"
   if [[ -f "$launcher_abs" ]] && grep -F "$FLUX_INSTALL_PREFIX" "$launcher_abs" >/dev/null 2>&1; then
     rm -f "$launcher_abs"
+  fi
+  natron_launcher_abs="$(canonical_existing_parent "$NATRON_LAUNCHER_PATH")"
+  if [[ -f "$natron_launcher_abs" ]] && grep -F "$FLUX_INSTALL_PREFIX" "$natron_launcher_abs" >/dev/null 2>&1; then
+    rm -f "$natron_launcher_abs"
   fi
   if [[ -d "$FLUX_INSTALL_PREFIX" ]]; then
     find "$FLUX_INSTALL_PREFIX" -depth -type d -empty -delete 2>/dev/null || true
@@ -1172,6 +1189,7 @@ Flux Linux setup summary
   Build binary: $(status_word test -x "${BUILD_DIR}/App/Natron") (${BUILD_DIR}/App/Natron)
   Install prefix: ${FLUX_INSTALL_PREFIX}
   Launcher: $(status_word test -x "${LAUNCHER_PATH}") (${LAUNCHER_PATH})
+  Natron command: $(status_word test -x "${NATRON_LAUNCHER_PATH}") (${NATRON_LAUNCHER_PATH})
   Installed app: $(status_word test -x "${FLUX_APP_BIN}") (${FLUX_APP_BIN})
   PyPlugs: $(pyplug_status) (${USER_PYPLUG_DIR})
   OFX bundles: $(ofx_bundle_status) (${USER_OFX_DIR})
@@ -1278,6 +1296,8 @@ print_status_summary() {
   printf 'install_prefix=%s\n' "${FLUX_INSTALL_PREFIX}"
   printf 'launcher=%s\n' "$(status_word test -x "${LAUNCHER_PATH}")"
   printf 'launcher_path=%s\n' "${LAUNCHER_PATH}"
+  printf 'natron_launcher=%s\n' "$(status_word test -x "${NATRON_LAUNCHER_PATH}")"
+  printf 'natron_launcher_path=%s\n' "${NATRON_LAUNCHER_PATH}"
   printf 'installed_app=%s\n' "$(status_word test -x "${FLUX_APP_BIN}")"
   printf 'installed_app_path=%s\n' "${FLUX_APP_BIN}"
   printf 'pyplugs=%s\n' "$(pyplug_status)"
@@ -1298,6 +1318,7 @@ run_installer_diagnostics_json() {
   FLUX_INSTALL_PREFIX="$FLUX_INSTALL_PREFIX" \
   FLUX_APP_BIN="$FLUX_APP_BIN" \
   LAUNCHER_PATH="$LAUNCHER_PATH" \
+  NATRON_LAUNCHER_PATH="$NATRON_LAUNCHER_PATH" \
   USER_PYPLUG_DIR="$USER_PYPLUG_DIR" \
   USER_OFX_DIR="$USER_OFX_DIR" \
   OFX_CACHE_DIR="$OFX_CACHE_DIR" \
@@ -1341,6 +1362,7 @@ payload = {
         "build_binary": exists_file(str(Path(os.environ["BUILD_DIR"]) / "App" / "Natron")),
         "installed_app": exists_file(os.environ["FLUX_APP_BIN"]),
         "launcher": exists_file(os.environ["LAUNCHER_PATH"]),
+        "natron_launcher": exists_file(os.environ["NATRON_LAUNCHER_PATH"]),
     },
     "plugins": {
         "pyplug_dir": exists_dir(str(pyplug_dir)),
