@@ -1,0 +1,123 @@
+{
+  "captured_targets": [],
+  "device": "cuda",
+  "device_requested": "cuda",
+  "exports": {
+    "memory_readout": {
+      "dynamic_axes": {
+        "memory_key": {
+          "1": "N"
+        },
+        "memory_shrinkage": {
+          "1": "N"
+        },
+        "memory_value": {
+          "1": "N"
+        },
+        "query_key": {
+          "1": "HW"
+        },
+        "query_selection": {
+          "1": "HW"
+        },
+        "visual_readout": {
+          "1": "HW"
+        }
+      },
+      "input_count": 5,
+      "input_names": [
+        "memory_key",
+        "memory_shrinkage",
+        "memory_value",
+        "query_key",
+        "query_selection"
+      ],
+      "input_shapes": [
+        [
+          64,
+          1620
+        ],
+        [
+          1,
+          1620
+        ],
+        [
+          256,
+          1620
+        ],
+        [
+          64,
+          1620
+        ],
+        [
+          64,
+          1620
+        ]
+      ],
+      "onnx_checker": "passed",
+      "ort_inference": {
+        "dynamic_shape_parity": {
+          "HW": 810,
+          "N": 810,
+          "mae": 4.275168976164423e-05,
+          "max_error": 0.00027729570865631104,
+          "shape": [
+            256,
+            810
+          ]
+        },
+        "num_outputs": 1,
+        "output_dtypes": [
+          "float32"
+        ],
+        "output_shapes": [
+          [
+            256,
+            1620
+          ]
+        ],
+        "providers_used": [
+          "CUDAExecutionProvider",
+          "CPUExecutionProvider"
+        ],
+        "session_inputs": [
+          "memory_key",
+          "memory_shrinkage",
+          "memory_value",
+          "query_key",
+          "query_selection"
+        ],
+        "torch_parity": [
+          {
+            "mae": 8.555348176741973e-05,
+            "max_error": 0.1244862973690033,
+            "output": 0,
+            "shape": [
+              256,
+              1620
+            ]
+          }
+        ]
+      },
+      "output_shapes": [
+        [
+          256,
+          1620
+        ]
+      ],
+      "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/export/submodules/matanyone2_memory_readout.onnx",
+      "size_bytes": 6682,
+      "status": "ok",
+      "target": "memory_readout",
+      "top_k": 30
+    }
+  },
+  "frames_used": 4,
+  "mask_path_used": "/home/npittas/Videos/For_Test/mask_1.png",
+  "schema": "flux.ai_native_spikes.matanyone2_submodule_export.v1",
+  "status": "ok",
+  "targets": [
+    "memory_readout"
+  ],
+  "timestamp": "2026-06-02T15:00:08.039896+00:00"
+}

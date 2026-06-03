@@ -1,0 +1,7 @@
+
+Loading weights:   0%|          | 0/1468 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 1468/1468 [00:00<00:00, 21043.77it/s]
+[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
+
+Loading weights:   0%|          | 0/685 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 685/685 [00:00<00:00, 21012.62it/s]

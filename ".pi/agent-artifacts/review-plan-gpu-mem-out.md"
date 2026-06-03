@@ -1,0 +1,39 @@
+# Review Report
+
+## Verdict
+ship
+
+## Scope Compliance
+- passed
+- evidence: Proposed edits are confined to `Gui/FluxAiPanel.cpp`, `Gui/FluxAiPanel.h`, and `tools/ai/matanyone2_worker.py`. No inference algorithms, prompt schemas, manifest formats, UI options, or model-quality changes are introduced. Half-resolution processing is explicitly deferred as a non-goal.
+
+## Plan Quality
+- complete? yes
+- executable by scoped-worker? yes
+- parallelization safe? not applicable (single sequential worker)
+- missing context or validation: none
+
+## Validation Assessment
+- command/result reviewed: `python3 -m py_compile tools/ai/matanyone2_worker.py`; `cmake --build build --target Natron -j$(nproc)`; manual `nvidia-smi` runtime handoff verification for both SAM3→MatAnyone2 and MatAnyone2→SAM3 directions, plus still-image SAM3 preservation check.
+- sufficient? yes
+- missing validation: none
+
+## Findings
+
+### Minor
+- Finding: The plan instructs clearing "loaded/loading/unloading flags" for both persistent workers, but `FluxAiPanel.h` declares those state members only for the SAM3 worker (`_sam3WorkerLoaded`, `_sam3WorkerLoading`, `_sam3WorkerUnloading`). The MatAnyone2 worker block has no equivalent flags. The helper implementation will naturally skip the non-existent MatAnyone2 flags, but the plan text should note this asymmetry so the implementing worker does not search for missing members.
+- Why it matters: Could cause a momentary implementation hesitation or a spurious "missing symbol" concern, though the correct cleanup set (stdout buffer, pending-command map, `_matAnyone2RunPendingRequestId`, `_matAnyone2PendingInferRequest`) is obvious from the header.
+- Evidence: `Gui/FluxAiPanel.h` lines ~167–175 contain SAM3 loaded/loading/unloading flags; MatAnyone2 member block (~177–196) lacks equivalents.
+- Suggested change: Add a parenthetical in Required Change 2 clarifying that MatAnyone2 cleanup covers buffer/pending commands/pending IDs only, since no loaded/loading/unloading flags exist for that worker.
+
+## Review Completeness
+- complete pass performed: yes
+- all known blockers/majors/minors surfaced in this report: yes
+- prior reviewer findings rechecked, if applicable: not applicable
+- non-blocking minors safe to carry forward: yes
+
+## Simpler Alternative Check
+The plan is already minimal: two narrow synchronous stop helpers, two call sites at the exact persistent-worker start anchors, one module-level env var, and one post-load cache flush. No smaller approach safely resolves the OOM without either dropping the allocator hardening or risking silent corruption of an active inference.
+
+## Final Recommendation
+Approve and execute; no blockers or majors. One minor documentation clarification on MatAnyone2 flag asymmetry is worth a quick wording tweak but is non-blocking.

@@ -27,15 +27,29 @@
 
 #include <cassert>
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 
 #include <stdexcept>
 #include <limits>
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QtGlobal>
 #include <QThread>
 #include <QTimer>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QImageReader>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QProcess>
+#include <QPointer>
+#include <QRegularExpression>
+#include <QSet>
+#include <QStandardPaths>
+#include <QUuid>
 
 #include <QHBoxLayout>
 #include <QDebug>
@@ -52,6 +66,7 @@
 #include "Engine/TimeLine.h"
 #include "Engine/CreateNodeArgs.h"
 #include "Engine/ViewerInstance.h"
+#include "Engine/OutputEffectInstance.h"
 
 #include "Gui/AboutWindow.h"
 #include "Gui/AutoHideToolBar.h"
@@ -71,17 +86,20 @@
 #include "Gui/Splitter.h"
 #include "Gui/TabWidget.h"
 #include "Gui/ViewerTab.h"
+#include "Gui/ViewerGL.h"
 
 #include "Gui/FluxProjectBin.h"
 #include "Gui/FluxTimeline.h"
 #include "Gui/FluxEffectsPanel.h"
 #include "Gui/FluxExportPanel.h"
+#include "Gui/FluxAiPanel.h"
 #include "Gui/FluxTextAnimatorModel.h"
 #include "Gui/FluxTextAnimatorPanel.h"
 #include "Gui/FluxTextPanel.h"
 #include "Gui/FluxT074Harness.h"
 #include "Gui/FluxT079Harness.h"
 #include "Gui/FluxMaskUtils.h"
+#include "Gui/FluxNodegraphTimelineSync.h"
 #include "Gui/DopeSheetEditor.h"
 #include "Gui/PropertiesBinWrapper.h"
 
@@ -90,11 +108,15 @@
 #include "Engine/Knob.h"
 #include "Engine/KnobTypes.h"
 #include "Engine/KnobFile.h"
+#include "Engine/ImagePlaneDesc.h"
 
 
 NATRON_NAMESPACE_ENTER
 
 namespace {
+
+static const char* kFluxAiWorkViewerLabel = "Flux AI Work Viewer";
+static const char* kFluxAiWorkViewerScriptName = "fluxAiWorkViewer";
 
 std::string
 fluxTextFontFamilyFromChoice(const ChoiceOption& entry)
@@ -130,6 +152,78 @@ syncFluxTextFontChoiceToFont(const NodePtr& gizmoNode)
     }
 
     fontString->setValue(family, ViewSpec::all(), 0);
+}
+
+void
+connectAIPaintPromptStoreRefresh(const NodePtr& aiPaintNode, FluxAiPanel* aiPanel)
+{
+    static std::vector<KnobSignalSlotHandler*> connectedAIPaintControls;
+
+    if (!aiPanel) {
+        return;
+    }
+
+    for (KnobSignalSlotHandler* previousHandler : connectedAIPaintControls) {
+        if (previousHandler) {
+            QObject::disconnect(previousHandler, &KnobSignalSlotHandler::valueChanged, aiPanel, nullptr);
+        }
+    }
+    connectedAIPaintControls.clear();
+
+    if (!aiPaintNode) {
+        return;
+    }
+
+    KnobIPtr promptStore = aiPaintNode->getKnobByName("aiPaintPromptStore");
+    if (promptStore) {
+        KnobSignalSlotHandler* handler = promptStore->getSignalSlotHandler().get();
+        if (handler) {
+            QObject::connect(
+                handler,
+                &KnobSignalSlotHandler::valueChanged,
+                aiPanel,
+                [aiPanel](ViewSpec, int, int) {
+                    QMetaObject::invokeMethod(aiPanel, "refreshAIPaintPromptState", Qt::QueuedConnection);
+                }
+            );
+            connectedAIPaintControls.push_back(handler);
+        }
+    }
+
+    KnobIPtr loadSam3 = aiPaintNode->getKnobByName("aiPaintLoadSam3");
+    if (loadSam3) {
+        KnobSignalSlotHandler* handler = loadSam3->getSignalSlotHandler().get();
+        if (handler) {
+            QObject::connect(handler, &KnobSignalSlotHandler::valueChanged, aiPanel, [aiPanel](ViewSpec, int, int) {
+                QMetaObject::invokeMethod(aiPanel, "requestAIPaintSam3Load", Qt::QueuedConnection);
+            });
+            connectedAIPaintControls.push_back(handler);
+        }
+    }
+
+    KnobIPtr unloadSam3 = aiPaintNode->getKnobByName("aiPaintUnloadSam3");
+    if (unloadSam3) {
+        KnobSignalSlotHandler* handler = unloadSam3->getSignalSlotHandler().get();
+        if (handler) {
+            QObject::connect(handler, &KnobSignalSlotHandler::valueChanged, aiPanel, [aiPanel](ViewSpec, int, int) {
+                QMetaObject::invokeMethod(aiPanel, "requestAIPaintSam3Unload", Qt::QueuedConnection);
+            });
+            connectedAIPaintControls.push_back(handler);
+        }
+    }
+
+    KnobIPtr livePreview = aiPaintNode->getKnobByName("aiPaintLivePreview");
+    if (livePreview) {
+        KnobSignalSlotHandler* handler = livePreview->getSignalSlotHandler().get();
+        if (handler) {
+            QObject::connect(handler, &KnobSignalSlotHandler::valueChanged, aiPanel, [aiPanel, livePreview](ViewSpec, int, int) {
+                KnobButton* liveButton = dynamic_cast<KnobButton*>(livePreview.get());
+                const bool enabled = liveButton && liveButton->getValue();
+                QMetaObject::invokeMethod(aiPanel, "setAIPaintLivePreviewEnabled", Qt::QueuedConnection, Q_ARG(bool, enabled));
+            });
+            connectedAIPaintControls.push_back(handler);
+        }
+    }
 }
 
 void
@@ -188,6 +282,138 @@ ensureFluxNodeRegisteredWithAnimationEditors(Gui* gui, const NodePtr& node)
 }
 
 } // namespace
+
+bool
+Gui::isFluxAiWorkViewerNode(const NodePtr& node) const
+{
+    if (!node || !node->isActivated()) {
+        return false;
+    }
+    if (node->getPluginID() != PLUGINID_NATRON_VIEWER) {
+        return false;
+    }
+    return node->getLabel() == kFluxAiWorkViewerLabel ||
+           node->getScriptName() == kFluxAiWorkViewerScriptName;
+}
+
+ViewerTab*
+Gui::getFluxMainCompositingViewerTab() const
+{
+    QMutexLocker l(&_imp->_viewerTabsMutex);
+    for (std::list<ViewerTab*>::const_iterator it = _imp->_viewerTabs.begin(); it != _imp->_viewerTabs.end(); ++it) {
+        ViewerTab* tab = *it;
+        if (!tab) {
+            continue;
+        }
+        ViewerInstance* internalViewer = tab->getInternalNode();
+        NodePtr viewerNode = internalViewer ? internalViewer->getNode() : NodePtr();
+        if (viewerNode && viewerNode->isActivated() && !isFluxAiWorkViewerNode(viewerNode)) {
+            return tab;
+        }
+    }
+    return 0;
+}
+
+void
+Gui::showFluxViewerTab(ViewerTab* viewerTab)
+{
+    if (!viewerTab) {
+        return;
+    }
+    setActiveViewer(viewerTab);
+    TabWidget* viewerPane = viewerTab->getParentPane();
+    if (!viewerPane) {
+        return;
+    }
+    const int count = viewerPane->count();
+    for (int t = 0; t < count; ++t) {
+        if (viewerPane->tabAt(t) == viewerTab) {
+            viewerPane->makeCurrentTab(t);
+            break;
+        }
+    }
+}
+
+ViewerTab*
+Gui::ensureFluxAiWorkViewerTab(NodePtr* viewerNodeOut)
+{
+    if (viewerNodeOut) {
+        *viewerNodeOut = NodePtr();
+    }
+
+    NodePtr matchedNode;
+    {
+        QMutexLocker l(&_imp->_viewerTabsMutex);
+        for (std::list<ViewerTab*>::iterator it = _imp->_viewerTabs.begin(); it != _imp->_viewerTabs.end(); ++it) {
+            ViewerTab* tab = *it;
+            ViewerInstance* internalViewer = tab ? tab->getInternalNode() : 0;
+            NodePtr viewerNode = internalViewer ? internalViewer->getNode() : NodePtr();
+            if (isFluxAiWorkViewerNode(viewerNode)) {
+                if (viewerNodeOut) {
+                    *viewerNodeOut = viewerNode;
+                }
+                return tab;
+            }
+        }
+    }
+
+    NodeCollectionPtr collection;
+    if (getApp()) {
+        collection = std::dynamic_pointer_cast<NodeCollection>(getApp()->getProject());
+    }
+    if (collection) {
+        NodesList nodes;
+        collection->getActiveNodes(&nodes);
+        for (NodesList::const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
+            if (isFluxAiWorkViewerNode(*it)) {
+                matchedNode = *it;
+                break;
+            }
+        }
+    }
+
+    if (!matchedNode) {
+        NodeGraph* graph = _imp->_lastFocusedGraph ? _imp->_lastFocusedGraph : _imp->_nodeGraphArea;
+        NodeCollectionPtr group = graph ? graph->getGroup() : collection;
+        if (!group || !getApp()) {
+            return 0;
+        }
+        CreateNodeArgs args(PLUGINID_NATRON_VIEWER, group);
+        args.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+        args.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+        args.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+        matchedNode = getApp()->createNode(args);
+        if (!matchedNode || !matchedNode->isActivated()) {
+            return 0;
+        }
+        matchedNode->setLabel(kFluxAiWorkViewerLabel);
+        try {
+            matchedNode->setScriptName(kFluxAiWorkViewerScriptName);
+        } catch (...) {
+            // Label remains the stable Flux-owned identity if the script name is already taken.
+        }
+    }
+
+    {
+        QMutexLocker l(&_imp->_viewerTabsMutex);
+        for (std::list<ViewerTab*>::iterator it = _imp->_viewerTabs.begin(); it != _imp->_viewerTabs.end(); ++it) {
+            ViewerTab* tab = *it;
+            ViewerInstance* internalViewer = tab ? tab->getInternalNode() : 0;
+            NodePtr viewerNode = internalViewer ? internalViewer->getNode() : NodePtr();
+            if (viewerNode == matchedNode) {
+                if (viewerNodeOut) {
+                    *viewerNodeOut = viewerNode;
+                }
+                return tab;
+            }
+        }
+    }
+
+    if (viewerNodeOut) {
+        *viewerNodeOut = matchedNode;
+    }
+    return 0;
+}
 
 
 void
@@ -442,6 +668,451 @@ Gui::getActiveViewer() const
     return _imp->_activeViewer;
 }
 
+static QString
+fluxSam3A1SanitizedName(const QString& name)
+{
+    QString out = name;
+    out.replace(QRegularExpression(QString::fromUtf8("[^A-Za-z0-9_.-]+")), QString::fromUtf8("_"));
+    if (out.isEmpty()) {
+        out = QString::fromUtf8("source");
+    }
+    return out.left(80);
+}
+
+static QString
+fluxSam3A1BoundedProcessText(const QByteArray& text)
+{
+    QString out = QString::fromLocal8Bit(text).trimmed();
+    out.replace(QLatin1Char('\n'), QLatin1Char(' '));
+    out.replace(QLatin1Char('\r'), QLatin1Char(' '));
+    return out.left(500);
+}
+
+static bool
+fluxSam3A1IsVideoExtension(const QString& extension)
+{
+    const QString ext = extension.toLower();
+    return ext == QString::fromUtf8("mov") || ext == QString::fromUtf8("mp4") ||
+           ext == QString::fromUtf8("mxf") || ext == QString::fromUtf8("avi") ||
+           ext == QString::fromUtf8("mkv") || ext == QString::fromUtf8("webm") ||
+           ext == QString::fromUtf8("m4v");
+}
+
+static bool
+fluxSam3A1RunFfmpeg(const QString& ffmpegPath, const QStringList& arguments, int* exitCode, QString* diagnostics)
+{
+    QProcess process;
+    process.setProgram(ffmpegPath);
+    process.setArguments(arguments);
+    process.setProcessChannelMode(QProcess::SeparateChannels);
+    process.start();
+    if (!process.waitForStarted()) {
+        if (diagnostics) {
+            *diagnostics = process.errorString();
+        }
+        if (exitCode) {
+            *exitCode = -1;
+        }
+        return false;
+    }
+    process.waitForFinished(-1);
+    if (exitCode) {
+        *exitCode = process.exitCode();
+    }
+    if (diagnostics) {
+        *diagnostics = fluxSam3A1BoundedProcessText(process.readAllStandardError());
+        const QString stdoutText = fluxSam3A1BoundedProcessText(process.readAllStandardOutput());
+        if (diagnostics->isEmpty()) {
+            *diagnostics = stdoutText;
+        } else if (!stdoutText.isEmpty()) {
+            *diagnostics += QString::fromUtf8(" stdout=") + stdoutText;
+        }
+    }
+    return process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0;
+}
+
+QString
+Gui::exportFluxSam3SourceFrameForSelectedLayer(QJsonObject* sourceMetadata)
+{
+    if (!sFluxMode || !_imp || !_imp->_fluxTimeline || !getApp()) {
+        fprintf(stderr, "FLUX-SAM3-A1 capture blocked: Flux mode/timeline/app unavailable\n");
+        return QString();
+    }
+
+    FluxTimeline* timeline = _imp->_fluxTimeline;
+    const int layerIndex = timeline->getSelectedLayerIndex();
+    const QList<FluxLayer>& layers = timeline->getLayers();
+    if (layerIndex < 0 || layerIndex >= layers.size()) {
+        fprintf(stderr, "FLUX-SAM3-A1 capture blocked: invalid selected layer index %d\n", layerIndex);
+        return QString();
+    }
+
+    const FluxLayer& layer = layers[layerIndex];
+    const int timelineFrame = timeline->getCurrentFrame();
+    const int sourceFrame = qBound(layer.originalFirstFrame, timelineFrame - layer.timeOffset, layer.originalLastFrame);
+    QString diagnostics;
+    const QString result = exportFluxSam3SourceFrameForSourceContext(layerIndex, layer.name, layer.filePath, layer.readerNode,
+                                                                    layer.readerNode ? QString::fromStdString(layer.readerNode->getLabel()) : QString(),
+                                                                    timelineFrame, sourceFrame, sourceMetadata, &diagnostics);
+    if (result.isEmpty() && !diagnostics.isEmpty()) {
+        fprintf(stderr, "FLUX-SAM3-A1 capture blocked: %s\n", diagnostics.toStdString().c_str());
+    }
+    return result;
+}
+
+QString
+Gui::exportFluxSam3SourceFrameForSourceContext(int layerIndex, const QString& layerName, const QString& filePath, const NodePtr& readerNode, const QString& readerLabel, int timelineFrame, int sourceFrame, QJsonObject* sourceMetadata, QString* diagnostics)
+{
+    auto fail = [diagnostics](const QString& text) -> QString {
+        if (diagnostics) {
+            *diagnostics = text;
+        }
+        fprintf(stderr, "FLUX-SAM3-A1 capture blocked: %s\n", text.toStdString().c_str());
+        return QString();
+    };
+
+    if (!sFluxMode || !_imp || !_imp->_fluxTimeline || !getApp()) {
+        return fail(QString::fromUtf8("source-frame export unavailable: Flux mode, timeline, or app is unavailable"));
+    }
+    if (layerIndex < 0) {
+        return fail(QString::fromUtf8("source-frame export unavailable: stored source layer index is invalid"));
+    }
+    const QList<FluxLayer>& layers = _imp->_fluxTimeline->getLayers();
+    if (layerIndex >= layers.size()) {
+        return fail(QString::fromUtf8("source-frame export unavailable: stored source layer index no longer exists"));
+    }
+    const FluxLayer& layer = layers[layerIndex];
+    if (layer.type != QString::fromUtf8("footage")) {
+        return fail(QString::fromUtf8("source-frame export unavailable: stored source layer is not footage"));
+    }
+    if (!readerNode || !readerNode->isActivated()) {
+        return fail(QString::fromUtf8("source-frame export unavailable: stored reader node is missing or deactivated"));
+    }
+    if (layer.readerNode && layer.readerNode != readerNode) {
+        return fail(QString::fromUtf8("source-frame export unavailable: stored reader no longer matches the layer reader"));
+    }
+
+    const QString effectiveLayerName = layerName.isEmpty() ? layer.name : layerName;
+    const QString effectiveFilePath = filePath.isEmpty() ? layer.filePath : filePath;
+    const QString effectiveReaderLabel = readerLabel.isEmpty() ? QString::fromStdString(readerNode->getLabel()) : readerLabel;
+    const int originalFirstFrame = layer.originalFirstFrame;
+    const int originalLastFrame = layer.originalLastFrame;
+    int exportSourceFrame = sourceFrame;
+    int exportTimelineFrame = timelineFrame;
+    if (exportSourceFrame < originalFirstFrame || exportSourceFrame > originalLastFrame) {
+        const int clamped = qBound(originalFirstFrame, exportSourceFrame, originalLastFrame);
+        fprintf(stderr,
+                "FLUX-SAM3-A1 source-frame context clamped: requested=%d clamped=%d originalRange=[%d,%d]\n",
+                exportSourceFrame, clamped, originalFirstFrame, originalLastFrame);
+        exportSourceFrame = clamped;
+        exportTimelineFrame = exportSourceFrame + layer.timeOffset;
+    }
+    const int timeOffset = exportTimelineFrame - exportSourceFrame;
+
+    const QFileInfo sourceInfo(effectiveFilePath);
+    if (effectiveFilePath.isEmpty()) {
+        return fail(QString::fromUtf8("source-frame export unavailable: stored source file path is empty"));
+    }
+    if (!sourceInfo.exists() || !sourceInfo.isFile()) {
+        return fail(QString::fromUtf8("source-frame export unavailable: stored source file is missing: %1").arg(effectiveFilePath));
+    }
+
+    const QString previewDirPath = QDir::temp().filePath(QString::fromUtf8("Flux/sam3_preview"));
+    QDir previewDir;
+    if (!previewDir.mkpath(previewDirPath)) {
+        return fail(QString::fromUtf8("source-frame export unavailable: could not create temporary directory %1").arg(previewDirPath));
+    }
+
+    const QString safeName = fluxSam3A1SanitizedName(effectiveLayerName.isEmpty() ? effectiveReaderLabel : effectiveLayerName);
+    const QString unique = QUuid::createUuid().toString(QUuid::Id128).left(12);
+    const QString exportTarget = QString::fromUtf8("reader_source");
+    const QString outputPath = QDir(previewDirPath).filePath(QString::fromUtf8("source_%1_%2_%3_%4.png").arg(safeName).arg(exportSourceFrame).arg(exportTarget).arg(unique));
+    const QString extension = sourceInfo.suffix().toLower();
+    const bool isPng = extension == QString::fromUtf8("png");
+    const bool isVideo = fluxSam3A1IsVideoExtension(extension);
+    const int zeroBasedFrame = exportSourceFrame - originalFirstFrame;
+    if (zeroBasedFrame < 0) {
+        return fail(QString::fromUtf8("source-frame export unavailable: computed negative zero-based source frame"));
+    }
+
+    QString renderMode;
+    if (isPng && !isVideo) {
+        QFile::remove(outputPath);
+        renderMode = QString::fromUtf8("source-png-copy");
+        if (!QFile::copy(effectiveFilePath, outputPath)) {
+            return fail(QString::fromUtf8("source-frame export failed: could not copy PNG source to %1").arg(outputPath));
+        }
+    } else {
+        const QString ffmpegPath = QStandardPaths::findExecutable(QString::fromUtf8("ffmpeg"));
+        if (ffmpegPath.isEmpty()) {
+            return fail(QString::fromUtf8("source-frame export failed: ffmpeg executable was not found"));
+        }
+        QFile::remove(outputPath);
+        QStringList arguments;
+        arguments << QString::fromUtf8("-y") << QString::fromUtf8("-hide_banner") << QString::fromUtf8("-loglevel") << QString::fromUtf8("error")
+                  << QString::fromUtf8("-i") << effectiveFilePath;
+        if (isVideo) {
+            arguments << QString::fromUtf8("-vf") << QString::fromUtf8("select=eq(n\\,%1)").arg(zeroBasedFrame);
+        }
+        arguments << QString::fromUtf8("-frames:v") << QString::fromUtf8("1") << outputPath;
+        int ffmpegExitCode = -1;
+        QString ffmpegDiagnostics;
+        const bool processOk = fluxSam3A1RunFfmpeg(ffmpegPath, arguments, &ffmpegExitCode, &ffmpegDiagnostics);
+        const QFileInfo outputInfo(outputPath);
+        renderMode = QString::fromUtf8("external-source-ffmpeg");
+        if (!processOk || !outputInfo.exists() || outputInfo.size() <= 0) {
+            return fail(QString::fromUtf8("source-frame export failed: ffmpeg produced no usable PNG (exit %1, %2)").arg(ffmpegExitCode).arg(ffmpegDiagnostics));
+        }
+    }
+
+    const QFileInfo outputInfo(outputPath);
+    if (!outputInfo.exists() || outputInfo.size() <= 0) {
+        return fail(QString::fromUtf8("source-frame export failed: generated PNG is missing or empty: %1").arg(outputPath));
+    }
+    QImageReader reader(outputPath);
+    const QSize imageSize = reader.size();
+    if (!imageSize.isValid() || imageSize.width() <= 0 || imageSize.height() <= 0) {
+        return fail(QString::fromUtf8("source-frame export failed: could not read exported PNG dimensions for %1 (%2)").arg(outputPath, reader.errorString()));
+    }
+
+    if (sourceMetadata) {
+        QJsonObject metadata;
+        metadata.insert(QString::fromUtf8("selected_layer_index"), layerIndex);
+        metadata.insert(QString::fromUtf8("selected_layer_name"), effectiveLayerName);
+        metadata.insert(QString::fromUtf8("reader_label"), effectiveReaderLabel);
+        metadata.insert(QString::fromUtf8("timeline_frame"), exportTimelineFrame);
+        metadata.insert(QString::fromUtf8("source_frame"), exportSourceFrame);
+        metadata.insert(QString::fromUtf8("original_first_frame"), originalFirstFrame);
+        metadata.insert(QString::fromUtf8("original_last_frame"), originalLastFrame);
+        metadata.insert(QString::fromUtf8("trim_source_start"), qBound(originalFirstFrame, layer.inPoint, originalLastFrame));
+        metadata.insert(QString::fromUtf8("trim_source_end"), qBound(originalFirstFrame, layer.outPoint, originalLastFrame));
+        metadata.insert(QString::fromUtf8("time_offset"), timeOffset);
+        metadata.insert(QString::fromUtf8("source_file_basename"), sourceInfo.completeBaseName());
+        metadata.insert(QString::fromUtf8("source_file_suffix"), sourceInfo.suffix());
+        metadata.insert(QString::fromUtf8("export_target"), exportTarget);
+        metadata.insert(QString::fromUtf8("render_mode"), renderMode);
+        metadata.insert(QString::fromUtf8("width"), imageSize.width());
+        metadata.insert(QString::fromUtf8("height"), imageSize.height());
+        metadata.insert(QString::fromUtf8("exported_png_width"), imageSize.width());
+        metadata.insert(QString::fromUtf8("exported_png_height"), imageSize.height());
+        metadata.insert(QString::fromUtf8("temporary_source_png_basename"), outputInfo.fileName());
+        metadata.insert(QString::fromUtf8("temporary_source_png_note"), QString::fromUtf8("Temporary source PNG path is intentionally not persisted."));
+        if (std::isfinite(layer.sourceFrameRate) && layer.sourceFrameRate > 0.0) {
+            metadata.insert(QString::fromUtf8("source_frame_rate"), layer.sourceFrameRate);
+        }
+        *sourceMetadata = metadata;
+    }
+    if (diagnostics) {
+        *diagnostics = QString::fromUtf8("source frame exported for stored AI Work Viewer context (%1x%2, target=%3, mode=%4)").arg(imageSize.width()).arg(imageSize.height()).arg(exportTarget, renderMode);
+    }
+    fprintf(stderr,
+            "FLUX-SAM3-A1 capture complete: layer=%d name='%s' reader='%s' timelineFrame=%d sourceFrame=%d originalFirstFrame=%d zeroBasedFrame=%d source='%s' output='%s' exportTarget=%s renderMode=%s dimensions=%dx%d\n",
+            layerIndex, effectiveLayerName.toStdString().c_str(), effectiveReaderLabel.toStdString().c_str(), exportTimelineFrame,
+            exportSourceFrame, originalFirstFrame, zeroBasedFrame, effectiveFilePath.toStdString().c_str(),
+            outputPath.toStdString().c_str(), exportTarget.toStdString().c_str(), renderMode.toStdString().c_str(), imageSize.width(), imageSize.height());
+    return outputPath;
+}
+
+QString
+Gui::exportFluxSam3SourceSequenceForSourceContext(int layerIndex, const QString& layerName, const QString& filePath, const NodePtr& readerNode, const QString& readerLabel, int firstSourceFrame, int lastSourceFrame, QJsonObject* sourceMetadata, QString* diagnostics, std::function<bool(int completed, int total)> progressCallback)
+{
+    auto fail = [diagnostics](const QString& text) -> QString {
+        if (diagnostics) {
+            *diagnostics = text;
+        }
+        fprintf(stderr, "FLUX-SAM3-A1 source-sequence capture blocked: %s\n", text.toStdString().c_str());
+        return QString();
+    };
+
+    if (!getFluxTimeline()) {
+        return fail(QString::fromUtf8("source-sequence export unavailable: missing Flux timeline"));
+    }
+    const QList<FluxLayer>& layers = getFluxTimeline()->getLayers();
+    if (layerIndex < 0 || layerIndex >= layers.size()) {
+        return fail(QString::fromUtf8("source-sequence export unavailable: selected source layer index is invalid"));
+    }
+    const FluxLayer& layer = layers[layerIndex];
+    if (layer.type != QString::fromUtf8("footage")) {
+        return fail(QString::fromUtf8("source-sequence export unavailable: stored source layer is not footage"));
+    }
+
+    const int rangeStart = qMin(firstSourceFrame, lastSourceFrame);
+    const int rangeEnd = qMax(firstSourceFrame, lastSourceFrame);
+    const int clampedStart = qBound(layer.originalFirstFrame, rangeStart, layer.originalLastFrame);
+    const int clampedEnd = qBound(layer.originalFirstFrame, rangeEnd, layer.originalLastFrame);
+    if (clampedStart > clampedEnd) {
+        return fail(QString::fromUtf8("source-sequence export unavailable: requested range is outside original media range"));
+    }
+
+    const QString projectDir = getApp()->getProject()->getProjectPath();
+    if (projectDir.isEmpty()) {
+        return fail(QString::fromUtf8("source-sequence export unavailable: project must be saved first to determine persistent output path"));
+    }
+    const QString fileHash = QString::fromLatin1(QCryptographicHash::hash(filePath.toUtf8(), QCryptographicHash::Md5).toHex().left(12));
+    const QString fileBasename = QFileInfo(filePath).fileName();
+    const QString sequenceDirPath = QDir(projectDir).filePath(QString::fromUtf8("FluxGenerated/AI/.source_sequences/%1/%2").arg(fileHash, fileBasename));
+    QDir sequenceDir(sequenceDirPath);
+    if (!sequenceDir.mkpath(QStringLiteral("."))) {
+        return fail(QString::fromUtf8("source-sequence export unavailable: could not create persistent directory %1").arg(sequenceDirPath));
+    }
+
+    QJsonArray frames;
+    int width = 0;
+    int height = 0;
+    const int totalFrames = clampedEnd - clampedStart + 1;
+    int completedFrames = 0;
+    for (int sourceFrame = clampedStart; sourceFrame <= clampedEnd; ++sourceFrame) {
+        const int timelineFrame = sourceFrame + layer.timeOffset;
+        QJsonObject frameMetadata;
+        QString frameDiagnostics;
+        const QString sourcePng = exportFluxSam3SourceFrameForSourceContext(layerIndex, layerName, filePath, readerNode, readerLabel, timelineFrame, sourceFrame, &frameMetadata, &frameDiagnostics);
+        QFileInfo sourceInfo(sourcePng);
+        if (sourcePng.isEmpty() || !sourceInfo.isFile() || sourceInfo.size() <= 0) {
+            return fail(QString::fromUtf8("source-sequence export failed at source frame %1: %2").arg(sourceFrame).arg(frameDiagnostics));
+        }
+        const QString outputName = QString::fromUtf8("source_%1.png").arg(timelineFrame, 6, 10, QLatin1Char('0'));
+        const QString outputPath = sequenceDir.filePath(outputName);
+        QFile::remove(outputPath);
+        if (!QFile::copy(sourcePng, outputPath)) {
+            return fail(QString::fromUtf8("source-sequence export failed: could not copy frame %1 to %2").arg(sourceFrame).arg(outputPath));
+        }
+        QFileInfo outputInfo(outputPath);
+        if (!outputInfo.isFile() || outputInfo.size() <= 0) {
+            return fail(QString::fromUtf8("source-sequence export failed: copied frame is missing or empty: %1").arg(outputPath));
+        }
+        const int frameWidth = frameMetadata.value(QString::fromUtf8("width")).toInt(frameMetadata.value(QString::fromUtf8("exported_png_width")).toInt(0));
+        const int frameHeight = frameMetadata.value(QString::fromUtf8("height")).toInt(frameMetadata.value(QString::fromUtf8("exported_png_height")).toInt(0));
+        if (frameWidth <= 0 || frameHeight <= 0) {
+            return fail(QString::fromUtf8("source-sequence export failed: frame %1 metadata has invalid dimensions").arg(sourceFrame));
+        }
+        if (width == 0 && height == 0) {
+            width = frameWidth;
+            height = frameHeight;
+        } else if (width != frameWidth || height != frameHeight) {
+            return fail(QString::fromUtf8("source-sequence export failed: frame dimensions changed at source frame %1").arg(sourceFrame));
+        }
+
+        QJsonObject frame;
+        frame.insert(QString::fromUtf8("path"), outputPath);
+        frame.insert(QString::fromUtf8("basename"), outputInfo.fileName());
+        frame.insert(QString::fromUtf8("source_frame"), sourceFrame);
+        frame.insert(QString::fromUtf8("timeline_frame"), timelineFrame);
+        frame.insert(QString::fromUtf8("zero_based_source_frame"), sourceFrame - layer.originalFirstFrame);
+        frames.append(frame);
+        ++completedFrames;
+        if (progressCallback) {
+            if (!progressCallback(completedFrames, totalFrames)) {
+                return fail(QString::fromUtf8("source-sequence export canceled"));
+            }
+        }
+    }
+
+    if (frames.isEmpty()) {
+        return fail(QString::fromUtf8("source-sequence export failed: no frames were exported"));
+    }
+
+    if (sourceMetadata) {
+        QJsonObject metadata;
+        metadata.insert(QString::fromUtf8("selected_layer_index"), layerIndex);
+        metadata.insert(QString::fromUtf8("selected_layer_name"), layerName.isEmpty() ? layer.name : layerName);
+        metadata.insert(QString::fromUtf8("reader_label"), readerLabel.isEmpty() && readerNode ? QString::fromStdString(readerNode->getLabel()) : readerLabel);
+        metadata.insert(QString::fromUtf8("source_frame_start"), clampedStart);
+        metadata.insert(QString::fromUtf8("source_frame_end"), clampedEnd);
+        metadata.insert(QString::fromUtf8("timeline_frame_start"), clampedStart + layer.timeOffset);
+        metadata.insert(QString::fromUtf8("timeline_frame_end"), clampedEnd + layer.timeOffset);
+        metadata.insert(QString::fromUtf8("duration_frames"), frames.size());
+        metadata.insert(QString::fromUtf8("original_first_frame"), layer.originalFirstFrame);
+        metadata.insert(QString::fromUtf8("original_last_frame"), layer.originalLastFrame);
+        metadata.insert(QString::fromUtf8("trim_source_start"), qBound(layer.originalFirstFrame, layer.inPoint, layer.originalLastFrame));
+        metadata.insert(QString::fromUtf8("trim_source_end"), qBound(layer.originalFirstFrame, layer.outPoint, layer.originalLastFrame));
+        metadata.insert(QString::fromUtf8("time_offset"), layer.timeOffset);
+        metadata.insert(QString::fromUtf8("width"), width);
+        metadata.insert(QString::fromUtf8("height"), height);
+        metadata.insert(QString::fromUtf8("temporary_source_sequence_dir"), sequenceDirPath);
+        metadata.insert(QString::fromUtf8("temporary_source_sequence_note"), QString::fromUtf8("Temporary source PNG sequence path is intentionally not persisted."));
+        if (std::isfinite(layer.sourceFrameRate) && layer.sourceFrameRate > 0.0) {
+            metadata.insert(QString::fromUtf8("source_frame_rate"), layer.sourceFrameRate);
+        }
+        metadata.insert(QString::fromUtf8("frames"), frames);
+        *sourceMetadata = metadata;
+    }
+    if (diagnostics) {
+        *diagnostics = QString::fromUtf8("source sequence exported for stored AI Work Viewer context (%1 frames, %2x%3)").arg(frames.size()).arg(width).arg(height);
+    }
+    fprintf(stderr,
+            "FLUX-SAM3-A1 sequence capture complete: layer=%d sourceRange=[%d,%d] timelineRange=[%d,%d] frames=%d outputDir='%s'\n",
+            layerIndex, clampedStart, clampedEnd, clampedStart + layer.timeOffset, clampedEnd + layer.timeOffset, static_cast<int>(frames.size()), sequenceDirPath.toStdString().c_str());
+    return sequenceDirPath;
+}
+
+bool
+Gui::previewFluxAiResultPngInWorkViewer(const QString& absolutePngPath, QString* diagnostics)
+{
+    auto fail = [diagnostics](const QString& text) -> bool {
+        if (diagnostics) {
+            *diagnostics = text;
+        }
+        fprintf(stderr, "FLUX-SAM3-A1 preview blocked: %s\n", text.toStdString().c_str());
+        return false;
+    };
+    if (!getApp()) {
+        return fail(QString::fromUtf8("AI Work Viewer preview unavailable: app is missing"));
+    }
+    const QFileInfo pngInfo(absolutePngPath);
+    if (!pngInfo.isFile() || pngInfo.size() <= 0) {
+        return fail(QString::fromUtf8("AI Work Viewer preview unavailable: result PNG is missing or empty: %1").arg(absolutePngPath));
+    }
+    NodePtr viewerNode;
+    ViewerTab* viewerTab = ensureFluxAiWorkViewerTab(&viewerNode);
+    if (!viewerTab || !viewerNode || !viewerNode->isActivated()) {
+        return fail(QString::fromUtf8("AI Work Viewer preview unavailable: could not create or find Flux AI Work Viewer"));
+    }
+    NodeCollectionPtr collection;
+    if (getApp()->getProject()) {
+        collection = std::dynamic_pointer_cast<NodeCollection>(getApp()->getProject());
+    }
+    if (!collection) {
+        return fail(QString::fromUtf8("AI Work Viewer preview unavailable: project collection is missing"));
+    }
+    std::string filePath = absolutePngPath.toStdString();
+    getApp()->getProject()->canonicalizePath(filePath);
+    NodePtr readNode = collection->getNodeByName("FluxSAM3LiveResultPreview");
+    if (readNode && readNode->isActivated()) {
+        KnobIPtr filenameKnob = readNode->getKnobByName("filename");
+        KnobFilePtr fileKnob = std::dynamic_pointer_cast<KnobFile>(filenameKnob);
+        if (!fileKnob) {
+            return fail(QString::fromUtf8("AI Work Viewer preview unavailable: existing result Read has no filename knob"));
+        }
+        fileKnob->setValue(filePath);
+        fileKnob->reloadFile();
+    } else {
+        CreateNodeArgs readArgs(PLUGINID_NATRON_READ, collection);
+        readArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+        readArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+        readArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+        readNode = getApp()->createReader(filePath, readArgs);
+        if (!readNode || !readNode->isActivated()) {
+            return fail(QString::fromUtf8("AI Work Viewer preview unavailable: could not create result Read node"));
+        }
+        readNode->setLabel(QString::fromUtf8("Flux SAM3 Result Preview").toStdString());
+        try {
+            readNode->setScriptName(QString::fromUtf8("FluxSAM3LiveResultPreview").toStdString());
+        } catch (...) {
+        }
+    }
+    viewerNode->disconnectInput(0);
+    viewerNode->connectInput(readNode, 0);
+    if (viewerNode->getInput(0) != readNode) {
+        return fail(QString::fromUtf8("AI Work Viewer preview unavailable: could not connect result Read to viewer input 0"));
+    }
+    showFluxViewerTab(viewerTab);
+    redrawAllViewers();
+    if (diagnostics) {
+        *diagnostics = QString::fromUtf8("SAM3 result preview loaded in Flux AI Work Viewer: %1").arg(pngInfo.fileName());
+    }
+    return true;
+}
+
 NodeCollectionPtr
 Gui::getLastSelectedNodeCollection() const
 {
@@ -607,6 +1278,11 @@ Gui::setupFluxUi()
     exportPanel->setLabel( tr("Export").toStdString() );
     TabWidget::moveTab(exportPanel, exportPanel, topRightPane);
 
+    FluxAiPanel* aiPanel = new FluxAiPanel(this);
+    aiPanel->setScriptName("fluxAiPanel");
+    aiPanel->setLabel( tr("AI").toStdString() );
+    TabWidget::moveTab(aiPanel, aiPanel, topRightPane);
+
     FluxTextPanel* textPanel = new FluxTextPanel(this);
     textPanel->setScriptName("fluxTextPanel");
     textPanel->setLabel( tr("Text").toStdString() );
@@ -621,6 +1297,7 @@ Gui::setupFluxUi()
     // Populate workshop pane (bottom): Timeline + Dope Sheet + Curve Editor
     // ====================================================================
     FluxTimeline* timeline = new FluxTimeline(this);
+    timeline->setObjectName(QString::fromUtf8("fluxTimeline"));
     timeline->setScriptName("fluxTimeline");
     timeline->setLabel( tr("Timeline").toStdString() );
     TabWidget::moveTab(timeline, timeline, workshopPane);
@@ -697,6 +1374,74 @@ Gui::setupFluxUi()
     // Signal wiring for Flux widgets
     // ====================================================================
 
+    auto selectedLayerAIPaintNode = [](const FluxLayer& layer) -> NodePtr {
+        for (const FluxEffect& effect : layer.effects) {
+            if (!effect.enabled || !effect.node || !effect.node->isActivated()) {
+                continue;
+            }
+            EffectInstancePtr effectInstance = effect.node->getEffectInstance();
+            if (effectInstance && effectInstance->getPluginID() == PLUGINID_NATRON_AIPAINT) {
+                return effect.node;
+            }
+        }
+        return NodePtr();
+    };
+
+    auto refreshSelectedLayerAiPaintBinding = [this, timeline, aiPanel, selectedLayerAIPaintNode](bool foregroundAiPane) {
+        if (!timeline || !aiPanel) {
+            return;
+        }
+        const QList<FluxLayer>& layers = timeline->getLayers();
+        const int layerIndex = timeline->getSelectedLayerIndex();
+        if (layerIndex < 0 || layerIndex >= layers.size()) {
+            aiPanel->setViewerForCapture(nullptr);
+            connectAIPaintPromptStoreRefresh(NodePtr(), aiPanel);
+            return;
+        }
+        const FluxLayer& layer = layers[layerIndex];
+        if (layer.type != QString::fromUtf8("footage") || !layer.readerNode || !layer.readerNode->isActivated()) {
+            aiPanel->setViewerForCapture(nullptr);
+            connectAIPaintPromptStoreRefresh(NodePtr(), aiPanel);
+            return;
+        }
+
+        const NodePtr aiPaintNode = selectedLayerAIPaintNode(layer);
+        NodePtr viewerNode;
+        ViewerTab* viewerTab = ensureFluxAiWorkViewerTab(&viewerNode);
+        if (!viewerTab || !viewerNode || !viewerNode->isActivated()) {
+            aiPanel->setViewerForCapture(nullptr);
+            return;
+        }
+
+        NodePtr sourceViewNode = aiPaintNode && aiPaintNode->isActivated() ? aiPaintNode : layer.readerNode;
+        if (viewerNode->getInput(0) != sourceViewNode) {
+            viewerNode->disconnectInput(0);
+            viewerNode->connectInput(sourceViewNode, 0);
+        }
+
+        const int timelineFrame = timeline->getCurrentFrame();
+        const int sourceFrame = qBound(layer.originalFirstFrame, timelineFrame - layer.timeOffset, layer.originalLastFrame);
+        const int rangeFirstFrame = qBound(layer.originalFirstFrame, layer.inPoint, layer.originalLastFrame);
+        const int rangeLastFrame = qBound(layer.originalFirstFrame, layer.outPoint, layer.originalLastFrame);
+        aiPanel->setSourceCaptureContext(viewerTab->getViewer(), viewerNode, layerIndex, layer.name, layer.filePath, layer.readerNode, layer.readerNode ? QString::fromStdString(layer.readerNode->getLabel()) : QString(), aiPaintNode, timelineFrame, sourceFrame, rangeFirstFrame, rangeLastFrame);
+        connectAIPaintPromptStoreRefresh(aiPaintNode, aiPanel);
+
+        if (foregroundAiPane) {
+            showFluxViewerTab(viewerTab);
+            TabWidget* aiPane = aiPanel->getParentPane();
+            if (aiPane) {
+                const int count = aiPane->count();
+                for (int t = 0; t < count; ++t) {
+                    if (aiPane->tabAt(t) == aiPanel) {
+                        aiPane->makeCurrentTab(t);
+                        break;
+                    }
+                }
+            }
+        }
+        redrawAllViewers();
+    };
+
     // 1. Project Bin: fileRequested → add layer to timeline + rebuild graph
     //    (fires on double-click — import button/drag-to-bin only adds to bin)
     //    The gizmo (with internal Read) is created in rebuildCompositingGraph.
@@ -724,7 +1469,7 @@ Gui::setupFluxUi()
 
     // 3. Timeline: layerSelected → open gizmo properties panel + update Effects Panel
     QObject::connect(timeline, &FluxTimeline::layerSelected, this,
-                      [this, timeline, effectsPanel, textPanel, textAnimatorPanel](int index) {
+                      [this, timeline, effectsPanel, textPanel, textAnimatorPanel, refreshSelectedLayerAiPaintBinding](int index) {
                           // Close previously selected layer's properties panel
                           const QList<FluxLayer>& prevLayers = timeline->getLayers();
                           for (int i = 0; i < prevLayers.size(); ++i) {
@@ -797,9 +1542,95 @@ Gui::setupFluxUi()
                               }
                           }
 
+                          refreshSelectedLayerAiPaintBinding(false);
                           // Redraw viewers to update overlay handles
                           redrawAllViewers();
                       });
+
+
+    QObject::connect(timeline, &FluxTimeline::sourceFrameCaptureRequested, this,
+                     [this]() {
+                         exportFluxSam3SourceFrameForSelectedLayer();
+                     });
+
+    QObject::connect(timeline, &FluxTimeline::frameChanged, this,
+                     [this, refreshSelectedLayerAiPaintBinding](int) {
+                         refreshSelectedLayerAiPaintBinding(false);
+                     });
+
+    QObject::connect(timeline, &FluxTimeline::sourceViewerRequested, this,
+                     [this, timeline, aiPanel](int layerIndex) {
+                         const QList<FluxLayer>& layers = timeline->getLayers();
+                         if (layerIndex < 0 || layerIndex >= layers.size()) {
+                             return;
+                         }
+                         const FluxLayer& layer = layers[layerIndex];
+                         if (layer.type != QString::fromUtf8("footage") || !layer.readerNode || !layer.readerNode->isActivated()) {
+                             return;
+                         }
+
+                         NodePtr aiPaintNode;
+                         for (const FluxEffect& effect : layer.effects) {
+                             if (!effect.enabled || !effect.node || !effect.node->isActivated()) {
+                                 continue;
+                             }
+                             EffectInstancePtr effectInstance = effect.node->getEffectInstance();
+                             if (effectInstance && effectInstance->getPluginID() == PLUGINID_NATRON_AIPAINT) {
+                                 aiPaintNode = effect.node;
+                                 break;
+                             }
+                         }
+
+                         NodePtr viewerNode;
+                         ViewerTab* viewerTab = ensureFluxAiWorkViewerTab(&viewerNode);
+                         bool sourceViewerArmed = false;
+                         if (viewerTab && viewerNode && viewerNode->isActivated()) {
+                             NodePtr sourceViewNode = aiPaintNode && aiPaintNode->isActivated() ? aiPaintNode : layer.readerNode;
+                             viewerNode->disconnectInput(0);
+                             viewerNode->connectInput(sourceViewNode, 0);
+                             if (viewerNode->getInput(0) == sourceViewNode) {
+                                 sourceViewerArmed = true;
+                                 if (sourceViewNode == aiPaintNode) {
+                                     NodeGuiPtr nodeGui = std::dynamic_pointer_cast<NodeGui>(aiPaintNode->getNodeGui());
+                                     if (nodeGui) {
+                                         nodeGui->setVisibleSettingsPanel(true);
+                                         NodeSettingsPanel* settingsPanel = nodeGui->getSettingPanel();
+                                         if (settingsPanel) {
+                                             putSettingsPanelFirst(static_cast<DockablePanel*>(settingsPanel));
+                                         }
+                                     }
+                                 }
+                             } else {
+                                 fprintf(stderr, "FLUX-SAM3-A1 source viewer blocked: AI Work Viewer input 0 does not match selected AI Paint/source node for layer=%d\n", layerIndex);
+                             }
+                             showFluxViewerTab(viewerTab);
+                         }
+
+                         if (aiPanel) {
+                             if (sourceViewerArmed && viewerTab) {
+                                 const int timelineFrame = timeline->getCurrentFrame();
+                                 const int sourceFrame = qBound(layer.originalFirstFrame, timelineFrame - layer.timeOffset, layer.originalLastFrame);
+                                 const int rangeFirstFrame = qBound(layer.originalFirstFrame, layer.inPoint, layer.originalLastFrame);
+                                 const int rangeLastFrame = qBound(layer.originalFirstFrame, layer.outPoint, layer.originalLastFrame);
+                                 aiPanel->setSourceCaptureContext(viewerTab->getViewer(), viewerNode, layerIndex, layer.name, layer.filePath, layer.readerNode, layer.readerNode ? QString::fromStdString(layer.readerNode->getLabel()) : QString(), aiPaintNode, timelineFrame, sourceFrame, rangeFirstFrame, rangeLastFrame);
+                                 connectAIPaintPromptStoreRefresh(aiPaintNode, aiPanel);
+                             } else {
+                                 aiPanel->setViewerForCapture(nullptr);
+                             }
+                             TabWidget* aiPane = aiPanel->getParentPane();
+                             if (aiPane) {
+                                 const int count = aiPane->count();
+                                 for (int t = 0; t < count; ++t) {
+                                     if (aiPane->tabAt(t) == aiPanel) {
+                                         aiPane->makeCurrentTab(t);
+                                         break;
+                                     }
+                                 }
+                             }
+                         }
+                         redrawAllViewers();
+                     });
+
 
     QObject::connect(timeline, &FluxTimeline::textAnimatorSelected, this,
                      [this, timeline, textPanel, textAnimatorPanel](int layerIndex, int animatorId) {
@@ -830,7 +1661,7 @@ Gui::setupFluxUi()
 
     // 4. Effects Panel: select/remove actual effect nodes owned by the timeline model.
     QObject::connect(effectsPanel, &FluxEffectsPanel::effectSelected, this,
-                     [this, timeline](int effectIndex) {
+                     [this, timeline, aiPanel, refreshSelectedLayerAiPaintBinding](int effectIndex) {
                          int layerIndex = timeline->getSelectedLayerIndex();
                          const QList<FluxLayer>& layers = timeline->getLayers();
                          if (layerIndex < 0 || layerIndex >= layers.size() ||
@@ -850,6 +1681,26 @@ Gui::setupFluxUi()
                                  putSettingsPanelFirst(dockPanel);
                              }
                          }
+                         EffectInstancePtr effectInstance = node->getEffectInstance();
+                         if (effectInstance && effectInstance->getPluginID() == PLUGINID_NATRON_AIPAINT) {
+                             NodePtr viewerNode;
+                             ViewerTab* viewerTab = ensureFluxAiWorkViewerTab(&viewerNode);
+                             if (viewerTab && viewerNode && viewerNode->isActivated()) {
+                                 viewerNode->disconnectInput(0);
+                                 viewerNode->connectInput(node, 0);
+                                 showFluxViewerTab(viewerTab);
+                                 if (aiPanel) {
+                                     const int timelineFrame = timeline->getCurrentFrame();
+                                     const FluxLayer& layer = layers[layerIndex];
+                                     const int sourceFrame = qBound(layer.originalFirstFrame, timelineFrame - layer.timeOffset, layer.originalLastFrame);
+                                     const int rangeFirstFrame = qBound(layer.originalFirstFrame, layer.inPoint, layer.originalLastFrame);
+                                     const int rangeLastFrame = qBound(layer.originalFirstFrame, layer.outPoint, layer.originalLastFrame);
+                                     aiPanel->setSourceCaptureContext(viewerTab->getViewer(), viewerNode, layerIndex, layer.name, layer.filePath, layer.readerNode, layer.readerNode ? QString::fromStdString(layer.readerNode->getLabel()) : QString(), node, timelineFrame, sourceFrame, rangeFirstFrame, rangeLastFrame);
+                                     connectAIPaintPromptStoreRefresh(node, aiPanel);
+                                 }
+                             }
+                         }
+                         refreshSelectedLayerAiPaintBinding(false);
                      });
 
     QObject::connect(effectsPanel, &FluxEffectsPanel::effectRemoved, this,
@@ -867,9 +1718,26 @@ Gui::setupFluxUi()
                          rebuildCompositingGraph(timeline);
                      });
 
+    // 5b. Timeline: projectLayersRestored → repopulate Project Bin from restored footage layers
+    QObject::connect(timeline, &FluxTimeline::projectLayersRestored, this,
+                     [projectBin, timeline]() {
+                         projectBin->clearBin();
+                         QSet<QString> seen;
+                         const QList<FluxLayer>& layers = timeline->getLayers();
+                         for (int i = 0; i < layers.size(); ++i) {
+                             const FluxLayer& layer = layers[i];
+                             if (layer.type == QString::fromUtf8("footage") && !layer.filePath.isEmpty()) {
+                                 if (!seen.contains(layer.filePath)) {
+                                     seen.insert(layer.filePath);
+                                     projectBin->addFile(layer.filePath);
+                                 }
+                             }
+                         }
+                     });
+
     // 6. Timeline: effectSelected → open effect node properties panel
     QObject::connect(timeline, &FluxTimeline::effectSelected, this,
-                     [this, timeline](int layerIndex, int effectIndex) {
+                     [this, timeline, aiPanel, refreshSelectedLayerAiPaintBinding](int layerIndex, int effectIndex) {
                          const QList<FluxLayer>& layers = timeline->getLayers();
                          if (layerIndex < 0 || layerIndex >= layers.size()) {
                              return;
@@ -907,6 +1775,25 @@ Gui::setupFluxUi()
                                  }
                              }
                          }
+                         EffectInstancePtr effectInstance = node->getEffectInstance();
+                         if (effectInstance && effectInstance->getPluginID() == PLUGINID_NATRON_AIPAINT) {
+                             NodePtr viewerNode;
+                             ViewerTab* viewerTab = ensureFluxAiWorkViewerTab(&viewerNode);
+                             if (viewerTab && viewerNode && viewerNode->isActivated()) {
+                                 viewerNode->disconnectInput(0);
+                                 viewerNode->connectInput(node, 0);
+                                 showFluxViewerTab(viewerTab);
+                                 if (aiPanel) {
+                                     const int timelineFrame = timeline->getCurrentFrame();
+                                     const int sourceFrame = qBound(layer.originalFirstFrame, timelineFrame - layer.timeOffset, layer.originalLastFrame);
+                                     const int rangeFirstFrame = qBound(layer.originalFirstFrame, layer.inPoint, layer.originalLastFrame);
+                                     const int rangeLastFrame = qBound(layer.originalFirstFrame, layer.outPoint, layer.originalLastFrame);
+                                     aiPanel->setSourceCaptureContext(viewerTab->getViewer(), viewerNode, layerIndex, layer.name, layer.filePath, layer.readerNode, layer.readerNode ? QString::fromStdString(layer.readerNode->getLabel()) : QString(), node, timelineFrame, sourceFrame, rangeFirstFrame, rangeLastFrame);
+                                     connectAIPaintPromptStoreRefresh(node, aiPanel);
+                                 }
+                             }
+                         }
+                         refreshSelectedLayerAiPaintBinding(false);
                      });
 
     // 7. Timeline: effectsChanged → sync effects panel with model
@@ -927,6 +1814,96 @@ Gui::setupFluxUi()
                          } else {
                              effectsPanel->setActiveLayer(-1, QString());
                          }
+                     });
+
+    // 7b. Timeline: viewerInputSwitchRequested → connect viewer to selected node
+    QObject::connect(timeline, &FluxTimeline::viewerInputSwitchRequested, this,
+                     [this, timeline](int viewerInputIndex) {
+                         if (!getApp() || !timeline) {
+                             return;
+                         }
+                         if (viewerInputIndex < 0 || viewerInputIndex >= 9) {
+                             return;
+                         }
+
+                         ViewerTab* viewerTab = getFluxMainCompositingViewerTab();
+                         if (!viewerTab) {
+                             return;
+                         }
+                         ViewerInstance* internalViewer = viewerTab->getInternalNode();
+                         NodePtr viewerNode = internalViewer ? internalViewer->getNode() : NodePtr();
+                         if (!viewerNode || !viewerNode->isActivated()) {
+                             return;
+                         }
+
+                         // Resolve target node
+                         NodePtr targetNode;
+                         if (viewerInputIndex == 0) {
+                             // Full comp: use the stored final output node
+                             targetNode = _imp->_fluxFinalOutputNode;
+                             if (!targetNode || !targetNode->isActivated()) {
+                                 // Fall back to whatever is currently on input 0
+                                 targetNode = viewerNode->getInput(0);
+                                 if (!targetNode || !targetNode->isActivated()) {
+                                     fprintf(stderr, "FLUX VIEWER SWITCH: No full-comp output available for input 1\n");
+                                     return;
+                                 }
+                             }
+                         } else {
+                             targetNode = timeline->selectedViewerSwitchTargetNode(viewerInputIndex);
+                             if (!targetNode || !targetNode->isActivated()) {
+                                 return;
+                             }
+                         }
+
+                         // Already connected? Just refresh badges/viewer.
+                         NodePtr previousInput = viewerNode->getInput(viewerInputIndex);
+                         if (previousInput == targetNode) {
+                             timeline->setViewerInputBadgeForNode(viewerInputIndex, targetNode);
+                             showFluxViewerTab(viewerTab);
+                             redrawAllViewers();
+                             return;
+                         }
+
+                         // Disconnect existing input, validate, connect
+                         viewerNode->disconnectInput(viewerInputIndex);
+
+                         Node::CanConnectInputReturnValue canConnect = viewerNode->canConnectInput(targetNode, viewerInputIndex);
+                         if (canConnect != Node::eCanConnectInput_ok) {
+                             // Attempt restore previous
+                             if (previousInput && previousInput->isActivated()) {
+                                 Node::CanConnectInputReturnValue restoreCheck = viewerNode->canConnectInput(previousInput, viewerInputIndex);
+                                 if (restoreCheck == Node::eCanConnectInput_ok) {
+                                     viewerNode->connectInput(previousInput, viewerInputIndex);
+                                 }
+                             }
+                             timeline->clearViewerInputBadge(viewerInputIndex);
+                             fprintf(stderr, "FLUX VIEWER SWITCH: canConnectInput failed for input %d (code %d)\n",
+                                     viewerInputIndex + 1, (int)canConnect);
+                             return;
+                         }
+
+                         bool connected = viewerNode->connectInput(targetNode, viewerInputIndex);
+                         if (!connected) {
+                             // Attempt restore
+                             if (previousInput && previousInput->isActivated()) {
+                                 viewerNode->connectInput(previousInput, viewerInputIndex);
+                             }
+                             timeline->clearViewerInputBadge(viewerInputIndex);
+                             fprintf(stderr, "FLUX VIEWER SWITCH: connectInput failed for input %d\n",
+                                     viewerInputIndex + 1);
+                             return;
+                         }
+
+                         // Success: update badge, show viewer, redraw
+                         // For input 0 (full comp), don't badge layer/effect rows
+                         if (viewerInputIndex > 0) {
+                             timeline->setViewerInputBadgeForNode(viewerInputIndex, targetNode);
+                         } else {
+                             timeline->clearViewerInputBadge(viewerInputIndex);
+                         }
+                         showFluxViewerTab(viewerTab);
+                         redrawAllViewers();
                      });
 
     // 8. Timeline: maskSelected → open mask node properties panel (if backing node exists)
@@ -971,11 +1948,16 @@ Gui::setupFluxUi()
                          }
                      });
 
+    // 9. Timeline: nodegraphSyncRequested → sync timeline from node graph
+    QObject::connect(timeline, &FluxTimeline::nodegraphSyncRequested, this,
+                     &Gui::syncFluxTimelineFromNodeGraph);
+
     // Store references to Flux widgets for later access
     _imp->_fluxProjectBin = projectBin;
     _imp->_fluxTimeline = timeline;
     _imp->_fluxEffectsPanel = effectsPanel;
     _imp->_fluxExportPanel = exportPanel;
+    _imp->_fluxAiPanel = aiPanel;
     _imp->_fluxTextPanel = textPanel;
     _imp->_fluxTextAnimatorPanel = textAnimatorPanel;
 
@@ -1071,6 +2053,137 @@ static const char* kFluxMaskReformatLabel = "Flux Mask Reformat";
 static const char* kFluxMaskRotoLabel = "Flux Mask";
 static const char* kFluxLayerMaskPremultLabel = "Flux Layer Mask Premult";
 static const char* kFluxLayerMaskUnpremultLabel = "Flux Layer Mask Unpremult";
+static const char* kFluxExternalMaskReadLabel = "Flux External Mask Read";
+static const char* kFluxExternalMaskReformatLabel = "Flux External Mask Reformat";
+static const char* kFluxLayerExternalMaskShuffleLabel = "Flux Layer External Mask Shuffle";
+
+static int fluxAIChannelIndex(const QString& channel)
+{
+    const QString c = channel.toLower();
+    if (c == QLatin1String("green")) return 1;
+    if (c == QLatin1String("blue")) return 2;
+    if (c == QLatin1String("alpha")) return 3;
+    return 0;
+}
+
+static int fluxAIOperationIndex(const QString& operation)
+{
+    const QString op = operation.toLower();
+    if (op == QLatin1String("copy")) return 0;
+    if (op == QLatin1String("plus")) return 1;
+    if (op == QLatin1String("multiply")) return 2;
+    if (op == QLatin1String("screen")) return 3;
+    if (op == QLatin1String("max")) return 4;
+    if (op == QLatin1String("min")) return 5;
+    if (op == QLatin1String("subtract")) return 6;
+    if (op == QLatin1String("overlay")) return 7;
+    return 4;
+}
+
+static QString fluxAIShuffleChannelExpression(const QString& channel)
+{
+    const QString c = channel.toLower();
+    if (c == QLatin1String("green")) {
+        return QString::fromUtf8("B.uk.co.thefoundry.OfxImagePlaneColour.G");
+    }
+    if (c == QLatin1String("blue")) {
+        return QString::fromUtf8("B.uk.co.thefoundry.OfxImagePlaneColour.B");
+    }
+    if (c == QLatin1String("alpha")) {
+        return QString::fromUtf8("B.uk.co.thefoundry.OfxImagePlaneColour.A");
+    }
+    return QString::fromUtf8("B.uk.co.thefoundry.OfxImagePlaneColour.R");
+}
+
+static QString fluxAIShuffleChannelChoiceId(const QString& channel)
+{
+    const QString c = channel.toLower();
+    if (c == QLatin1String("green")) {
+        return QString::fromUtf8("B.g");
+    }
+    if (c == QLatin1String("blue")) {
+        return QString::fromUtf8("B.b");
+    }
+    if (c == QLatin1String("alpha")) {
+        return QString::fromUtf8("B.a");
+    }
+    return QString::fromUtf8("B.r");
+}
+
+static void fluxSetShuffleChannelKnob(const NodePtr& node,
+                                      const char* knobName,
+                                      const QString& expression,
+                                      const QString& choiceId)
+{
+    KnobStringPtr stringKnob = std::dynamic_pointer_cast<KnobString>(node->getKnobByName(knobName));
+    if (stringKnob) {
+        stringKnob->setValue(expression.toStdString(), ViewSpec::all(), 0, true);
+    }
+
+    KnobChoicePtr choiceKnob = std::dynamic_pointer_cast<KnobChoice>(node->getKnobByName(knobName));
+    if (choiceKnob) {
+        choiceKnob->setValueFromID(expression.toStdString(), 0, true);
+        choiceKnob->setValueFromID(choiceId.toStdString(), 0, true);
+    }
+}
+
+static void fluxConfigureAIChannelMergeNode(const NodePtr& node,
+                                            const QString& sourceChannel,
+                                            const QString& operation)
+{
+    if (!node) {
+        return;
+    }
+
+    KnobChoicePtr aChannel = std::dynamic_pointer_cast<KnobChoice>(node->getKnobByName("aChannel"));
+    if (aChannel) {
+        aChannel->setValue(fluxAIChannelIndex(sourceChannel), ViewSpec::all(), 0);
+    }
+    KnobChoicePtr bChannel = std::dynamic_pointer_cast<KnobChoice>(node->getKnobByName("bChannel"));
+    if (bChannel) {
+        bChannel->setValue(3, ViewSpec::all(), 0);
+    }
+    KnobChoicePtr op = std::dynamic_pointer_cast<KnobChoice>(node->getKnobByName("operation"));
+    if (op) {
+        op->setValue(fluxAIOperationIndex(operation), ViewSpec::all(), 0);
+    }
+    KnobChoicePtr out = std::dynamic_pointer_cast<KnobChoice>(node->getKnobByName("outputChannel"));
+    if (out) {
+        out->setValue(3, ViewSpec::all(), 0);
+    }
+    KnobChoicePtr bbox = std::dynamic_pointer_cast<KnobChoice>(node->getKnobByName("bbox"));
+    if (bbox) {
+        bbox->setValue(0, ViewSpec::all(), 0);
+    }
+    KnobDoublePtr mix = std::dynamic_pointer_cast<KnobDouble>(node->getKnobByName("mix"));
+    if (mix) {
+        mix->setValue(1.0, ViewSpec::all(), 0);
+    }
+}
+
+static void fluxConfigureAIShuffleAlphaNode(const NodePtr& node,
+                                            const QString& sourceChannel)
+{
+    if (!node) {
+        return;
+    }
+
+    const QString expression = fluxAIShuffleChannelExpression(sourceChannel);
+    const QString choiceId = fluxAIShuffleChannelChoiceId(sourceChannel);
+    fluxSetShuffleChannelKnob(node, "outputA", expression, choiceId);
+    fluxSetShuffleChannelKnob(node, "outputAChoice", choiceId, choiceId);
+}
+
+static bool
+isFluxOwnedLayerMaskLabel(const std::string& label)
+{
+    return label == kFluxLayerMaskPremultLabel ||
+           label == kFluxMaskRotoLabel ||
+           label == kFluxLayerMaskUnpremultLabel ||
+           label == kFluxLayerExternalMaskShuffleLabel ||
+           label == kFluxExternalMaskReformatLabel ||
+           label == kFluxExternalMaskReadLabel;
+}
 
 // Layout offsets for effect-mask nodes (relative to their anchor).
 // Reformat sits above Roto in the mask side column, both at the same X.
@@ -1281,11 +2394,14 @@ cleanupStaleInlineLayerMaskChain(FluxLayer& layer, const NodePtr& mergeNode, con
 
     // Walk upstream from Merge A looking for Flux-owned layer-mask nodes
     // that trace back to expectedSource.
-    // Chain: expectedSource -> [Unpremult] -> Roto -> Premult -> ... -> mergeA
-    // Detect Flux-owned nodes by label.
+    // Chain: expectedSource -> [Unpremult] -> Roto/Shuffle -> [Premult] -> ... -> mergeA
+    // Detect Flux-owned nodes by exact label only.
     NodePtr stalePremult;
     NodePtr staleRoto;
     NodePtr staleUnpremult;
+    NodePtr staleExternalShuffle;
+    NodePtr staleExternalReformat;
+    NodePtr staleExternalRead;
 
     // Walk from mergeA upstream, collecting Flux-owned mask chain nodes
     QSet<Node*> visited;
@@ -1305,6 +2421,12 @@ cleanupStaleInlineLayerMaskChain(FluxLayer& layer, const NodePtr& mergeNode, con
             staleRoto = cur;
         } else if (lbl == kFluxLayerMaskUnpremultLabel) {
             staleUnpremult = cur;
+        } else if (lbl == kFluxLayerExternalMaskShuffleLabel) {
+            staleExternalShuffle = cur;
+        } else if (lbl == kFluxExternalMaskReformatLabel) {
+            staleExternalReformat = cur;
+        } else if (lbl == kFluxExternalMaskReadLabel) {
+            staleExternalRead = cur;
         }
 
         int nInputs = cur->getNInputs();
@@ -1316,27 +2438,46 @@ cleanupStaleInlineLayerMaskChain(FluxLayer& layer, const NodePtr& mergeNode, con
         }
     }
 
-    // Only clean up if we found at least a Premult or Roto that is Flux-owned
-    // AND the chain reaches expectedSource (not some unrelated user subgraph)
-    if (!stalePremult && !staleRoto) {
+    // Only clean up if we found Flux-owned layer-mask evidence AND the chain
+    // reaches expectedSource (not some unrelated user subgraph).
+    if (!stalePremult && !staleRoto && !staleExternalShuffle) {
         return false;
     }
 
-    // Verify the chain traces back to expectedSource
-    NodePtr chainRoot = stalePremult ? stalePremult : staleRoto;
+    NodePtr chainRoot = stalePremult ? stalePremult : (staleExternalShuffle ? staleExternalShuffle : staleRoto);
     if (!upstreamContainsNode(chainRoot, expectedSource, nullptr)) {
         return false;
     }
 
-    // Found a stale Flux-owned inline layer-mask chain — clean it up
+    // Found a stale Flux-owned inline/external layer-mask chain — clean it up
     mergeNode->disconnectInput(1);
     mergeNode->connectInput(expectedSource, 1);
 
-    // Discover Unpremult from Roto input 0 if not already found
+    // Discover adjacent Flux-owned nodes if not already found
     if (staleRoto && staleRoto->isActivated() && !staleUnpremult) {
         NodePtr rotoIn0 = staleRoto->getInput(0);
         if (rotoIn0 && rotoIn0->isActivated() && rotoIn0->getLabel() == kFluxLayerMaskUnpremultLabel) {
             staleUnpremult = rotoIn0;
+        }
+    }
+    if (staleExternalShuffle && staleExternalShuffle->isActivated()) {
+        if (!staleExternalReformat) {
+            NodePtr shuffleIn0 = staleExternalShuffle->getInput(0);
+            if (shuffleIn0 && shuffleIn0->isActivated() && shuffleIn0->getLabel() == kFluxExternalMaskReformatLabel) {
+                staleExternalReformat = shuffleIn0;
+            }
+        }
+        if (!staleUnpremult) {
+            NodePtr shuffleIn1 = staleExternalShuffle->getInput(1);
+            if (shuffleIn1 && shuffleIn1->isActivated() && shuffleIn1->getLabel() == kFluxLayerMaskUnpremultLabel) {
+                staleUnpremult = shuffleIn1;
+            }
+        }
+    }
+    if (staleExternalReformat && staleExternalReformat->isActivated() && !staleExternalRead) {
+        NodePtr reformatIn0 = staleExternalReformat->getInput(0);
+        if (reformatIn0 && reformatIn0->isActivated() && reformatIn0->getLabel() == kFluxExternalMaskReadLabel) {
+            staleExternalRead = reformatIn0;
         }
     }
 
@@ -1349,6 +2490,15 @@ cleanupStaleInlineLayerMaskChain(FluxLayer& layer, const NodePtr& mergeNode, con
     if (staleUnpremult && staleUnpremult->isActivated()) {
         staleUnpremult->deactivate(std::list<NodePtr>(), false, true);
     }
+    if (staleExternalShuffle && staleExternalShuffle->isActivated()) {
+        staleExternalShuffle->deactivate(std::list<NodePtr>(), false, true);
+    }
+    if (staleExternalReformat && staleExternalReformat->isActivated()) {
+        staleExternalReformat->deactivate(std::list<NodePtr>(), false, true);
+    }
+    if (staleExternalRead && staleExternalRead->isActivated()) {
+        staleExternalRead->deactivate(std::list<NodePtr>(), false, true);
+    }
 
     // Clear model refs if they point to the deactivated nodes
     if (layer.maskApplyNode && !layer.maskApplyNode->isActivated()) {
@@ -1358,6 +2508,9 @@ cleanupStaleInlineLayerMaskChain(FluxLayer& layer, const NodePtr& mergeNode, con
         if (layer.masks[m].effectIndex < 0) {
             if (layer.masks[m].maskNode && !layer.masks[m].maskNode->isActivated()) {
                 layer.masks[m].maskNode.reset();
+            }
+            if (layer.masks[m].reformatNode && !layer.masks[m].reformatNode->isActivated()) {
+                layer.masks[m].reformatNode.reset();
             }
         }
     }
@@ -1407,6 +2560,35 @@ upstreamContainsNode(const NodePtr& start,
     return false;
 }
 
+static bool
+upstreamContainsFluxOwnedLayerMaskNode(const NodePtr& start)
+{
+    if (!start) {
+        return false;
+    }
+    QSet<Node*> visited;
+    QList<NodePtr> queue;
+    queue.push_back(start);
+    while (!queue.isEmpty()) {
+        NodePtr cur = queue.takeLast();
+        if (!cur) continue;
+        Node* raw = cur.get();
+        if (visited.contains(raw)) continue;
+        visited.insert(raw);
+        if (isFluxOwnedLayerMaskLabel(cur->getLabel())) {
+            return true;
+        }
+        int nInputs = cur->getNInputs();
+        for (int i = 0; i < nInputs; ++i) {
+            NodePtr inp = cur->getInput(i);
+            if (inp) {
+                queue.push_back(inp);
+            }
+        }
+    }
+    return false;
+}
+
 // Determine the correct input to connect to `target`'s `inputIndex`.
 // If the current input is a manual chain that eventually reaches
 // `expectedSource`, return the current input (preserving the chain).
@@ -1423,13 +2605,50 @@ preserveInlineChainInput(const NodePtr& target,
     if (!currentInput || currentInput == expectedSource) {
         return expectedSource;
     }
+    if (!currentInput->isActivated()) {
+        return expectedSource;
+    }
     // If the current input eventually reaches expectedSource upstream,
     // the user inserted manual nodes in between — preserve them.
     if (upstreamContainsNode(currentInput, expectedSource)) {
+        if (upstreamContainsFluxOwnedLayerMaskNode(currentInput)) {
+            return expectedSource;
+        }
         return currentInput;
     }
     // No connection to expected source — use the default.
     return expectedSource;
+}
+
+static void
+fluxDeactivateOwnedNodeAndOutputs(const NodePtr& node)
+{
+    if (node && node->isActivated()) {
+        node->deactivate(std::list<NodePtr>(), true, false, true);
+    }
+}
+
+static void
+fluxCleanupAIMaskOwnedNodes(FluxEffect& effect,
+                            bool includeEffectNode)
+{
+    if (effect.aiMaskShuffleNode && effect.aiMaskShuffleNode != effect.node) {
+        fluxDeactivateOwnedNodeAndOutputs(effect.aiMaskShuffleNode);
+        effect.aiMaskShuffleNode.reset();
+    }
+    if (effect.aiMaskReadNode && effect.aiMaskReadNode != effect.node) {
+        fluxDeactivateOwnedNodeAndOutputs(effect.aiMaskReadNode);
+        effect.aiMaskReadNode.reset();
+    }
+    if (effect.aiMaskChannelMergeNode && effect.aiMaskChannelMergeNode != effect.node) {
+        fluxDeactivateOwnedNodeAndOutputs(effect.aiMaskChannelMergeNode);
+        effect.aiMaskChannelMergeNode.reset();
+    }
+    if (includeEffectNode) {
+        fluxDeactivateOwnedNodeAndOutputs(effect.node);
+        effect.node.reset();
+        effect.aiMaskChannelMergeNode.reset();
+    }
 }
 
 void
@@ -1439,18 +2658,22 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
         return;
     }
 
+    // RAII guard: prevent Flux-owned rebuilds from marking timeline dirty
+    struct SyncGuard {
+        bool* flag;
+        bool prev;
+        SyncGuard(bool* ptr) : flag(ptr), prev(*ptr) { *flag = true; }
+        ~SyncGuard() { *flag = prev; }
+    };
+    SyncGuard rebuildGuard(&_imp->_fluxSyncInProgress);
+    Q_UNUSED(rebuildGuard);
+
     const QList<FluxLayer>& constLayers = timeline->getLayers();
     // We need mutable access to set gizmoNode/mergeNode on each layer
     QList<FluxLayer>& layers = const_cast<QList<FluxLayer>&>(constLayers);
 
-    // Find the first viewer
-    ViewerTab* viewerTab = nullptr;
-    {
-        QMutexLocker l(&_imp->_viewerTabsMutex);
-        if (!_imp->_viewerTabs.empty()) {
-            viewerTab = _imp->_viewerTabs.front();
-        }
-    }
+    // Find the main composition viewer (never the Flux AI Work Viewer).
+    ViewerTab* viewerTab = getFluxMainCompositingViewerTab();
 
     NodeCollectionPtr collection = std::dynamic_pointer_cast<NodeCollection>(getApp()->getProject());
     if (!collection) {
@@ -1563,9 +2786,22 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
     for (int i = layers.size() - 1; i >= 0; --i) {
         const FluxLayer& l = layers[i];
         if (l.type == QString::fromUtf8("null")) continue;
-        if (l.type == QString::fromUtf8("footage") && l.filePath.isEmpty()) continue;
+        if (l.type == QString::fromUtf8("footage") && l.filePath.isEmpty() && !l.readerNode) continue;
         if (l.type == QString::fromUtf8("adjustment") && l.effects.isEmpty()) continue;
         pixelLayers.push_back(i);
+    }
+
+    // Disconnect all effect input 0s so preserveInlineChainInput doesn't see
+    // stale connections after effect reorder. Without this, preserveInlineChainInput
+    // preserves the old upstream (which still transitively contains the expected source)
+    // creating cycles and orphaned nodes.
+    for (int pi = 0; pi < pixelLayers.size(); ++pi) {
+        FluxLayer& layer = layers[pixelLayers[pi]];
+        for (int e = 0; e < layer.effects.size(); ++e) {
+            if (layer.effects[e].node && layer.effects[e].node->getNInputs() > 0) {
+                layer.effects[e].node->disconnectInput(0);
+            }
+        }
     }
 
     int graphRow = 1;
@@ -1589,15 +2825,18 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                 effect.node->setPosition(kCenterX, effectY + e * kYSpacing);
                 if (effect.node->getNInputs() > 0) {
                     effect.node->disconnectInput(0);
-                    if (adjustmentOutput && !effect.node->connectInput(adjustmentOutput, 0)) {
+                    if (effect.enabled && adjustmentOutput && !effect.node->connectInput(adjustmentOutput, 0)) {
                         fprintf(stderr, "FLUX ERROR: adjustment effect connectInput(%s <- %s) failed for row %d\n",
                                 effect.node->getLabel().c_str(), adjustmentOutput->getLabel().c_str(), i);
                     }
                 }
-                // Disable state is controlled by updateAdjustmentTrimKeyframes(),
-                // not by setNodeDisabled() which would overwrite the trim keyframes.
+                // Trim state is controlled by updateAdjustmentTrimKeyframes(); do not call
+                // setNodeDisabled() here because that would overwrite disable-key animation.
+                // A manually disabled adjustment effect is bypassed by not advancing the pipe.
                 _imp->_fluxMergeNodes.push_back(effect.node);
-                adjustmentOutput = effect.node;
+                if (effect.enabled) {
+                    adjustmentOutput = effect.node;
+                }
             }
             if (adjustmentOutput) {
                 lastOutput = adjustmentOutput;
@@ -1909,20 +3148,157 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
         _imp->_fluxMergeNodes.push_back(layer.gizmoNode);
 
         NodePtr layerOutput = layer.gizmoNode;
+        const int sourceRows = (layer.type == QString::fromUtf8("footage") && layer.readerNode) ? 2 : 1;
+        int totalEffectAndMaskRows = 0;
+        // Will be set after pruning stale effects below.
+
+        // Scope for effect processing: prune, plan layout, position, wire
         {
-            int sourceRows = (layer.type == QString::fromUtf8("footage") && layer.readerNode) ? 2 : 1;
-            double effectY = kYStart + (graphRow + sourceRows) * kYSpacing;
+            // Backward pass: prune stale effects first
             for (int e = layer.effects.size() - 1; e >= 0; --e) {
+                FluxEffect& effect = layer.effects[e];
+                if (effect.aiMaskUsage == QString::fromUtf8("layer-alpha") &&
+                    (!effect.node || !effect.node->isActivated())) {
+                    CreateNodeArgs mergeArgs(PLUGINID_FLUX_CHANNEL_MERGE, collection);
+                    mergeArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+                    mergeArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+                    mergeArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+                    effect.node = getApp()->createNode(mergeArgs);
+                    effect.aiMaskChannelMergeNode = effect.node;
+                    effect.pluginId = QString::fromUtf8(PLUGINID_FLUX_CHANNEL_MERGE);
+                    if (effect.node) {
+                        effect.node->setLabel(effect.label.isEmpty() ? "AI Mask Alpha" : effect.label.toStdString());
+                        if (effect.aiMaskSourceChannel.isEmpty()) {
+                            effect.aiMaskSourceChannel = QString::fromUtf8("red");
+                        }
+                        if (effect.aiMaskOperation.isEmpty()) {
+                            effect.aiMaskOperation = QString::fromUtf8("max");
+                        }
+                        fluxConfigureAIChannelMergeNode(effect.node, effect.aiMaskSourceChannel, effect.aiMaskOperation);
+                    }
+                }
                 if (!layer.effects[e].node || !layer.effects[e].node->isActivated()) {
                     fprintf(stderr, "FLUX: Dropping stale effect reference from layer %d '%s'\n",
                             i, layer.name.toStdString().c_str());
+                    fluxCleanupAIMaskOwnedNodes(layer.effects[e], true);
                     layer.effects.removeAt(e);
                     effectsPruned = true;
                 }
             }
+
+            // -- Effect mask layout solving (T083) --
+            // Constraint layout: each masked effect owns a horizontal mask lane.
+            // The mask root (Roto) stays at the same Y as the effect it masks.
+            // The mask Reformat sits 1 row above the effect.
+            // If that row would collide with the previous layer-tree node,
+            // push this effect and all subsequent effects down to create
+            // clear visual separation. Shifts are cumulative.
+
+            // Per-effect mask indices (which layer.masks entries belong to each effect)
+            QVector<QVector<int>> effectMaskIndices(layer.effects.size());
+            for (int e = 0; e < layer.effects.size(); ++e) {
+                for (int m = 0; m < layer.masks.size(); ++m) {
+                    if (layer.masks[m].enabled && layer.masks[m].effectIndex == e) {
+                        effectMaskIndices[e].push_back(m);
+                    }
+                }
+            }
+
+            // Assign initial rows: 1 row per effect, consecutive
+            QVector<int> effectRows(layer.effects.size());
+            {
+                int row = graphRow + sourceRows;
+                for (int e = 0; e < layer.effects.size(); ++e) {
+                    effectRows[e] = row++;
+                }
+            }
+
+            // Constraint solve: for each masked effect, ensure the mask
+            // Reformat (at effectRow - 1) does not visually collide with
+            // the previous layer-tree node above it.
+            for (int e = 0; e < layer.effects.size(); ++e) {
+                if (!effectMaskIndices[e].isEmpty()) {
+                    int maskReformatRow = effectRows[e] - 1;
+                    int prevRow;
+                    if (e > 0) {
+                        prevRow = effectRows[e - 1];
+                    } else {
+                        prevRow = graphRow + sourceRows - 1;
+                    }
+                    if (maskReformatRow <= prevRow) {
+                        int shift = prevRow - maskReformatRow + 1;
+                        // Push this effect and all subsequent effects down
+                        for (int j = e; j < layer.effects.size(); ++j) {
+                            effectRows[j] += shift;
+                        }
+                    }
+                }
+            }
+
+            // Compute total rows occupied by the effects section
+            if (layer.effects.isEmpty()) {
+                totalEffectAndMaskRows = 0;
+            } else {
+                totalEffectAndMaskRows = effectRows.last() - (graphRow + sourceRows) + 1;
+            }
+            // -- Forward pass: position and wire effects using planned layout --
             for (int e = 0; e < layer.effects.size(); ++e) {
                 FluxEffect& effect = layer.effects[e];
-                effect.node->setPosition(kCenterX + kGizmoOffsetX, effectY + e * kYSpacing);
+                const bool isAILayerAlpha = effect.aiMaskUsage == QString::fromUtf8("layer-alpha");
+                const bool isAIEffectMask = effect.aiMaskUsage == QString::fromUtf8("effect-mask");
+                const double plannedEffectY = kYStart + effectRows[e] * kYSpacing;
+
+                if (effect.isAIMaskCopy || isAILayerAlpha || isAIEffectMask) {
+                    if (effect.aiMaskSourceChannel.isEmpty()) {
+                        effect.aiMaskSourceChannel = QString::fromUtf8("red");
+                    }
+                    if ((!effect.aiMaskReadNode || !effect.aiMaskReadNode->isActivated()) && !effect.aiMaskSourceRelativePath.isEmpty()) {
+                        std::string maskPath = QDir(getApp()->getProject()->getProjectPath()).filePath(effect.aiMaskSourceRelativePath).toStdString();
+                        getApp()->getProject()->canonicalizePath(maskPath);
+                        CreateNodeArgs readArgs(PLUGINID_NATRON_READ, collection);
+                        readArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+                        readArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+                        readArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+                        effect.aiMaskReadNode = getApp()->createReader(maskPath, readArgs);
+                    }
+                    if (effect.isAIMaskCopy && !effect.aiMaskTargetPlane.isEmpty()) {
+                        std::vector<std::string> channels;
+                        channels.push_back("r"); channels.push_back("g"); channels.push_back("b"); channels.push_back("a");
+                        effect.node->addUserComponents(ImagePlaneDesc(effect.aiMaskTargetPlane.toStdString(), effect.aiMaskTargetPlane.toStdString(), "RGBA", channels));
+                        KnobStringPtr targetString = std::dynamic_pointer_cast<KnobString>(effect.node->getKnobByName("targetPlane"));
+                        if (targetString) targetString->setValue(effect.aiMaskTargetPlane.toStdString(), ViewSpec::all(), 0, true);
+                    }
+                    if (effect.aiMaskReadNode) {
+                        effect.aiMaskReadNode->setPosition(kCenterX + kGizmoOffsetX - 260.0, plannedEffectY);
+                    }
+                    if (isAILayerAlpha) {
+                        if (effect.aiMaskOperation.isEmpty()) {
+                            effect.aiMaskOperation = QString::fromUtf8("max");
+                        }
+                        effect.aiMaskChannelMergeNode = effect.node;
+                    }
+                    if (isAIEffectMask) {
+                        if (!effect.aiMaskShuffleNode || !effect.aiMaskShuffleNode->isActivated()) {
+                            CreateNodeArgs shuffleArgs(PLUGINID_OFX_SHUFFLE, collection);
+                            shuffleArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+                            shuffleArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+                            shuffleArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+                            effect.aiMaskShuffleNode = getApp()->createNode(shuffleArgs);
+                            if (effect.aiMaskShuffleNode) {
+                                effect.aiMaskShuffleNode->setLabel("AI Effect Mask");
+                            }
+                        }
+                        if (effect.aiMaskShuffleNode) {
+                            fluxConfigureAIShuffleAlphaNode(effect.aiMaskShuffleNode, effect.aiMaskSourceChannel);
+                            effect.aiMaskShuffleNode->setPosition(kCenterX + kGizmoOffsetX - 130.0, plannedEffectY);
+                            effect.aiMaskShuffleNode->disconnectInput(0);
+                            if (effect.aiMaskReadNode && !effect.aiMaskShuffleNode->connectInput(effect.aiMaskReadNode, 0)) {
+                                fprintf(stderr, "FLUX ERROR: AI effect mask Shuffle input connect failed for layer %d effect %d\n", i, e);
+                            }
+                        }
+                    }
+                }
+                effect.node->setPosition(kCenterX + kGizmoOffsetX, plannedEffectY);
                 if (effect.node->getNInputs() > 0) {
                     // Preserve any manual inline chain the user inserted
                     NodePtr sourceInput = preserveInlineChainInput(effect.node, 0, layerOutput);
@@ -1931,39 +3307,67 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                         fprintf(stderr, "FLUX ERROR: effect connectInput(%s <- %s) failed for layer %d\n",
                                 effect.node->getLabel().c_str(), sourceInput->getLabel().c_str(), i);
                     }
+                    if (effect.isAIMaskCopy && effect.node->getNInputs() > 1) {
+                        effect.node->disconnectInput(1);
+                        if (effect.aiMaskReadNode && !effect.node->connectInput(effect.aiMaskReadNode, 1)) {
+                            fprintf(stderr, "FLUX ERROR: AI mask input connect failed for layer %d effect %d\n", i, e);
+                        }
+                    }
+                    if (isAILayerAlpha && effect.node->getNInputs() > 1) {
+                        effect.node->disconnectInput(1);
+                        if (effect.aiMaskReadNode && !effect.node->connectInput(effect.aiMaskReadNode, 1)) {
+                            fprintf(stderr, "FLUX ERROR: AI ChannelMerge mask input connect failed for layer %d effect %d\n", i, e);
+                        }
+                    }
                 }
                 effect.node->setNodeDisabled(!effect.enabled);
 
                 // -- Effect mask wiring (T061) --
                 int maskInputIdx = discoverMaskInput(effect.node);
                 if (maskInputIdx >= 0) {
-                    FluxMask* emask = firstEnabledEffectMask(layer, e);
-                    if (emask) {
-                        double effectPosX, effectPosY;
-                        effect.node->getPosition(&effectPosX, &effectPosY);
-                        if (ensureMaskSourceNodes(this, *emask, collection,
-                                                  effectPosX, effectPosY)) {
-                            effect.node->disconnectInput(maskInputIdx);
-                            if (!effect.node->connectInput(emask->maskNode, maskInputIdx)) {
-                                fprintf(stderr, "FLUX WARNING: effect mask connectInput(%s mask %d) failed for layer %d effect %d\n",
-                                        effect.node->getLabel().c_str(), maskInputIdx, i, e);
+                    if (isAIEffectMask && effect.aiMaskShuffleNode) {
+                        effect.node->disconnectInput(maskInputIdx);
+                        if (!effect.node->connectInput(effect.aiMaskShuffleNode, maskInputIdx)) {
+                            fprintf(stderr, "FLUX WARNING: AI effect mask connectInput(%s mask %d) failed for layer %d effect %d\n",
+                                    effect.node->getLabel().c_str(), maskInputIdx, i, e);
+                        }
+                    } else if (!effectMaskIndices[e].isEmpty()) {
+                        // Use the first planned mask for this effect
+                        int mIdx = effectMaskIndices[e][0];
+                        FluxMask& emask = layer.masks[mIdx];
+                        // Mask root aligns with its effect (same Y)
+                        const double plannedMaskY = kYStart + effectRows[e] * kYSpacing;
+                        const double effectPosX = kCenterX + kGizmoOffsetX;
+                        if (emask.reformatNode || !emask.maskNode) {
+                            // Timeline-created mask: position using planned layout
+                            if (ensureMaskSourceNodes(this, emask, collection,
+                                                      effectPosX, plannedMaskY)) {
+                                effect.node->disconnectInput(maskInputIdx);
+                                if (!effect.node->connectInput(emask.maskNode, maskInputIdx)) {
+                                    fprintf(stderr, "FLUX WARNING: effect mask connectInput(%s mask %d) failed for layer %d effect %d\n",
+                                            effect.node->getLabel().c_str(), maskInputIdx, i, e);
+                                }
                             }
+                        } else if (emask.maskNode) {
+                            // Nodegraph-discovered mask (no reformatNode): position only, do not rewire
+                            emask.maskNode->setPosition(effectPosX + kMaskColumnOffsetX, plannedMaskY);
+                            // Do NOT disconnect/reconnect — preserve existing nodegraph wiring
                         }
                     } else {
-                        // No mask for this effect — clear the mask input if it was previously connected
-                        effect.node->disconnectInput(maskInputIdx);
+                        // No timeline mask for this effect. But don't disconnect if
+                        // a nodegraph-created mask is already connected.
+                        NodePtr existingMask = effect.node->getInput(maskInputIdx);
+                        if (!existingMask) {
+                            // No connection at all — safe to ensure it's clear
+                            effect.node->disconnectInput(maskInputIdx);
+                        }
+                        // If existingMask is non-null, it was connected in the nodegraph — leave it
                     }
                 }
 
                 // V1: warn about multiple enabled masks for the same effect
                 if (maskInputIdx >= 0) {
-                    int effectMaskCount = 0;
-                    for (int m = 0; m < layer.masks.size(); ++m) {
-                        if (layer.masks[m].enabled && layer.masks[m].effectIndex == e) {
-                            ++effectMaskCount;
-                        }
-                    }
-                    if (effectMaskCount > 1) {
+                    if (effectMaskIndices[e].size() > 1) {
                         fprintf(stderr, "FLUX: Multiple enabled effect masks on effect %s; V1 uses first only\n",
                                 effect.node->getLabel().c_str());
                     }
@@ -1972,12 +3376,35 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                 _imp->_fluxMergeNodes.push_back(effect.node);
                 layerOutput = effect.node;
             }
+
+            // -- Position additional nodegraph-discovered mask nodes (beyond first) --
+            // The loop above handles the first mask per effect for wiring.
+            // Any additional enabled masks for the same effect get positioned
+            // in their planned rows without rewiring.
+            for (int e = 0; e < layer.effects.size(); ++e) {
+                for (int mi = 1; mi < effectMaskIndices[e].size(); ++mi) {
+                    int mIdx = effectMaskIndices[e][mi];
+                    FluxMask& extraMask = layer.masks[mIdx];
+                    const double plannedMaskY = kYStart + effectRows[e] * kYSpacing;
+                    const double maskColX = kCenterX + kGizmoOffsetX + kMaskColumnOffsetX;
+                    if (extraMask.reformatNode || !extraMask.maskNode) {
+                        // Timeline-created: position both Reformat and Roto
+                        // Use effect anchor X (no mask column offset) — ensureMaskSourceNodes
+                        // adds kMaskColumnOffsetX internally to its anchor.
+                        const double effectPosX = kCenterX + kGizmoOffsetX;
+                        ensureMaskSourceNodes(this, extraMask, collection, effectPosX, plannedMaskY);
+                    } else if (extraMask.maskNode) {
+                        // Nodegraph-discovered: position only, no rewire
+                        extraMask.maskNode->setPosition(maskColX, plannedMaskY);
+                    }
+                }
+            }
         }
 
         // -- Layer mask wiring (T064) --
         // V1: single enabled layer mask per layer, inline in the source pipe.
-        // Chain: source -> [Unpremult] -> Roto -> Premult -> Merge A
-        // No Merge(in), no side branch. maskApplyNode = inline Premult.
+        // Chain: source -> [Unpremult] -> Roto/Shuffle -> [Premult if enabled] -> Merge A
+        // No Merge(in), no side branch. maskApplyNode = inline Premult when enabled.
         FluxMask* lmask = firstEnabledLayerMask(layer);
         if (lmask) {
             // Clean up old Merge(in)/Reformat artifacts from pre-T064
@@ -1999,7 +3426,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
 
             // Compute positions for inline mask nodes
             int sourceRows = (layer.type == QString::fromUtf8("footage") && layer.readerNode) ? 2 : 1;
-            double maskBaseY = kYStart + (graphRow + sourceRows + layer.effects.size()) * kYSpacing;
+            double maskBaseY = kYStart + (graphRow + sourceRows + totalEffectAndMaskRows) * kYSpacing;
 
             // Ensure Roto node exists
             if (!lmask->maskNode || !lmask->maskNode->isActivated()) {
@@ -2022,7 +3449,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             // Ensure inline Premult (stored in maskApplyNode)
             double premultY = needsUnpremult ? maskBaseY + 2 * kYSpacing : maskBaseY + kYSpacing;
             NodePtr premultNode = ensureInlineLayerMaskPremultNode(this, layer, collection,
-                                                                     kCenterX + kGizmoOffsetX, premultY);
+                                                                   kCenterX + kGizmoOffsetX, premultY);
 
             // Optional Unpremult
             NodePtr unpremultNode;
@@ -2033,7 +3460,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
 
             if (lmask->maskNode && premultNode) {
                 // Wire inline chain preserving manual nodes at each boundary
-                // source -> [Unpremult input 0] -> Roto input 0 -> Premult input 0
+                // source -> [Unpremult input 0] -> Roto input 0 -> [Premult input 0 if enabled]
                 NodePtr rotoExpectedSource = layerOutput;
                 if (unpremultNode) {
                     // Wire: layerOutput -> Unpremult input 0
@@ -2048,16 +3475,19 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                 lmask->maskNode->disconnectInput(0);
                 lmask->maskNode->connectInput(rotoInput, 0);
 
-                // Wire: Roto -> Premult input 0
-                NodePtr premultInput = preserveInlineChainInput(premultNode, 0, lmask->maskNode);
-                premultNode->disconnectInput(0);
-                premultNode->connectInput(premultInput, 0);
+                if (premultNode) {
+                    // Wire: Roto -> Premult input 0
+                    NodePtr premultInput = preserveInlineChainInput(premultNode, 0, lmask->maskNode);
+                    premultNode->disconnectInput(0);
+                    premultNode->connectInput(premultInput, 0);
+                }
 
-                // layerOutput is now the Premult
                 layerOutput = premultNode;
 
                 _imp->_fluxMergeNodes.push_back(lmask->maskNode);
-                _imp->_fluxMergeNodes.push_back(premultNode);
+                if (premultNode) {
+                    _imp->_fluxMergeNodes.push_back(premultNode);
+                }
                 if (unpremultNode) {
                     _imp->_fluxMergeNodes.push_back(unpremultNode);
                 }
@@ -2139,7 +3569,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
         {
             // Merge sits at the bottom of this layer's branch, on the main pipe.
             int sourceRows = (layer.type == QString::fromUtf8("footage") && layer.readerNode) ? 2 : 1;
-            // Inline layer mask rows: Roto + Premult + optional Unpremult
+            // Inline layer mask rows: Roto/Shuffle + optional Premult + optional Unpremult
             int inlineMaskRows = 0;
             if (lmask) {
                 inlineMaskRows = 2; // Roto + Premult
@@ -2150,7 +3580,7 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                     inlineMaskRows = 3; // Unpremult + Roto + Premult
                 }
             }
-            double mergeY = kYStart + (graphRow + sourceRows + layer.effects.size() + inlineMaskRows) * kYSpacing;
+            double mergeY = kYStart + (graphRow + sourceRows + totalEffectAndMaskRows + inlineMaskRows) * kYSpacing;
             layer.mergeNode->setPosition(kCenterX, mergeY);
 
             // Disconnect stale inputs before reconnecting (handles layer deletion/reorder)
@@ -2184,11 +3614,13 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
             int inlineMaskRows = 0;
             if (lmask) {
                 inlineMaskRows = 2;
-                if (layer.type == QString::fromUtf8("footage") || !layer.effects.isEmpty()) {
+                if (layer.type == QString::fromUtf8("footage") ||
+                    layer.type == QString::fromUtf8("text") ||
+                    !layer.effects.isEmpty()) {
                     inlineMaskRows = 3;
                 }
             }
-            graphRow += qMax(kNodesPerLayer, sourceRows + layer.effects.size() + inlineMaskRows + 1);
+            graphRow += qMax(kNodesPerLayer, sourceRows + totalEffectAndMaskRows + inlineMaskRows + 1);
         }
 
         // Classify branches to detect precomp — derived UI state, not serialized
@@ -2198,10 +3630,11 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
         }
     }
 
-    // Connect the final output to the viewer
+    // Connect the final output to the main composition viewer only.
     if (lastOutput && viewerTab) {
-        NodePtr viewerNode = viewerTab->getInternalNode()->getNode();
-        if (viewerNode) {
+        ViewerInstance* internalViewer = viewerTab->getInternalNode();
+        NodePtr viewerNode = internalViewer ? internalViewer->getNode() : NodePtr();
+        if (viewerNode && viewerNode->isActivated() && !isFluxAiWorkViewerNode(viewerNode)) {
             viewerNode->disconnectInput(0);
             bool connected = viewerNode->connectInput(lastOutput, 0);
             (void)connected;
@@ -2259,6 +3692,52 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
 
     // Store final output node for export panel
     _imp->_fluxFinalOutputNode = lastOutput;
+
+    // -- Update compositing-tree node tracking --
+    // Walk upstream from lastOutput and collect all reachable nodes.
+    std::set<NodeWPtr, std::owner_less<NodeWPtr>> newTreeNodes;
+    if (lastOutput) {
+        std::set<NodeWPtr, std::owner_less<NodeWPtr>> visited;
+        std::vector<NodeWPtr> stack;
+        stack.push_back(lastOutput);
+        while (!stack.empty()) {
+            NodeWPtr wp = stack.back();
+            stack.pop_back();
+            if (wp.expired()) continue;
+            if (visited.count(wp)) continue;
+            visited.insert(wp);
+            newTreeNodes.insert(wp);
+            NodePtr n = wp.lock();
+            if (!n) continue;
+            const std::vector<NodeWPtr>& inputs = n->getGuiInputs();
+            for (size_t j = 0; j < inputs.size(); ++j) {
+                if (!inputs[j].expired()) {
+                    stack.push_back(inputs[j]);
+                }
+            }
+        }
+    }
+
+    // Diff: disconnect nodes that left the tree
+    for (const auto& oldWp : _imp->_fluxCompositingTreeNodes) {
+        if (!newTreeNodes.count(oldWp)) {
+            NodePtr n = oldWp.lock();
+            if (n) {
+                QObject::disconnect(n.get(), SIGNAL(inputChanged(int)), this, SLOT(onCompositingTreeNodeChanged(int)));
+            }
+        }
+    }
+    // Diff: connect nodes that entered the tree
+    for (const auto& newWp : newTreeNodes) {
+        if (!_imp->_fluxCompositingTreeNodes.count(newWp)) {
+            NodePtr n = newWp.lock();
+            if (n) {
+                QObject::connect(n.get(), SIGNAL(inputChanged(int)), this, SLOT(onCompositingTreeNodeChanged(int)), Qt::UniqueConnection);
+            }
+        }
+    }
+    // Swap the tracked set
+    _imp->_fluxCompositingTreeNodes.swap(newTreeNodes);
 }
 
 void
@@ -2267,6 +3746,16 @@ Gui::deferredInitGizmoParams(FluxTimeline* timeline)
     if (!getApp() || !timeline) {
         return;
     }
+
+    // RAII guard: prevent deferred Flux reconnects from marking timeline dirty
+    struct DeferredSyncGuard {
+        bool* flag;
+        bool prev;
+        DeferredSyncGuard(bool* ptr) : flag(ptr), prev(*ptr) { *flag = true; }
+        ~DeferredSyncGuard() { *flag = prev; }
+    };
+    DeferredSyncGuard deferredGuard(&_imp->_fluxSyncInProgress);
+    Q_UNUSED(deferredGuard);
 
     const QList<FluxLayer>& constLayers = timeline->getLayers();
     QList<FluxLayer>& layers = const_cast<QList<FluxLayer>&>(constLayers);
@@ -2337,6 +3826,12 @@ Gui::deferredInitGizmoParams(FluxTimeline* timeline)
                 readEffect->getFrameRange_public(0, &first, &last);
                 mediaFirst = (int)first;
                 mediaLast = (int)last;
+                const double fps = readEffect->getFrameRate();
+                if (std::isfinite(fps) && fps > 0.0) {
+                    layer.sourceFrameRate = fps;
+                } else {
+                    layer.sourceFrameRate = 0.0;
+                }
             }
         }
 
@@ -2459,6 +3954,282 @@ Gui::deferredInitGizmoParams(FluxTimeline* timeline)
             deferredInitGizmoParams(timelinePtr);
         });
     }
+}
+
+void
+Gui::syncFluxTimelineFromNodeGraph()
+{
+    // 1. Guards
+    if (!_imp || !getApp() || !_imp->_fluxTimeline) {
+        return;
+    }
+
+    // RAII guard: prevent our own writes from re-dirtying
+    struct SyncGuard {
+        bool* flag;
+        bool prev;
+        SyncGuard(bool* ptr) : flag(ptr), prev(*ptr) { *flag = true; }
+        ~SyncGuard() { *flag = prev; }
+    };
+    SyncGuard syncGuard(&_imp->_fluxSyncInProgress);
+    Q_UNUSED(syncGuard);
+
+    FluxTimeline* timeline = _imp->_fluxTimeline;
+    NodePtr finalOutput = _imp->_fluxFinalOutputNode;
+    NodePtr bgReformat  = _imp->_fluxBgReformatNode;
+    if (!finalOutput || !bgReformat) {
+        return;
+    }
+
+    // 2. Collect tracked nodes
+    QList<FluxLayer>& layers = const_cast<QList<FluxLayer>&>(timeline->getLayers());
+    QSet<Node*> tracked = collectTrackedNodes(layers);
+
+    // 3. Walk main pipe
+    QVector<MainPipeSegment> segments = walkMainPipe(finalOutput, bgReformat);
+    if (segments.isEmpty()) {
+        return;
+    }
+
+    // 4. For each existing layer, find and APPEND new effects
+    for (int i = 0; i < layers.size(); ++i) {
+        FluxLayer& layer = layers[i];
+        if (!layer.mergeNode) {
+            continue;
+        }
+
+        // Find this layer's Merge in the segments
+        bool found = false;
+        for (const auto& seg : segments) {
+            if (seg.mergeNode == layer.mergeNode) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            continue;
+        }
+
+        // Find new effects for this Merge
+        QVector<FluxEffectWithMasks> newEffects = findNewEffects(layer.mergeNode, bgReformat, tracked);
+        if (newEffects.isEmpty()) {
+            continue;
+        }
+
+        // INSERT new effects at correct position (source→Merge order matters).
+        // findNewEffects returns source→Merge order (index 0 closest to source).
+        // layer.effects is also source→Merge order. New effects must be inserted
+        // before the first tracked node downstream of them in the A-input chain.
+        //
+        // Strategy: walk Merge's A-input chain backward (Merge→source).
+        // For each new effect node encountered, find the first tracked effect
+        // downstream of it and insert before that effect's position.
+        // If no tracked effect is downstream, append.
+
+        // Build a map: Node* → index in layer.effects (for tracked effects only)
+        QHash<Node*, int> trackedIndex;
+        for (int ei = 0; ei < layer.effects.size(); ++ei) {
+            if (layer.effects[ei].node) {
+                trackedIndex[layer.effects[ei].node.get()] = ei;
+            }
+        }
+
+        // Walk the A-input chain from Merge backward to find each new effect's
+        // downstream tracked neighbor.
+        // newEffects is in source→Merge order. We process in reverse (Merge→source)
+        // so each insert adjusts the insertion point correctly.
+        int insertBias = 0; // tracks cumulative insert offset
+        for (int ni = newEffects.size() - 1; ni >= 0; --ni) {
+            const FluxEffectWithMasks& entry = newEffects[ni];
+            NodePtr newEffectNode = entry.effect.node;
+
+            // Walk downstream from newEffectNode toward Merge to find the
+            // first tracked effect.
+            int insertPos = layer.effects.size(); // default: append
+            {
+                NodePtr downstream = layer.mergeNode->getInput(1); // A-input of Merge
+                while (downstream) {
+                    if (downstream == newEffectNode) {
+                        break; // reached the new node itself, stop
+                    }
+                    auto it = trackedIndex.find(downstream.get());
+                    if (it != trackedIndex.end()) {
+                        insertPos = it.value() + insertBias;
+                        break;
+                    }
+                    downstream = downstream->getInput(0);
+                }
+            }
+
+            layer.effects.insert(insertPos, entry.effect);
+            insertBias++;
+
+            // Insert new masks, adjusting effectIndex for the inserted position
+            for (const FluxMask& mask : entry.masks) {
+                FluxMask m = mask;
+                m.effectIndex = insertPos;
+                layer.masks.append(m);
+            }
+        }
+
+        fprintf(stderr, "FLUX SYNC: added %d new effects to layer %d '%s'\n",
+                (int)newEffects.size(), i, layer.name.toStdString().c_str());
+    }
+
+    // 5. Find new main-pipe effects → adjustment layers
+    QVector<NewAdjustmentEffect> newAdjEffects = findNewMainPipeEffects(segments, tracked);
+    if (!newAdjEffects.isEmpty()) {
+        // Find existing adjustment layer or create new one
+        int adjIdx = -1;
+        for (int i = 0; i < layers.size(); ++i) {
+            if (layers[i].type == QString::fromUtf8("adjustment")) {
+                adjIdx = i;
+                break;
+            }
+        }
+
+        if (adjIdx < 0) {
+            // Create new adjustment layer
+            FluxLayer adjLayer;
+            adjLayer.type = QString::fromUtf8("adjustment");
+            adjLayer.name = QString::fromUtf8("Adjustment");
+            adjLayer.color = QColor(200, 130, 80);
+            adjLayer.nodeInitialized = true;
+            adjLayer.inPoint = 1;
+            adjLayer.outPoint = 100;
+            {
+                double pf = 0, pl = 100;
+                getApp()->getProject()->getFrameRange(&pf, &pl);
+                adjLayer.inPoint = (int)pf;
+                adjLayer.outPoint = (int)pl;
+            }
+            layers.prepend(adjLayer);
+            adjIdx = 0;
+        }
+
+        // Append new effects to adjustment layer
+        for (const NewAdjustmentEffect& nae : newAdjEffects) {
+            layers[adjIdx].effects.append(nae.fx);
+        }
+
+        fprintf(stderr, "FLUX SYNC: added %d new adjustment effects\n", (int)newAdjEffects.size());
+    }
+
+    // 6. Check ALL existing effects for new mask connections
+    // The user may have connected a Roto/Ramp/etc to an existing effect's mask input
+    // in the nodegraph. We need to discover these and add them to the timeline.
+    for (int i = 0; i < layers.size(); ++i) {
+        FluxLayer& layer = layers[i];
+        for (int e = 0; e < layer.effects.size(); ++e) {
+            FluxEffect& effect = layer.effects[e];
+            if (!effect.node) continue;
+
+            int maskInputIdx = discoverMaskInput(effect.node);
+            if (maskInputIdx < 0) continue;
+
+            NodePtr maskStart = effect.node->getInput(maskInputIdx);
+            if (!maskStart) continue;
+
+            // Check if this mask is already tracked in the layer
+            bool alreadyTracked = false;
+            for (const FluxMask& m : layer.masks) {
+                if (m.effectIndex == e && m.maskNode && m.maskNode == maskStart) {
+                    alreadyTracked = true;
+                    break;
+                }
+            }
+            if (alreadyTracked) continue;
+
+            // Walk the mask tree — collect all nodes not already tracked as masks
+            QVector<NodePtr> maskTree;
+            QSet<Node*> maskVisited;
+            NodePtr walk = maskStart;
+            while (walk) {
+                if (maskVisited.contains(walk.get())) break;
+                maskVisited.insert(walk.get());
+
+                // Stop at Read nodes (source boundary)
+                {
+                    const std::string pid = walk->getPluginID();
+                    if (pid == PLUGINID_NATRON_READ || pid == PLUGINID_NATRON_READQT) {
+                        maskTree.push_back(walk);
+                        break;
+                    }
+                }
+                // Stop at Merge nodes
+                if (walk->getPluginID() == PLUGINID_OFX_MERGE) {
+                    maskTree.push_back(walk);
+                    break;
+                }
+                // Stop at Flux gizmo nodes
+                {
+                    const std::string pid = walk->getPluginID();
+                    if (pid == "net.sf.openfx.FluxLayer" ||
+                        pid == "net.sf.openfx.FluxSolid" ||
+                        pid == "net.sf.openfx.FluxMotionText") {
+                        maskTree.push_back(walk);
+                        break;
+                    }
+                }
+                // Stop at gizmo-internal nodes
+                if (dynamic_cast<NodeGroup*>(walk->getGroup().get())) break;
+                // Stop at bgReformat
+                if (walk == bgReformat) break;
+
+                maskTree.push_back(walk);
+
+                // Stop if this node is already tracked (boundary)
+                if (tracked.contains(walk.get())) break;
+
+                walk = walk->getInput(0);
+            }
+
+            // Create FluxMask entries only for nodes NOT already present in layer.masks
+            // for this effectIndex (BUG-2: compare maskNode pointers, not just maskStart)
+            int added = 0;
+            for (int m = 0; m < maskTree.size(); ++m) {
+                bool alreadyMasked = false;
+                for (const FluxMask& existing : layer.masks) {
+                    if (existing.effectIndex == e &&
+                        existing.maskNode &&
+                        existing.maskNode == maskTree[m]) {
+                        alreadyMasked = true;
+                        break;
+                    }
+                }
+                if (alreadyMasked) continue;
+
+                FluxMask mask;
+                mask.type = QString::fromUtf8("effect");
+                mask.effectIndex = e;
+                mask.name = QString::fromUtf8("Flux Mask (") +
+                            QString::fromStdString(maskTree[m]->getLabel()) +
+                            QString::fromUtf8(")");
+                mask.maskNode = maskTree[m];
+                layer.masks.append(mask);
+                ++added;
+            }
+
+            if (added > 0) {
+                fprintf(stderr, "FLUX SYNC: added %d mask nodes to layer %d effect %d '%s'\n",
+                        added, i, e, effect.label.toStdString().c_str());
+            }
+        }
+    }
+
+    // 7. Check for entirely new layers (Merge whose A-input has Read node not in tracked)
+    // TODO: implement when needed — for now, user adds layers from timeline
+
+    // 7. Refresh visible rows — do NOT call rebuildCompositingGraph.
+    // The nodegraph connections are already correct (user made them).
+    // rebuildCompositingGraph would disconnect and reconnect ALL effects
+    // based on timeline order, destroying manual nodegraph connections.
+    timeline->refreshVisibleRows();
+    timeline->update();
+
+    // 8. Clear dirty flag
+    _imp->_fluxNodeGraphDirty = false;
+    fprintf(stderr, "FLUX SYNC: done (additive).\n");
 }
 
 NATRON_NAMESPACE_EXIT

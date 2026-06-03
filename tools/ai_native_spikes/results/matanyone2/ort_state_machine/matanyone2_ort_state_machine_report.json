@@ -1,0 +1,172 @@
+{
+  "device": "cuda",
+  "inputs": {
+    "frame_paths": [
+      "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/frames/frame_000001.png",
+      "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/frames/frame_000002.png",
+      "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/frames/frame_000003.png"
+    ],
+    "mask_path": "/home/npittas/Videos/For_Test/mask_1.png",
+    "warmup_repeats": 2
+  },
+  "model_dir": "/home/npittas/.local/share/Flux/models/matanyone2/40c894a6f68d1f55c86ab0de838d89dc61587930",
+  "ort": {
+    "elapsed_seconds": 1.686,
+    "saved": [
+      {
+        "nonzero": 70334,
+        "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/ort_state_machine/ort/mask_0000.png",
+        "size": [
+          2496,
+          1056
+        ]
+      },
+      {
+        "nonzero": 75776,
+        "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/ort_state_machine/ort/mask_0001.png",
+        "size": [
+          2496,
+          1056
+        ]
+      },
+      {
+        "nonzero": 87069,
+        "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/ort_state_machine/ort/mask_0002.png",
+        "size": [
+          2496,
+          1056
+        ]
+      }
+    ]
+  },
+  "ort_modules": {
+    "key_proj": {
+      "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/export/submodules/matanyone2_key_proj.onnx",
+      "providers": [
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider"
+      ],
+      "session_inputs": [
+        "input_0"
+      ]
+    },
+    "mask_decoder": {
+      "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/export/submodules/matanyone2_mask_decoder.onnx",
+      "providers": [
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider"
+      ],
+      "session_inputs": [
+        "input_1",
+        "input_2",
+        "input_3",
+        "input_4",
+        "input_5",
+        "input_6"
+      ]
+    },
+    "mask_encoder": {
+      "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/export/submodules/matanyone2_mask_encoder.onnx",
+      "providers": [
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider"
+      ],
+      "session_inputs": [
+        "input_0",
+        "input_1",
+        "input_2",
+        "input_3"
+      ]
+    },
+    "pix_feat_proj": {
+      "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/export/submodules/matanyone2_pix_feat_proj.onnx",
+      "providers": [
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider"
+      ],
+      "session_inputs": [
+        "input_0"
+      ]
+    },
+    "pixel_encoder": {
+      "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/export/submodules/matanyone2_pixel_encoder.onnx",
+      "providers": [
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider"
+      ],
+      "session_inputs": [
+        "input_0"
+      ]
+    }
+  },
+  "parity": [
+    {
+      "candidate_nonzero": 56415,
+      "frame": 0,
+      "iou": 0.9999645484356997,
+      "mae": 1.041472273755062e-06,
+      "max_error": 0.005348026752471924,
+      "reference_nonzero": 56413,
+      "shape": [
+        1056,
+        2496
+      ]
+    },
+    {
+      "candidate_nonzero": 57926,
+      "frame": 1,
+      "iou": 1.0,
+      "mae": 1.447099521101336e-06,
+      "max_error": 0.0027154088020324707,
+      "reference_nonzero": 57926,
+      "shape": [
+        1056,
+        2496
+      ]
+    },
+    {
+      "candidate_nonzero": 61518,
+      "frame": 2,
+      "iou": 0.9997399431125559,
+      "mae": 4.870968496106798e-06,
+      "max_error": 0.010186374187469482,
+      "reference_nonzero": 61516,
+      "shape": [
+        1056,
+        2496
+      ]
+    }
+  ],
+  "schema": "flux.ai_native_spikes.matanyone2_ort_state_machine.v1",
+  "status": "ok",
+  "timestamp": "2026-06-01T12:23:57.749333+00:00",
+  "torch": {
+    "elapsed_seconds": 0.748,
+    "saved": [
+      {
+        "nonzero": 70332,
+        "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/ort_state_machine/torch/mask_0000.png",
+        "size": [
+          2496,
+          1056
+        ]
+      },
+      {
+        "nonzero": 75777,
+        "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/ort_state_machine/torch/mask_0001.png",
+        "size": [
+          2496,
+          1056
+        ]
+      },
+      {
+        "nonzero": 87065,
+        "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/ort_state_machine/torch/mask_0002.png",
+        "size": [
+          2496,
+          1056
+        ]
+      }
+    ]
+  }
+}

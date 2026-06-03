@@ -1,0 +1,548 @@
+{
+  "baseline_manifest": {
+    "device": "cuda",
+    "overall_status": "ok",
+    "path": "/home/npittas/Flux/tools/ai_native_spikes/results/sam3/baseline_manifest.json",
+    "runtime_python": "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python"
+  },
+  "device": "cuda",
+  "elapsed_seconds": 3.525,
+  "errors": [],
+  "guide_mask_route_summary": {
+    "concept_model": {
+      "model_class": "Sam3Model",
+      "module_count": 1237,
+      "processor_class": "Sam3Processor"
+    },
+    "export_blockers": [
+      "TorchScript: tracker model has custom ops / trust_remote_code; forward signature must be traced to confirm static graph compatibility",
+      "torch.export: same concern as TorchScript plus dynamo tracing of transformers internals",
+      "ONNX: requires verifying opset coverage for all tracker submodules; post_process_masks uses dynamic control flow"
+    ],
+    "prompt_kind": "point",
+    "tracker_model_for_box": {
+      "forward_signature": "(pixel_values: torch.FloatTensor | None = None, input_points: torch.FloatTensor | None = None, input_labels: torch.LongTensor | None = None, input_boxes: torch.FloatTensor | None = None, input_masks: torch.LongTensor | None = None, image_embeddings: torch.FloatTensor | None = None, multimask_output: bool = True, attention_similarity: torch.FloatTensor | None = None, target_embedding: torch.FloatTensor | None = None, **kwargs: *<class 'transformers.utils.generic.TransformersKwargs'>) -> transformers.models.sam3_tracker.modeling_sam3_tracker.Sam3TrackerImageSegmentationOutput",
+      "model_class": "Sam3TrackerModel",
+      "module_count": 631,
+      "processor_call_params": [
+        "images",
+        "segmentation_maps",
+        "input_points",
+        "input_labels",
+        "input_boxes",
+        "original_sizes",
+        "return_tensors",
+        "kwargs"
+      ],
+      "processor_class": "Sam3TrackerProcessor"
+    },
+    "tracker_model_for_point": {
+      "forward_signature": "(pixel_values: torch.FloatTensor | None = None, input_points: torch.FloatTensor | None = None, input_labels: torch.LongTensor | None = None, input_boxes: torch.FloatTensor | None = None, input_masks: torch.LongTensor | None = None, image_embeddings: torch.FloatTensor | None = None, multimask_output: bool = True, attention_similarity: torch.FloatTensor | None = None, target_embedding: torch.FloatTensor | None = None, **kwargs: *<class 'transformers.utils.generic.TransformersKwargs'>) -> transformers.models.sam3_tracker.modeling_sam3_tracker.Sam3TrackerImageSegmentationOutput",
+      "model_class": "Sam3TrackerModel",
+      "module_count": 631,
+      "processor_call_params": [
+        "images",
+        "segmentation_maps",
+        "input_points",
+        "input_labels",
+        "input_boxes",
+        "original_sizes",
+        "return_tensors",
+        "kwargs"
+      ],
+      "processor_class": "Sam3TrackerProcessor"
+    }
+  },
+  "introspection": {
+    "attempted": true,
+    "child_report": {
+      "concept_load": {
+        "attempted": true,
+        "model_class": "Sam3Model",
+        "model_forward_params": [
+          "pixel_values",
+          "vision_embeds",
+          "input_ids",
+          "attention_mask",
+          "text_embeds",
+          "input_boxes",
+          "input_boxes_labels",
+          "kwargs"
+        ],
+        "model_forward_signature": "(pixel_values: torch.FloatTensor | None = None, vision_embeds: transformers.models.sam3.modeling_sam3.Sam3VisionEncoderOutput | None = None, input_ids: torch.LongTensor | None = None, attention_mask: torch.Tensor | None = None, text_embeds: torch.FloatTensor | None = None, input_boxes: torch.FloatTensor | None = None, input_boxes_labels: torch.LongTensor | None = None, **kwargs: *<class 'transformers.utils.generic.TransformersKwargs'>) -> transformers.models.sam3.modeling_sam3.Sam3ImageSegmentationOutput",
+        "module_count": 1237,
+        "processor_call_params": [
+          "images",
+          "text",
+          "segmentation_maps",
+          "input_boxes",
+          "input_boxes_labels",
+          "original_sizes",
+          "return_tensors",
+          "kwargs"
+        ],
+        "processor_call_signature": "(images: Union[ForwardRef('PIL.Image.Image'), numpy.ndarray, ForwardRef('torch.Tensor'), list['PIL.Image.Image'], list[numpy.ndarray], list['torch.Tensor'], NoneType] = None, text: str | list[str] | list[list[str]] | None = None, segmentation_maps: Union[ForwardRef('PIL.Image.Image'), numpy.ndarray, ForwardRef('torch.Tensor'), list['PIL.Image.Image'], list[numpy.ndarray], list['torch.Tensor'], NoneType] = None, input_boxes: list[list[list[float]]] | torch.Tensor | None = None, input_boxes_labels: list[list[list[int]]] | torch.Tensor | None = None, original_sizes: list[list[float]] | torch.Tensor | None = None, return_tensors: str | transformers.utils.generic.TensorType | None = None, **kwargs) -> transformers.tokenization_utils_base.BatchEncoding",
+        "processor_class": "Sam3Processor",
+        "processor_process_methods": {
+          "get_processor_dict": {
+            "params": [
+              "pretrained_model_name_or_path",
+              "kwargs"
+            ],
+            "signature": "(pretrained_model_name_or_path: str | os.PathLike, **kwargs) -> tuple[dict[str, typing.Any], dict[str, typing.Any]]"
+          },
+          "image_processor": {
+            "params": [
+              "images",
+              "args",
+              "kwargs"
+            ],
+            "signature": "(images: Union[ForwardRef('PIL.Image.Image'), numpy.ndarray, ForwardRef('torch.Tensor'), list['PIL.Image.Image'], list[numpy.ndarray], list['torch.Tensor']], *args, **kwargs: *<class 'transformers.processing_utils.ImagesKwargs'>) -> transformers.image_processing_base.BatchFeature"
+          },
+          "post_process_image_text_to_text": {
+            "params": [
+              "generated_outputs",
+              "skip_special_tokens",
+              "kwargs"
+            ],
+            "signature": "(generated_outputs, skip_special_tokens=True, **kwargs)"
+          },
+          "post_process_instance_segmentation": {
+            "params": [
+              "outputs",
+              "threshold",
+              "mask_threshold",
+              "target_sizes"
+            ],
+            "signature": "(outputs, threshold=0.3, mask_threshold=0.5, target_sizes=None)"
+          },
+          "post_process_multimodal_output": {
+            "params": [
+              "generated_outputs",
+              "skip_special_tokens",
+              "generation_mode",
+              "kwargs"
+            ],
+            "signature": "(generated_outputs, skip_special_tokens=True, generation_mode=None, **kwargs)"
+          },
+          "post_process_object_detection": {
+            "params": [
+              "outputs",
+              "threshold",
+              "target_sizes"
+            ],
+            "signature": "(outputs, threshold=0.3, target_sizes=None)"
+          },
+          "post_process_semantic_segmentation": {
+            "params": [
+              "outputs",
+              "target_sizes",
+              "threshold"
+            ],
+            "signature": "(outputs, target_sizes=None, threshold=0.5)"
+          },
+          "valid_processor_kwargs": {
+            "error": "ValueError: no signature found for builtin type <class 'dict'>"
+          }
+        },
+        "success": true,
+        "top_level_children": {
+          "detr_decoder": "Sam3DetrDecoder",
+          "detr_encoder": "Sam3DetrEncoder",
+          "dot_product_scoring": "Sam3DotProductScoring",
+          "geometry_encoder": "Sam3GeometryEncoder",
+          "mask_decoder": "Sam3MaskDecoder",
+          "text_encoder": "CLIPTextModelWithProjection",
+          "text_projection": "Linear",
+          "vision_encoder": "Sam3VisionModel"
+        }
+      },
+      "cuda": {
+        "available": true,
+        "device_count": 1,
+        "devices": [
+          "NVIDIA GeForce RTX 4090"
+        ],
+        "error": null
+      },
+      "dependencies": {
+        "huggingface_hub": {
+          "available": true,
+          "error": null,
+          "module": "huggingface_hub",
+          "version": "1.16.4"
+        },
+        "torch": {
+          "available": true,
+          "error": null,
+          "module": "torch",
+          "version": "2.11.0+cu128"
+        },
+        "transformers": {
+          "available": true,
+          "error": null,
+          "module": "transformers",
+          "version": "5.9.0"
+        }
+      },
+      "errors": [],
+      "model": {
+        "id": "sam3_transformers",
+        "installed": true,
+        "is_dir": true,
+        "local_path": "/home/npittas/.local/share/Flux/models/sam3_transformers/3c879f39826c281e95690f02c7821c4de09afae7",
+        "repo": "facebook/sam3",
+        "revision": "3c879f39826c281e95690f02c7821c4de09afae7"
+      },
+      "python": "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python",
+      "status": "ok",
+      "tracker_load": {
+        "attempted": true,
+        "model_class": "Sam3TrackerModel",
+        "model_forward_params": [
+          "pixel_values",
+          "input_points",
+          "input_labels",
+          "input_boxes",
+          "input_masks",
+          "image_embeddings",
+          "multimask_output",
+          "attention_similarity",
+          "target_embedding",
+          "kwargs"
+        ],
+        "model_forward_signature": "(pixel_values: torch.FloatTensor | None = None, input_points: torch.FloatTensor | None = None, input_labels: torch.LongTensor | None = None, input_boxes: torch.FloatTensor | None = None, input_masks: torch.LongTensor | None = None, image_embeddings: torch.FloatTensor | None = None, multimask_output: bool = True, attention_similarity: torch.FloatTensor | None = None, target_embedding: torch.FloatTensor | None = None, **kwargs: *<class 'transformers.utils.generic.TransformersKwargs'>) -> transformers.models.sam3_tracker.modeling_sam3_tracker.Sam3TrackerImageSegmentationOutput",
+        "module_count": 631,
+        "processor_call_params": [
+          "images",
+          "segmentation_maps",
+          "input_points",
+          "input_labels",
+          "input_boxes",
+          "original_sizes",
+          "return_tensors",
+          "kwargs"
+        ],
+        "processor_call_signature": "(images: Union[ForwardRef('PIL.Image.Image'), numpy.ndarray, ForwardRef('torch.Tensor'), list['PIL.Image.Image'], list[numpy.ndarray], list['torch.Tensor'], NoneType] = None, segmentation_maps: Union[ForwardRef('PIL.Image.Image'), numpy.ndarray, ForwardRef('torch.Tensor'), list['PIL.Image.Image'], list[numpy.ndarray], list['torch.Tensor'], NoneType] = None, input_points: list[list[list[list[float]]]] | torch.Tensor | None = None, input_labels: list[list[list[int]]] | torch.Tensor | None = None, input_boxes: list[list[list[float]]] | torch.Tensor | None = None, original_sizes: list[list[float]] | torch.Tensor | None = None, return_tensors: str | transformers.utils.generic.TensorType | None = None, **kwargs) -> transformers.tokenization_utils_base.BatchEncoding",
+        "processor_class": "Sam3TrackerProcessor",
+        "processor_process_methods": {
+          "get_processor_dict": {
+            "params": [
+              "pretrained_model_name_or_path",
+              "kwargs"
+            ],
+            "signature": "(pretrained_model_name_or_path: str | os.PathLike, **kwargs) -> tuple[dict[str, typing.Any], dict[str, typing.Any]]"
+          },
+          "image_processor": {
+            "params": [
+              "images",
+              "args",
+              "kwargs"
+            ],
+            "signature": "(images: Union[ForwardRef('PIL.Image.Image'), numpy.ndarray, ForwardRef('torch.Tensor'), list['PIL.Image.Image'], list[numpy.ndarray], list['torch.Tensor']], *args, **kwargs: *<class 'transformers.processing_utils.ImagesKwargs'>) -> transformers.image_processing_base.BatchFeature"
+          },
+          "post_process_image_text_to_text": {
+            "params": [
+              "generated_outputs",
+              "skip_special_tokens",
+              "kwargs"
+            ],
+            "signature": "(generated_outputs, skip_special_tokens=True, **kwargs)"
+          },
+          "post_process_masks": {
+            "params": [
+              "masks",
+              "original_sizes",
+              "mask_threshold",
+              "binarize",
+              "max_hole_area",
+              "max_sprinkle_area",
+              "apply_non_overlapping_constraints",
+              "kwargs"
+            ],
+            "signature": "(masks, original_sizes, mask_threshold=0.0, binarize=True, max_hole_area=0.0, max_sprinkle_area=0.0, apply_non_overlapping_constraints=False, **kwargs)"
+          },
+          "post_process_multimodal_output": {
+            "params": [
+              "generated_outputs",
+              "skip_special_tokens",
+              "generation_mode",
+              "kwargs"
+            ],
+            "signature": "(generated_outputs, skip_special_tokens=True, generation_mode=None, **kwargs)"
+          },
+          "valid_processor_kwargs": {
+            "error": "ValueError: no signature found for builtin type <class 'dict'>"
+          }
+        },
+        "success": true,
+        "top_level_children": {
+          "mask_decoder": "Sam3TrackerMaskDecoder",
+          "prompt_encoder": "Sam3TrackerPromptEncoder",
+          "shared_image_embedding": "Sam3TrackerPositionalEmbedding",
+          "vision_encoder": "Sam3VisionModel"
+        }
+      },
+      "transformers_all_sam3_names": [
+        "Sam3Config",
+        "Sam3DETRDecoderConfig",
+        "Sam3DETREncoderConfig",
+        "Sam3GeometryEncoderConfig",
+        "Sam3ImageProcessor",
+        "Sam3LiteTextConfig",
+        "Sam3LiteTextDETRDecoderConfig",
+        "Sam3LiteTextDETREncoderConfig",
+        "Sam3LiteTextGeometryEncoderConfig",
+        "Sam3LiteTextMaskDecoderConfig",
+        "Sam3LiteTextModel",
+        "Sam3LiteTextPreTrainedModel",
+        "Sam3LiteTextTextConfig",
+        "Sam3LiteTextTextModel",
+        "Sam3MaskDecoderConfig",
+        "Sam3Model",
+        "Sam3PreTrainedModel",
+        "Sam3Processor",
+        "Sam3TrackerConfig",
+        "Sam3TrackerMaskDecoderConfig",
+        "Sam3TrackerModel",
+        "Sam3TrackerPreTrainedModel",
+        "Sam3TrackerProcessor",
+        "Sam3TrackerPromptEncoderConfig",
+        "Sam3TrackerVideoConfig",
+        "Sam3TrackerVideoInferenceSession",
+        "Sam3TrackerVideoMaskDecoderConfig",
+        "Sam3TrackerVideoModel",
+        "Sam3TrackerVideoPreTrainedModel",
+        "Sam3TrackerVideoProcessor",
+        "Sam3TrackerVideoPromptEncoderConfig",
+        "Sam3ViTConfig",
+        "Sam3ViTModel",
+        "Sam3VideoConfig",
+        "Sam3VideoInferenceSession",
+        "Sam3VideoModel",
+        "Sam3VideoPreTrainedModel",
+        "Sam3VideoProcessor",
+        "Sam3VideoSegmentationOutput",
+        "Sam3VisionConfig",
+        "Sam3VisionModel",
+        "image_processing_sam3_fast",
+        "models.sam3",
+        "models.sam3.configuration_sam3",
+        "models.sam3.image_processing_sam3",
+        "models.sam3.modeling_sam3",
+        "models.sam3.processing_sam3",
+        "models.sam3_lite_text",
+        "models.sam3_lite_text.configuration_sam3_lite_text",
+        "models.sam3_lite_text.modeling_sam3_lite_text",
+        "models.sam3_tracker",
+        "models.sam3_tracker.configuration_sam3_tracker",
+        "models.sam3_tracker.modeling_sam3_tracker",
+        "models.sam3_tracker.processing_sam3_tracker",
+        "models.sam3_tracker_video",
+        "models.sam3_tracker_video.configuration_sam3_tracker_video",
+        "models.sam3_tracker_video.modeling_sam3_tracker_video",
+        "models.sam3_tracker_video.processing_sam3_tracker_video",
+        "models.sam3_video",
+        "models.sam3_video.configuration_sam3_video",
+        "models.sam3_video.modeling_sam3_video",
+        "models.sam3_video.processing_sam3_video"
+      ],
+      "transformers_classes": {
+        "Sam3Config": {
+          "forward_params": [
+            "args",
+            "kwargs"
+          ],
+          "forward_signature": "(*args, **kwargs)",
+          "init_params": [
+            "self",
+            "transformers_version",
+            "architectures",
+            "output_hidden_states",
+            "return_dict",
+            "dtype",
+            "chunk_size_feed_forward",
+            "is_encoder_decoder",
+            "id2label",
+            "label2id",
+            "problem_type",
+            "vision_config",
+            "text_config",
+            "geometry_encoder_config",
+            "detr_encoder_config",
+            "detr_decoder_config",
+            "mask_decoder_config",
+            "initializer_range"
+          ],
+          "init_signature": "(self, transformers_version: str | None = None, architectures: list[str] | None = None, output_hidden_states: bool | None = False, return_dict: bool | None = True, dtype: Union[str, ForwardRef('torch.dtype'), NoneType] = None, chunk_size_feed_forward: int = 0, is_encoder_decoder: bool = False, id2label: dict[int, str] | dict[str, str] | None = None, label2id: dict[str, int] | dict[str, str] | None = None, problem_type: Optional[Literal['regression', 'single_label_classification', 'multi_label_classification']] = None, *, vision_config: dict | transformers.configuration_utils.PreTrainedConfig | None = None, text_config: dict | transformers.configuration_utils.PreTrainedConfig | None = None, geometry_encoder_config: dict | transformers.configuration_utils.PreTrainedConfig | None = None, detr_encoder_config: dict | transformers.configuration_utils.PreTrainedConfig | None = None, detr_decoder_config: dict | transformers.configuration_utils.PreTrainedConfig | None = None, mask_decoder_config: dict | transformers.configuration_utils.PreTrainedConfig | None = None, initializer_range: float = 0.02) -> None",
+          "module": "transformers.models.sam3.configuration_sam3",
+          "name": "Sam3Config"
+        },
+        "Sam3ImageProcessor": {
+          "forward_params": [
+            "self",
+            "images",
+            "args",
+            "kwargs"
+          ],
+          "forward_signature": "(self, images: Union[ForwardRef('PIL.Image.Image'), numpy.ndarray, ForwardRef('torch.Tensor'), list['PIL.Image.Image'], list[numpy.ndarray], list['torch.Tensor']], *args, **kwargs: *<class 'transformers.processing_utils.ImagesKwargs'>) -> transformers.image_processing_base.BatchFeature",
+          "init_params": [
+            "self",
+            "kwargs"
+          ],
+          "init_signature": "(self, **kwargs: *<class 'transformers.models.sam3.image_processing_sam3.Sam3ImageProcessorKwargs'>)",
+          "module": "transformers.models.sam3.image_processing_sam3",
+          "name": "Sam3ImageProcessor"
+        },
+        "Sam3Model": {
+          "forward_params": [
+            "self",
+            "pixel_values",
+            "vision_embeds",
+            "input_ids",
+            "attention_mask",
+            "text_embeds",
+            "input_boxes",
+            "input_boxes_labels",
+            "kwargs"
+          ],
+          "forward_signature": "(self, pixel_values: torch.FloatTensor | None = None, vision_embeds: transformers.models.sam3.modeling_sam3.Sam3VisionEncoderOutput | None = None, input_ids: torch.LongTensor | None = None, attention_mask: torch.Tensor | None = None, text_embeds: torch.FloatTensor | None = None, input_boxes: torch.FloatTensor | None = None, input_boxes_labels: torch.LongTensor | None = None, **kwargs: *<class 'transformers.utils.generic.TransformersKwargs'>) -> transformers.models.sam3.modeling_sam3.Sam3ImageSegmentationOutput",
+          "init_params": [
+            "self",
+            "config"
+          ],
+          "init_signature": "(self, config: transformers.models.sam3.configuration_sam3.Sam3Config)",
+          "module": "transformers.models.sam3.modeling_sam3",
+          "name": "Sam3Model"
+        },
+        "Sam3Processor": {
+          "forward_params": [
+            "self",
+            "images",
+            "text",
+            "segmentation_maps",
+            "input_boxes",
+            "input_boxes_labels",
+            "original_sizes",
+            "return_tensors",
+            "kwargs"
+          ],
+          "forward_signature": "(self, images: Union[ForwardRef('PIL.Image.Image'), numpy.ndarray, ForwardRef('torch.Tensor'), list['PIL.Image.Image'], list[numpy.ndarray], list['torch.Tensor'], NoneType] = None, text: str | list[str] | list[list[str]] | None = None, segmentation_maps: Union[ForwardRef('PIL.Image.Image'), numpy.ndarray, ForwardRef('torch.Tensor'), list['PIL.Image.Image'], list[numpy.ndarray], list['torch.Tensor'], NoneType] = None, input_boxes: list[list[list[float]]] | torch.Tensor | None = None, input_boxes_labels: list[list[list[int]]] | torch.Tensor | None = None, original_sizes: list[list[float]] | torch.Tensor | None = None, return_tensors: str | transformers.utils.generic.TensorType | None = None, **kwargs) -> transformers.tokenization_utils_base.BatchEncoding",
+          "init_params": [
+            "self",
+            "image_processor",
+            "tokenizer",
+            "target_size",
+            "point_pad_value",
+            "kwargs"
+          ],
+          "init_signature": "(self, image_processor, tokenizer, target_size: int | None = None, point_pad_value: int = -10, **kwargs)",
+          "module": "transformers.models.sam3.processing_sam3",
+          "name": "Sam3Processor"
+        },
+        "Sam3TrackerModel": {
+          "forward_params": [
+            "self",
+            "pixel_values",
+            "input_points",
+            "input_labels",
+            "input_boxes",
+            "input_masks",
+            "image_embeddings",
+            "multimask_output",
+            "attention_similarity",
+            "target_embedding",
+            "kwargs"
+          ],
+          "forward_signature": "(self, pixel_values: torch.FloatTensor | None = None, input_points: torch.FloatTensor | None = None, input_labels: torch.LongTensor | None = None, input_boxes: torch.FloatTensor | None = None, input_masks: torch.LongTensor | None = None, image_embeddings: torch.FloatTensor | None = None, multimask_output: bool = True, attention_similarity: torch.FloatTensor | None = None, target_embedding: torch.FloatTensor | None = None, **kwargs: *<class 'transformers.utils.generic.TransformersKwargs'>) -> transformers.models.sam3_tracker.modeling_sam3_tracker.Sam3TrackerImageSegmentationOutput",
+          "init_params": [
+            "self",
+            "config"
+          ],
+          "init_signature": "(self, config: transformers.models.sam3_tracker.configuration_sam3_tracker.Sam3TrackerConfig)",
+          "module": "transformers.models.sam3_tracker.modeling_sam3_tracker",
+          "name": "Sam3TrackerModel"
+        },
+        "Sam3TrackerProcessor": {
+          "forward_params": [
+            "self",
+            "images",
+            "segmentation_maps",
+            "input_points",
+            "input_labels",
+            "input_boxes",
+            "original_sizes",
+            "return_tensors",
+            "kwargs"
+          ],
+          "forward_signature": "(self, images: Union[ForwardRef('PIL.Image.Image'), numpy.ndarray, ForwardRef('torch.Tensor'), list['PIL.Image.Image'], list[numpy.ndarray], list['torch.Tensor'], NoneType] = None, segmentation_maps: Union[ForwardRef('PIL.Image.Image'), numpy.ndarray, ForwardRef('torch.Tensor'), list['PIL.Image.Image'], list[numpy.ndarray], list['torch.Tensor'], NoneType] = None, input_points: list[list[list[list[float]]]] | torch.Tensor | None = None, input_labels: list[list[list[int]]] | torch.Tensor | None = None, input_boxes: list[list[list[float]]] | torch.Tensor | None = None, original_sizes: list[list[float]] | torch.Tensor | None = None, return_tensors: str | transformers.utils.generic.TensorType | None = None, **kwargs) -> transformers.tokenization_utils_base.BatchEncoding",
+          "init_params": [
+            "self",
+            "image_processor",
+            "target_size",
+            "point_pad_value",
+            "kwargs"
+          ],
+          "init_signature": "(self, image_processor, target_size: int | None = None, point_pad_value: int = -10, **kwargs)",
+          "module": "transformers.models.sam3_tracker.processing_sam3_tracker",
+          "name": "Sam3TrackerProcessor"
+        },
+        "Sam3TrackerVideoModel": {
+          "forward_params": [
+            "self",
+            "inference_session",
+            "frame_idx",
+            "frame",
+            "reverse",
+            "run_mem_encoder",
+            "kwargs"
+          ],
+          "forward_signature": "(self, inference_session: transformers.models.sam3_tracker_video.modeling_sam3_tracker_video.Sam3TrackerVideoInferenceSession, frame_idx: int | None = None, frame: torch.Tensor | None = None, reverse: bool = False, run_mem_encoder: bool = True, **kwargs) -> transformers.models.sam3_tracker_video.modeling_sam3_tracker_video.Sam3TrackerVideoSegmentationOutput",
+          "init_params": [
+            "self",
+            "config",
+            "remove_vision_encoder"
+          ],
+          "init_signature": "(self, config: transformers.models.sam3_tracker_video.configuration_sam3_tracker_video.Sam3TrackerVideoConfig, remove_vision_encoder: bool = False)",
+          "module": "transformers.models.sam3_tracker_video.modeling_sam3_tracker_video",
+          "name": "Sam3TrackerVideoModel"
+        },
+        "Sam3TrackerVideoProcessor": {
+          "forward_params": [
+            "self",
+            "images",
+            "segmentation_maps",
+            "input_points",
+            "input_labels",
+            "input_boxes",
+            "original_sizes",
+            "return_tensors",
+            "kwargs"
+          ],
+          "forward_signature": "(self, images: Union[ForwardRef('PIL.Image.Image'), numpy.ndarray, ForwardRef('torch.Tensor'), list['PIL.Image.Image'], list[numpy.ndarray], list['torch.Tensor'], NoneType] = None, segmentation_maps: Union[ForwardRef('PIL.Image.Image'), numpy.ndarray, ForwardRef('torch.Tensor'), list['PIL.Image.Image'], list[numpy.ndarray], list['torch.Tensor'], NoneType] = None, input_points: list[list[list[list[float]]]] | torch.Tensor | None = None, input_labels: list[list[list[int]]] | torch.Tensor | None = None, input_boxes: list[list[list[float]]] | torch.Tensor | None = None, original_sizes: list[list[float]] | torch.Tensor | None = None, return_tensors: str | transformers.utils.generic.TensorType | None = None, **kwargs) -> transformers.tokenization_utils_base.BatchEncoding",
+          "init_params": [
+            "self",
+            "image_processor",
+            "video_processor",
+            "target_size",
+            "point_pad_value",
+            "kwargs"
+          ],
+          "init_signature": "(self, image_processor, video_processor, target_size: int | None = None, point_pad_value: int = -10, **kwargs)",
+          "module": "transformers.models.sam3_tracker_video.processing_sam3_tracker_video",
+          "name": "Sam3TrackerVideoProcessor"
+        }
+      },
+      "transformers_version": "5.9.0"
+    },
+    "elapsed_seconds": 3.524,
+    "returncode": 0,
+    "success": true
+  },
+  "prompt_kind": "point",
+  "route": "introspect",
+  "runtime_python": "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python",
+  "schema": "org.flux.ai.sam3-export-probe.introspect.v1",
+  "status": "ok",
+  "timestamp": "2026-06-01T11:20:09.571026+00:00"
+}

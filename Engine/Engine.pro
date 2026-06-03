@@ -66,6 +66,8 @@ DEPENDPATH += $$PWD/NatronEngine
 DEPENDPATH += $$PWD/../Global
 
 SOURCES += \
+    AIPaint.cpp \
+    AIPaintContext.cpp \
     AbortableRenderInfo.cpp \
     AppInstance.cpp \
     AppManager.cpp \
@@ -90,6 +92,7 @@ SOURCES += \
     FileDownloader.cpp \
     FileSystemModel.cpp \
     FitCurve.cpp \
+    FluxChannelMerge.cpp \
     FrameEntry.cpp \
     FrameKey.cpp \
     FrameParamsSerialization.cpp \
@@ -211,6 +214,9 @@ SOURCES += \
     $${ENGINE_WRAPPER_DIR}/natronengine_module_wrapper.cpp \
 
 HEADERS += \
+    AIPaint.h \
+    AIPaintContext.h \
+    FluxChannelMerge.h \
     AbortableRenderInfo.h \
     AfterQuitProcessingI.h \
     AppInstance.h \

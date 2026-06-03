@@ -2226,6 +2226,13 @@ Knob<T>::setKeyFrame(const KeyFrame& key,
 
     if (!useGuiCurve) {
         guiCurveCloneInternalCurve(eCurveChangeReasonInternal, view, dimension, reason);
+    }
+
+    if (ret && _signalSlotHandler) {
+        _signalSlotHandler->s_keyFrameSet(key.getTime(), view, dimension, (int)reason, ret);
+    }
+
+    if (!useGuiCurve) {
         evaluateValueChange(dimension, key.getTime(), view, reason);
     }
 

@@ -1,0 +1,161 @@
+{
+  "baseline_summary": {
+    "alpha_output_count": 81,
+    "mask_height": 1056,
+    "mask_width": 2496,
+    "overall_status": "ok",
+    "video_height": 1056,
+    "video_total_frames": 81,
+    "video_width": 2496
+  },
+  "child_elapsed_seconds": 2.586,
+  "export_blockers": [
+    {
+      "description": "InferenceCore accumulates per-object memory (object_logits, long_term_memory, etc.) across frames via repeated step() calls. Each step() depends on state built by previous steps. Export requires capturing the entire step loop or flattening the state machine.",
+      "id": "temporal_state",
+      "severity": "critical"
+    },
+    {
+      "description": "MatAnyone2 inference uses a Python-level frame loop with warmup, first-frame masking, and continuation steps. The loop has branches (first_frame_pred, mask provision) that depend on frame index. Not directly representable as a single static graph.",
+      "id": "python_loop",
+      "severity": "critical"
+    },
+    {
+      "description": "Frames and masks can have arbitrary spatial dimensions. Model internal tensors (object logits, memory) are sized dynamically based on input. ONNX/TorchScript export typically requires fixed or explicitly-dynamic dimension declarations.",
+      "id": "dynamic_size",
+      "severity": "high"
+    },
+    {
+      "description": "InferenceCore stores configuration objects, integer counters, and potentially dicts/lists of tensors as temporal state. Pure tensor-export formats (ONNX, TorchScript) cannot directly represent this mixed Python/tensor state.",
+      "id": "non_tensor_state",
+      "severity": "high"
+    },
+    {
+      "description": "The worker divides pixel values by 255.0 (uint8\u2192float normalization) and permutes HWC\u2192CHW before feeding to model. Export must include or exclude this preprocessing consistently.",
+      "id": "preprocessing",
+      "severity": "medium"
+    },
+    {
+      "description": "Alpha masks are extracted via output_prob_to_mask(), then scaled to 0-255 uint8 and saved as PNG. This post-processing is Python-side and would need separate handling in any exported runtime.",
+      "id": "postprocessing",
+      "severity": "medium"
+    },
+    {
+      "description": "The worker feeds the first frame N=10 times as warmup before real inference. This stabilises temporal memory but adds latency. Export must account for or skip this warmup phase.",
+      "id": "warmup_frames",
+      "severity": "medium"
+    }
+  ],
+  "inference_core": {
+    "available": true,
+    "init_signature": "(self, network: Union[matanyone2.model.matanyone2.MatAnyone2, str], cfg: omegaconf.dictconfig.DictConfig = None, *, image_feature_store: matanyone2.inference.image_feature_store.ImageFeatureStore = None, device: Union[str, torch.device, NoneType] = None)",
+    "init_source_lines": 43,
+    "module": "matanyone2.inference.inference_core",
+    "output_prob_to_mask_signature": "(self, output_prob: torch.Tensor, matting: bool = True) -> torch.Tensor",
+    "qualname": "InferenceCore",
+    "step_signature": "(self, image: torch.Tensor, mask: Optional[torch.Tensor] = None, objects: Optional[List[int]] = None, *, idx_mask: bool = False, end: bool = False, delete_buffer: bool = True, force_permanent: bool = False, matting: bool = True, first_frame_pred: bool = False) -> torch.Tensor"
+  },
+  "matanyone2_class": {
+    "available": true,
+    "bases": [
+      "MatAnyone2",
+      "Module",
+      "PyTorchModelHubMixin",
+      "ModelHubMixin",
+      "object"
+    ],
+    "forward_signature": "(self, *args, **kwargs)",
+    "is_nn_module": true,
+    "module": "matanyone2.model.matanyone2",
+    "qualname": "MatAnyone2"
+  },
+  "matanyone2_import": {
+    "available": true,
+    "package_path": "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/lib64/python3.11/site-packages/matanyone2/__init__.py",
+    "version": null
+  },
+  "model_inspect": {
+    "cfg_keys": [
+      "_content",
+      "_flags_cache",
+      "_metadata",
+      "_parent"
+    ],
+    "forward_signature": "(*args, **kwargs)",
+    "model_class": "MatAnyone2",
+    "model_module": "matanyone2.model.matanyone2",
+    "top_level_children": [
+      {
+        "name": "pixel_encoder",
+        "type": "PixelEncoder"
+      },
+      {
+        "name": "pix_feat_proj",
+        "type": "Conv2d"
+      },
+      {
+        "name": "key_proj",
+        "type": "KeyProjection"
+      },
+      {
+        "name": "mask_encoder",
+        "type": "MaskEncoder"
+      },
+      {
+        "name": "mask_decoder",
+        "type": "MaskDecoder"
+      },
+      {
+        "name": "pixel_fuser",
+        "type": "PixelFeatureFuser"
+      },
+      {
+        "name": "object_transformer",
+        "type": "QueryTransformer"
+      },
+      {
+        "name": "object_summarizer",
+        "type": "ObjectSummarizer"
+      },
+      {
+        "name": "aux_computer",
+        "type": "AuxComputer"
+      },
+      {
+        "name": "temp_sparity",
+        "type": "UncertPred"
+      }
+    ],
+    "top_level_children_count": 10,
+    "total_module_count": 380
+  },
+  "model_load": {
+    "model_dir": "/home/npittas/.local/share/Flux/models/matanyone2/40c894a6f68d1f55c86ab0de838d89dc61587930",
+    "success": true
+  },
+  "model_weights": {
+    "found_dir": "/home/npittas/.local/share/Flux/models/matanyone2/40c894a6f68d1f55c86ab0de838d89dc61587930",
+    "search_base": "/home/npittas/.local/share/Flux/models/matanyone2"
+  },
+  "preflight": {
+    "executable": true,
+    "version": [
+      3,
+      11,
+      15
+    ]
+  },
+  "route": "introspect",
+  "runtime": {
+    "cuda_available": true,
+    "cuda_device_count": 1,
+    "cuda_device_name": "NVIDIA GeForce RTX 4090",
+    "cuda_version": "12.8",
+    "python": "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python",
+    "torch_version": "2.11.0+cu128"
+  },
+  "runtime_python": "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python",
+  "schema": "flux.ai_native_spikes.matanyone2_export_probe.v1",
+  "status": "ok",
+  "timestamp": "2026-06-01T10:50:02.229217+00:00"
+}

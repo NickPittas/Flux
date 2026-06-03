@@ -1,0 +1,21 @@
+# Agent Summary
+
+## Status
+Done
+
+## Task Completed
+Implemented effect drag-to-reorder within a layer's effect stack in the Flux timeline. Added `eModeReorderEffect` interaction mode with click-initiated drag on effect rows (both label and bar areas), Y-position-based target calculation constrained to the same layer, visual drop indicator (blue line with triangular endcaps), semi-transparent overlay on the dragged row, and release-time call to `moveEffectInLayer()` which handles model reorder, mask remapping, and `compositingChanged()` emission for nodegraph reconnection.
+
+## Files Changed
+- `Gui/FluxTimeline.h`: +`eModeReorderEffect` enum value, +3 reorder state members
+- `Gui/FluxTimeline.cpp`: constructor init, mousePressEvent (2 locations), mouseMoveEvent (new case), mouseReleaseEvent (new case), paintEvent (drop indicator), drawLayerBars (drag transparency overlay)
+
+## Validation
+- `git diff —check`: passed
+- `cmake --build build --target Natron -j$(nproc)`: passed, zero warnings
+
+## Blockers
+None.
+
+## Report
+Full report at `.pi/agent-artifacts/worker-effect-reorder-out.md`

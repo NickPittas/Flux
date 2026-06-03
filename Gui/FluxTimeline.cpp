@@ -12,12 +12,15 @@
 #include <QCursor>
 #include <QApplication>
 #include <QFileInfo>
+#include <QDir>
 #include <QMimeData>
 #include <QUrl>
 #include <QMenu>
 #include <QDrag>
 #include <QKeyEvent>
+#include <QShortcut>
 
+#include <algorithm>
 #include <cmath>
 
 #include "Gui/Gui.h"
@@ -42,6 +45,7 @@
 #include "Engine/RotoContext.h"
 #include "Engine/ViewIdx.h"
 #include "Engine/CreateNodeArgs.h"
+#include "Engine/ImagePlaneDesc.h"
 #include "Gui/ViewerTab.h"
 #include "Gui/GuiApplicationManager.h"
 #include "Engine/ViewerInstance.h"
@@ -58,6 +62,32 @@ void syncTextAnimatorPropertyIfNeeded(const FluxKeyframeProperty& prop)
     if (prop.ownerNode && prop.knob && FluxTextAnimatorModel::isAnimatorKnobName(prop.knob->getName())) {
         FluxTextAnimatorModel::syncAnimatorStackToRenderer(prop.ownerNode);
     }
+}
+
+void deactivateFluxOwnedNode(const NodePtr& node)
+{
+    if (node && node->isActivated()) {
+        node->deactivate(std::list<NodePtr>(), true, false, true);
+    }
+}
+
+void deactivateFluxEffectOwnedNodes(FluxEffect& effect)
+{
+    if (effect.aiMaskShuffleNode && effect.aiMaskShuffleNode != effect.node) {
+        deactivateFluxOwnedNode(effect.aiMaskShuffleNode);
+        effect.aiMaskShuffleNode.reset();
+    }
+    if (effect.aiMaskReadNode && effect.aiMaskReadNode != effect.node) {
+        deactivateFluxOwnedNode(effect.aiMaskReadNode);
+        effect.aiMaskReadNode.reset();
+    }
+    if (effect.aiMaskChannelMergeNode && effect.aiMaskChannelMergeNode != effect.node) {
+        deactivateFluxOwnedNode(effect.aiMaskChannelMergeNode);
+        effect.aiMaskChannelMergeNode.reset();
+    }
+    deactivateFluxOwnedNode(effect.node);
+    effect.node.reset();
+    effect.aiMaskChannelMergeNode.reset();
 }
 
 }
@@ -77,6 +107,8 @@ FluxTimeline::FluxTimeline(Gui* gui,
       , _selectedPropertyIndex(-1)
       , _selectedKeyPropertyIndex(-1)
       , _selectedKeyTime(0.0)
+      , _rubberBandStart(0, 0)
+      , _rubberBandCurrent(0, 0)
       , _zoom(10.0)
     , _scrollOffsetX(0)
     , _scrollOffsetY(0)
@@ -98,9 +130,17 @@ FluxTimeline::FluxTimeline(Gui* gui,
     , _dragPropertyIndex(-1)
     , _dragOrigKeyTime(0.0)
     , _dragCurrentKeyTime(0.0)
+    , _snapTolerancePixels(10)
+    , _snapActive(false)
+    , _snapFrame(0)
+    , _snapKind(eSnapNone)
+    , _snapShiftHeld(false)
     , _showKeyframeCurves(false)
     , _ungroupedKeyframeProperties()
     , _rowsDirty(false)
+    , _reorderEffectLayerIndex(-1)
+    , _reorderEffectFromIndex(-1)
+    , _reorderEffectTargetIndex(-1)
     , _isDragOver(false)
       , _dragPreviewPos()
       , _timeline()
@@ -121,6 +161,13 @@ FluxTimeline::FluxTimeline(Gui* gui,
     }
 
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+
+    // Ctrl+Shift+Y shortcut to trigger nodegraph sync
+    QShortcut* syncShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Y), this);
+    syncShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+    QObject::connect(syncShortcut, &QShortcut::activated, this, [this]() {
+        Q_EMIT nodegraphSyncRequested();
+    });
 }
 
 FluxTimeline::~FluxTimeline()
@@ -304,6 +351,7 @@ void
 FluxTimeline::removeLayer(int index)
 {
     if (index >= 0 && index < _layers.size() && !_layers[index].locked) {
+        clearAllViewerInputBadges();
         FluxLayer& layer = _layers[index];
         // Deactivate mask nodes before removing layer
         for (FluxMask& mask : layer.masks) {
@@ -319,21 +367,18 @@ FluxTimeline::removeLayer(int index)
         }
         // Deactivate nodes from the node graph
         if (layer.mergeNode) {
-            layer.mergeNode->deactivate(std::list<NodePtr>(), false, true);
+            deactivateFluxOwnedNode(layer.mergeNode);
             layer.mergeNode.reset();
         }
         for (int e = 0; e < layer.effects.size(); ++e) {
-            if (layer.effects[e].node) {
-                layer.effects[e].node->deactivate(std::list<NodePtr>(), false, true);
-                layer.effects[e].node.reset();
-            }
+            deactivateFluxEffectOwnedNodes(layer.effects[e]);
         }
         if (layer.gizmoNode) {
-            layer.gizmoNode->deactivate(std::list<NodePtr>(), false, true);
+            deactivateFluxOwnedNode(layer.gizmoNode);
             layer.gizmoNode.reset();
         }
         if (layer.readerNode) {
-            layer.readerNode->deactivate(std::list<NodePtr>(), false, true);
+            deactivateFluxOwnedNode(layer.readerNode);
             layer.readerNode.reset();
         }
         _layers.removeAt(index);
@@ -359,6 +404,8 @@ FluxTimeline::duplicateLayer(int index)
     if (!canDuplicateRow(index)) {
         return false;
     }
+
+    clearAllViewerInputBadges();
 
     const FluxLayer& layer = _layers[index];
 
@@ -925,10 +972,10 @@ FluxTimeline::removeEffectFromLayer(int layerIndex, int effectIndex)
         return false;
     }
 
+    clearAllViewerInputBadges();
+
     FluxEffect effect = layer.effects.takeAt(effectIndex);
-    if (effect.node && effect.node->isActivated()) {
-        effect.node->deactivate(std::list<NodePtr>(), false, true);
-    }
+    deactivateFluxEffectOwnedNodes(effect);
 
     // Remove masks targeting the removed effect; deactivate their nodes first
     for (int i = layer.masks.size() - 1; i >= 0; --i) {
@@ -1061,6 +1108,175 @@ FluxTimeline::canAddEffectMask(int layerIndex, int effectIndex) const
     return discoverMaskInput(effectNode) >= 0;
 }
 
+NodePtr
+FluxTimeline::selectedViewerSwitchTargetNode(int viewerInputIndex) const
+{
+    // Input 0 (key 1) is "full comp" — Gui05 resolves via _fluxFinalOutputNode.
+    if (viewerInputIndex == 0) {
+        return NodePtr();
+    }
+
+    if (_selectedType == eFluxSelectionEffect) {
+        if (_selectedLayer < 0 || _selectedLayer >= _layers.size()) {
+            return NodePtr();
+        }
+        const FluxLayer& layer = _layers[_selectedLayer];
+        if (_selectedEffectIndex < 0 || _selectedEffectIndex >= layer.effects.size()) {
+            return NodePtr();
+        }
+        const FluxEffect& effect = layer.effects[_selectedEffectIndex];
+        if (!effect.node || !effect.node->isActivated()) {
+            return NodePtr();
+        }
+        return effect.node;
+    }
+
+    if (_selectedType == eFluxSelectionLayer) {
+        if (_selectedLayer < 0 || _selectedLayer >= _layers.size()) {
+            return NodePtr();
+        }
+        const FluxLayer& layer = _layers[_selectedLayer];
+
+        if (layer.type == QString::fromUtf8("adjustment")) {
+            // Adjustment layers do not have a mergeNode; output is the last enabled active effect.
+            NodePtr lastEnabledEffect;
+            for (int e = 0; e < layer.effects.size(); ++e) {
+                const FluxEffect& fx = layer.effects[e];
+                if (fx.enabled && fx.node && fx.node->isActivated()) {
+                    lastEnabledEffect = fx.node;
+                }
+            }
+            return lastEnabledEffect;
+        }
+
+        // Non-adjustment layer: full layer output is mergeNode->getInput(1), which is
+        // the layer's output pipe after effects/masks, immediately before the Merge.
+        if (!layer.mergeNode || !layer.mergeNode->isActivated()) {
+            return NodePtr();
+        }
+        NodePtr layerOutput = layer.mergeNode->getInput(1);
+        return (layerOutput && layerOutput->isActivated()) ? layerOutput : NodePtr();
+    }
+
+    // Masks, properties, text animators, no selection → no target.
+    return NodePtr();
+}
+
+void
+FluxTimeline::clearAllViewerInputBadges()
+{
+    bool changed = false;
+    for (int i = 0; i < _layers.size(); ++i) {
+        FluxLayer& layer = _layers[i];
+        if (!layer.viewerInputBadges.isEmpty()) {
+            layer.viewerInputBadges.clear();
+            changed = true;
+        }
+        for (int e = 0; e < layer.effects.size(); ++e) {
+            if (!layer.effects[e].viewerInputBadges.isEmpty()) {
+                layer.effects[e].viewerInputBadges.clear();
+                changed = true;
+            }
+        }
+    }
+    if (changed) {
+        update();
+    }
+}
+
+void
+FluxTimeline::clearViewerInputBadge(int viewerInputIndex)
+{
+    const int badgeNum = viewerInputIndex + 1; // 1-based
+    bool changed = false;
+    for (int i = 0; i < _layers.size(); ++i) {
+        FluxLayer& layer = _layers[i];
+        if (layer.viewerInputBadges.removeOne(badgeNum)) {
+            changed = true;
+        }
+        for (int e = 0; e < layer.effects.size(); ++e) {
+            if (layer.effects[e].viewerInputBadges.removeOne(badgeNum)) {
+                changed = true;
+            }
+        }
+    }
+    if (changed) {
+        update();
+    }
+}
+
+void
+FluxTimeline::setViewerInputBadgeForNode(int viewerInputIndex, const NodePtr& node)
+{
+    if (!node) {
+        return;
+    }
+    const int badgeNum = viewerInputIndex + 1; // 1-based
+
+    // Remove this badge from all rows first (one badge per input).
+    clearViewerInputBadge(viewerInputIndex);
+
+    // Check effect rows first (more specific match).
+    for (int i = 0; i < _layers.size(); ++i) {
+        FluxLayer& layer = _layers[i];
+        for (int e = 0; e < layer.effects.size(); ++e) {
+            if (layer.effects[e].node == node) {
+                // For adjustment layers, badge goes on the layer row, not the effect row.
+                if (layer.type == QString::fromUtf8("adjustment")) {
+                    if (!layer.viewerInputBadges.contains(badgeNum)) {
+                        layer.viewerInputBadges.append(badgeNum);
+                    }
+                } else {
+                    if (!layer.effects[e].viewerInputBadges.contains(badgeNum)) {
+                        layer.effects[e].viewerInputBadges.append(badgeNum);
+                    }
+                }
+                update();
+                return;
+            }
+        }
+    }
+
+    // Check if node matches a non-adjustment layer's mergeNode->getInput(1) (full layer output).
+    for (int i = 0; i < _layers.size(); ++i) {
+        FluxLayer& layer = _layers[i];
+        if (layer.type == QString::fromUtf8("adjustment")) {
+            continue;
+        }
+        if (layer.mergeNode && layer.mergeNode->isActivated()) {
+            if (layer.mergeNode->getInput(1) == node) {
+                if (!layer.viewerInputBadges.contains(badgeNum)) {
+                    layer.viewerInputBadges.append(badgeNum);
+                }
+                update();
+                return;
+            }
+        }
+    }
+
+    // Check if node matches an adjustment layer's last enabled active effect.
+    for (int i = 0; i < _layers.size(); ++i) {
+        FluxLayer& layer = _layers[i];
+        if (layer.type != QString::fromUtf8("adjustment")) {
+            continue;
+        }
+        // Find last enabled active effect node
+        NodePtr lastEnabledEffect;
+        for (int e = 0; e < layer.effects.size(); ++e) {
+            if (layer.effects[e].enabled && layer.effects[e].node && layer.effects[e].node->isActivated()) {
+                lastEnabledEffect = layer.effects[e].node;
+            }
+        }
+        if (lastEnabledEffect == node) {
+            if (!layer.viewerInputBadges.contains(badgeNum)) {
+                layer.viewerInputBadges.append(badgeNum);
+            }
+            update();
+            return;
+        }
+    }
+}
+
 bool
 FluxTimeline::addLayerMask(int layerIndex)
 {
@@ -1134,6 +1350,422 @@ FluxTimeline::addEffectMask(int layerIndex, int effectIndex)
     return true;
 }
 
+static int fluxAIChannelIndex(const QString& channel)
+{
+    const QString c = channel.toLower();
+    if (c == QLatin1String("green")) return 1;
+    if (c == QLatin1String("blue")) return 2;
+    if (c == QLatin1String("alpha")) return 3;
+    return 0;
+}
+
+static int fluxAIOperationIndex(const QString& operation)
+{
+    const QString op = operation.toLower();
+    if (op == QLatin1String("copy")) return 0;
+    if (op == QLatin1String("plus")) return 1;
+    if (op == QLatin1String("multiply")) return 2;
+    if (op == QLatin1String("screen")) return 3;
+    if (op == QLatin1String("max")) return 4;
+    if (op == QLatin1String("min")) return 5;
+    if (op == QLatin1String("subtract")) return 6;
+    if (op == QLatin1String("overlay")) return 7;
+    return 4;
+}
+
+static QString fluxAIShuffleChannelExpression(const QString& channel)
+{
+    const QString c = channel.toLower();
+    if (c == QLatin1String("green")) {
+        return QString::fromUtf8("B.uk.co.thefoundry.OfxImagePlaneColour.G");
+    }
+    if (c == QLatin1String("blue")) {
+        return QString::fromUtf8("B.uk.co.thefoundry.OfxImagePlaneColour.B");
+    }
+    if (c == QLatin1String("alpha")) {
+        return QString::fromUtf8("B.uk.co.thefoundry.OfxImagePlaneColour.A");
+    }
+    return QString::fromUtf8("B.uk.co.thefoundry.OfxImagePlaneColour.R");
+}
+
+static QString fluxAIShuffleChannelChoiceId(const QString& channel)
+{
+    const QString c = channel.toLower();
+    if (c == QLatin1String("green")) {
+        return QString::fromUtf8("B.g");
+    }
+    if (c == QLatin1String("blue")) {
+        return QString::fromUtf8("B.b");
+    }
+    if (c == QLatin1String("alpha")) {
+        return QString::fromUtf8("B.a");
+    }
+    return QString::fromUtf8("B.r");
+}
+
+static void fluxSetShuffleChannelKnob(const NodePtr& node,
+                                      const char* knobName,
+                                      const QString& expression,
+                                      const QString& choiceId)
+{
+    KnobStringPtr stringKnob = std::dynamic_pointer_cast<KnobString>(node->getKnobByName(knobName));
+    if (stringKnob) {
+        stringKnob->setValue(expression.toStdString(), ViewSpec::all(), 0, true);
+    }
+
+    KnobChoicePtr choiceKnob = std::dynamic_pointer_cast<KnobChoice>(node->getKnobByName(knobName));
+    if (choiceKnob) {
+        choiceKnob->setValueFromID(expression.toStdString(), 0, true);
+        choiceKnob->setValueFromID(choiceId.toStdString(), 0, true);
+    }
+}
+
+static NodePtr fluxCreateAIReadNode(Gui* gui,
+                                    const QString& relativeMask,
+                                    double sourceFrameRate = 0.0)
+{
+    if (!gui || !gui->getApp() || !gui->getApp()->getProject()) {
+        return NodePtr();
+    }
+    NodeCollectionPtr collection = std::dynamic_pointer_cast<NodeCollection>(gui->getApp()->getProject());
+    if (!collection) {
+        return NodePtr();
+    }
+
+    std::string absMask = QDir(gui->getApp()->getProject()->getProjectPath()).filePath(relativeMask).toStdString();
+    gui->getApp()->getProject()->canonicalizePath(absMask);
+    CreateNodeArgs readArgs(PLUGINID_NATRON_READ, collection);
+    readArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+    readArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+    readArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+    NodePtr readNode = gui->getApp()->createReader(absMask, readArgs);
+
+    // Apply source FPS to the generated Read node so the imported mask sequence
+    // is interpreted at the source media rate (e.g. 16fps) instead of project default.
+    if (readNode && std::isfinite(sourceFrameRate) && sourceFrameRate > 0.0) {
+        KnobIPtr customFpsKnobI = readNode->getKnobByName("customFps");
+        if (customFpsKnobI) {
+            KnobBoolPtr customFpsKnob = std::dynamic_pointer_cast<KnobBool>(customFpsKnobI);
+            if (customFpsKnob) {
+                customFpsKnob->setValue(true, ViewSpec::all(), 0);
+            }
+        }
+        KnobIPtr frameRateKnobI = readNode->getKnobByName("frameRate");
+        if (frameRateKnobI) {
+            KnobDoublePtr frameRateKnob = std::dynamic_pointer_cast<KnobDouble>(frameRateKnobI);
+            if (frameRateKnob) {
+                frameRateKnob->setValue(sourceFrameRate, ViewSpec::all(), 0);
+            }
+        }
+    }
+
+    return readNode;
+}
+
+static NodePtr fluxCreateNode(Gui* gui,
+                              const char* pluginId)
+{
+    if (!gui || !gui->getApp() || !gui->getApp()->getProject()) {
+        return NodePtr();
+    }
+    NodeCollectionPtr collection = std::dynamic_pointer_cast<NodeCollection>(gui->getApp()->getProject());
+    if (!collection) {
+        return NodePtr();
+    }
+
+    CreateNodeArgs args(pluginId, collection);
+    args.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+    args.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+    args.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+    return gui->getApp()->createNode(args);
+}
+
+static void fluxConfigureAIChannelMergeNode(const NodePtr& node,
+                                            const QString& sourceChannel,
+                                            const QString& operation)
+{
+    if (!node) {
+        return;
+    }
+
+    KnobChoicePtr aChannel = std::dynamic_pointer_cast<KnobChoice>(node->getKnobByName("aChannel"));
+    if (aChannel) {
+        aChannel->setValue(fluxAIChannelIndex(sourceChannel), ViewSpec::all(), 0);
+    }
+
+    KnobChoicePtr bChannel = std::dynamic_pointer_cast<KnobChoice>(node->getKnobByName("bChannel"));
+    if (bChannel) {
+        bChannel->setValue(3, ViewSpec::all(), 0); // alpha
+    }
+
+    KnobChoicePtr op = std::dynamic_pointer_cast<KnobChoice>(node->getKnobByName("operation"));
+    if (op) {
+        op->setValue(fluxAIOperationIndex(operation), ViewSpec::all(), 0);
+    }
+
+    KnobChoicePtr out = std::dynamic_pointer_cast<KnobChoice>(node->getKnobByName("outputChannel"));
+    if (out) {
+        out->setValue(3, ViewSpec::all(), 0); // alpha
+    }
+
+    KnobChoicePtr bbox = std::dynamic_pointer_cast<KnobChoice>(node->getKnobByName("bbox"));
+    if (bbox) {
+        bbox->setValue(0, ViewSpec::all(), 0); // B
+    }
+
+    KnobDoublePtr mix = std::dynamic_pointer_cast<KnobDouble>(node->getKnobByName("mix"));
+    if (mix) {
+        mix->setValue(1.0, ViewSpec::all(), 0);
+    }
+}
+
+static void fluxConfigureAIShuffleAlphaNode(const NodePtr& node,
+                                            const QString& sourceChannel)
+{
+    if (!node) {
+        return;
+    }
+
+    const QString expression = fluxAIShuffleChannelExpression(sourceChannel);
+    const QString choiceId = fluxAIShuffleChannelChoiceId(sourceChannel);
+    fluxSetShuffleChannelKnob(node, "outputA", expression, choiceId);
+    fluxSetShuffleChannelKnob(node, "outputAChoice", choiceId, choiceId);
+}
+
+bool
+FluxTimeline::addAIMaskCopyToSelectedLayer(const QString& relativeMask, const QString& manifestRelative, QString* message, const QString& readRelativeMask)
+{
+    Gui* gui = getGui();
+    if (!gui || !gui->getApp() || !gui->getApp()->getProject()) {
+        if (message) *message = QString::fromUtf8("Add Mask failed: app/project unavailable.");
+        return false;
+    }
+
+    const QString readMask = readRelativeMask.isEmpty() ? relativeMask : readRelativeMask;
+
+    const QString sourceChannel = QString::fromUtf8("red");
+    const QString operation = QString::fromUtf8("max");
+
+    if (_selectedType == eFluxSelectionEffect) {
+        if (_selectedLayer < 0 || _selectedLayer >= _layers.size() ||
+            _selectedEffectIndex < 0 || _selectedEffectIndex >= _layers[_selectedLayer].effects.size()) {
+            if (message) *message = QString::fromUtf8("Add Mask failed: select an effect row.");
+            return false;
+        }
+
+        FluxEffect& effect = _layers[_selectedLayer].effects[_selectedEffectIndex];
+        if (!effect.node || discoverMaskInput(effect.node) < 0) {
+            if (message) *message = QString::fromUtf8("Add Mask failed: selected effect has no mask input.");
+            return false;
+        }
+
+        NodePtr readNode = fluxCreateAIReadNode(gui, readMask, _layers[_selectedLayer].sourceFrameRate);
+        NodePtr shuffleNode = effect.aiMaskShuffleNode;
+        if (!shuffleNode || !shuffleNode->isActivated()) {
+            shuffleNode = fluxCreateNode(gui, PLUGINID_OFX_SHUFFLE);
+        }
+        if (!readNode || !shuffleNode) {
+            if (readNode) readNode->deactivate(std::list<NodePtr>(), false, true);
+            if (shuffleNode && shuffleNode != effect.aiMaskShuffleNode) shuffleNode->deactivate(std::list<NodePtr>(), false, true);
+            if (message) *message = QString::fromUtf8("Add Mask failed: could not create AI Read or Shuffle node.");
+            return false;
+        }
+
+        if (effect.aiMaskReadNode) {
+            effect.aiMaskReadNode->deactivate(std::list<NodePtr>(), false, true);
+        }
+        effect.aiMaskReadNode = readNode;
+        effect.aiMaskShuffleNode = shuffleNode;
+        effect.aiMaskUsage = QString::fromUtf8("effect-mask");
+        effect.aiMaskSourceChannel = sourceChannel;
+        effect.aiMaskOperation.clear();
+        // Persist the actual path used by the Read node.  For generated AI
+        // sequences this is the ###### pattern; storing only the first still
+        // frame makes rebuild/reopen recreate a one-frame Read.
+        effect.aiMaskSourceRelativePath = readMask;
+        effect.aiMaskManifestRelativePath = manifestRelative;
+        effect.aiMaskTargetPlane.clear();
+        effect.isAIMaskCopy = false;
+        shuffleNode->setLabel(QString::fromUtf8("AI Effect Mask").toStdString());
+        fluxConfigureAIShuffleAlphaNode(shuffleNode, sourceChannel);
+
+        Q_EMIT effectsChanged(_selectedLayer);
+        Q_EMIT compositingChanged();
+        gui->rebuildCompositingGraph(this);
+
+        const int maskInput = discoverMaskInput(effect.node);
+        const bool shuffleHasRead = (shuffleNode->getInput(0) == readNode);
+        const bool effectHasMask = (maskInput >= 0 && effect.node->getInput(maskInput) == shuffleNode);
+        if (!shuffleHasRead || !effectHasMask) {
+            if (message) *message = QString::fromUtf8("Add Mask failed: AI mask Shuffle was created but effect mask wiring did not verify.");
+            update();
+            return false;
+        }
+
+        update();
+        if (message) *message = QString::fromUtf8("Added AI mask to selected effect.");
+        return true;
+    }
+
+    int targetLayer = _selectedLayer;
+    if (targetLayer < 0 || targetLayer >= _layers.size() || _layers[targetLayer].type == QString::fromUtf8("adjustment") || _layers[targetLayer].type == QString::fromUtf8("null") || _layers[targetLayer].locked) {
+        if (message) *message = QString::fromUtf8("Add Mask failed: select a normal layer or layer effect row in the timeline.");
+        return false;
+    }
+
+    int next = 1;
+    for (int e = 0; e < _layers[targetLayer].effects.size(); ++e) {
+        if (_layers[targetLayer].effects[e].aiMaskUsage == QString::fromUtf8("layer-alpha")) {
+            ++next;
+        }
+    }
+    NodePtr readNode = fluxCreateAIReadNode(gui, readMask, _layers[targetLayer].sourceFrameRate);
+    NodePtr mergeNode = fluxCreateNode(gui, PLUGINID_FLUX_CHANNEL_MERGE);
+    if (!readNode || !mergeNode) {
+        if (readNode) readNode->deactivate(std::list<NodePtr>(), false, true);
+        if (mergeNode) mergeNode->deactivate(std::list<NodePtr>(), false, true);
+        if (message) *message = QString::fromUtf8("Add Mask failed: could not create AI Read or Flux ChannelMerge node.");
+        return false;
+    }
+    mergeNode->setLabel(QString::fromUtf8("AI Mask Alpha %1").arg(next).toStdString());
+    fluxConfigureAIChannelMergeNode(mergeNode, sourceChannel, operation);
+
+    FluxEffect effect;
+    effect.pluginId = QString::fromUtf8(PLUGINID_FLUX_CHANNEL_MERGE);
+    effect.label = QString::fromUtf8("AI Mask Alpha %1").arg(next);
+    effect.node = mergeNode;
+    effect.enabled = true;
+    effect.isAIMaskCopy = false;
+    effect.aiMaskUsage = QString::fromUtf8("layer-alpha");
+    effect.aiMaskSourceChannel = sourceChannel;
+    effect.aiMaskOperation = operation;
+    // Persist the actual path used by the Read node.  For generated AI
+    // sequences this is the ###### pattern; storing only the first still
+    // frame makes rebuild/reopen recreate a one-frame Read.
+    effect.aiMaskSourceRelativePath = readMask;
+    effect.aiMaskManifestRelativePath = manifestRelative;
+    effect.aiMaskReadNode = readNode;
+    effect.aiMaskChannelMergeNode = mergeNode;
+    _layers[targetLayer].effects.append(effect);
+    _layers[targetLayer].expanded = true;
+    _selectedType = eFluxSelectionEffect;
+    _selectedLayer = targetLayer;
+    _selectedEffectIndex = _layers[targetLayer].effects.size() - 1;
+    _selectedMaskIndex = -1;
+    refreshVisibleRows();
+    Q_EMIT effectsChanged(targetLayer);
+    Q_EMIT effectSelected(targetLayer, _selectedEffectIndex);
+    Q_EMIT compositingChanged();
+    if (gui) {
+        gui->rebuildCompositingGraph(this);
+    }
+    const bool hasLayerInput = (mergeNode->getInput(0) != NodePtr());
+    const bool hasMaskInput = (mergeNode->getInput(1) == readNode);
+    if (!hasLayerInput || !hasMaskInput) {
+        qDebug() << "FluxTimeline::addAIMaskCopyToSelectedLayer: wiring verification failed"
+                 << "layer" << targetLayer
+                 << "effect" << _selectedEffectIndex
+                 << "input0" << hasLayerInput
+                 << "input1" << hasMaskInput;
+        if (message) {
+            *message = QString::fromUtf8("Add Mask failed: AI Mask node was created but graph wiring did not connect both layer and mask inputs.");
+        }
+        update();
+        return false;
+    }
+    update();
+    if (message) *message = QString::fromUtf8("Added AI mask alpha replacement.");
+    return true;
+}
+
+bool
+FluxTimeline::replaceSelectedAIMaskCopy(const QString& relativeMask, const QString& manifestRelative, QString* message, const QString& readRelativeMask)
+{
+    if (_selectedType != eFluxSelectionEffect || _selectedLayer < 0 || _selectedLayer >= _layers.size() || _selectedEffectIndex < 0 || _selectedEffectIndex >= _layers[_selectedLayer].effects.size()) {
+        if (message) *message = QString::fromUtf8("Replace Mask failed: select an AI mask effect row or an effect with an AI mask.");
+        return false;
+    }
+    FluxEffect& effect = _layers[_selectedLayer].effects[_selectedEffectIndex];
+    Gui* gui = getGui();
+    if (!gui || !gui->getApp() || !gui->getApp()->getProject()) {
+        if (message) *message = QString::fromUtf8("Replace Mask failed: app/project unavailable.");
+        return false;
+    }
+
+    const QString readMask = readRelativeMask.isEmpty() ? relativeMask : readRelativeMask;
+
+    const bool isLayerAlpha = effect.aiMaskUsage == QString::fromUtf8("layer-alpha");
+    const bool isEffectMask = effect.aiMaskUsage == QString::fromUtf8("effect-mask");
+    const bool isLegacyCopy = effect.isAIMaskCopy;
+    if (!isLayerAlpha && !isEffectMask && !isLegacyCopy) {
+        if (message) *message = QString::fromUtf8("Replace Mask failed: selected row has no AI mask source to replace.");
+        return false;
+    }
+
+    NodePtr newRead = fluxCreateAIReadNode(gui, readMask, _layers[_selectedLayer].sourceFrameRate);
+    if (!newRead) {
+        if (message) *message = QString::fromUtf8("Replace Mask failed: could not create replacement AI Read node.");
+        return false;
+    }
+    if (effect.aiMaskReadNode) effect.aiMaskReadNode->deactivate(std::list<NodePtr>(), false, true);
+    effect.aiMaskReadNode = newRead;
+    // Persist the actual path used by the Read node.  For generated AI
+    // sequences this is the ###### pattern; storing only the first still
+    // frame makes rebuild/reopen recreate a one-frame Read.
+    effect.aiMaskSourceRelativePath = readMask;
+    effect.aiMaskManifestRelativePath = manifestRelative;
+
+    if (isLayerAlpha) {
+        if (effect.aiMaskSourceChannel.isEmpty()) {
+            effect.aiMaskSourceChannel = QString::fromUtf8("red");
+        }
+        effect.aiMaskChannelMergeNode = effect.node;
+    } else if (isEffectMask) {
+        if (effect.aiMaskSourceChannel.isEmpty()) {
+            effect.aiMaskSourceChannel = QString::fromUtf8("red");
+        }
+        if (!effect.aiMaskShuffleNode || !effect.aiMaskShuffleNode->isActivated()) {
+            effect.aiMaskShuffleNode = fluxCreateNode(gui, PLUGINID_OFX_SHUFFLE);
+        }
+        if (!effect.aiMaskShuffleNode) {
+            if (message) *message = QString::fromUtf8("Replace Mask failed: could not create replacement AI Shuffle node.");
+            return false;
+        }
+        effect.aiMaskShuffleNode->setLabel(QString::fromUtf8("AI Effect Mask").toStdString());
+        fluxConfigureAIShuffleAlphaNode(effect.aiMaskShuffleNode, effect.aiMaskSourceChannel);
+    }
+
+    Q_EMIT effectsChanged(_selectedLayer);
+    Q_EMIT compositingChanged();
+    if (gui) {
+        gui->rebuildCompositingGraph(this);
+    }
+
+    bool hasMaskInput = false;
+    if (isEffectMask) {
+        const int maskInput = discoverMaskInput(effect.node);
+        hasMaskInput = (effect.aiMaskShuffleNode && effect.aiMaskShuffleNode->getInput(0) == newRead &&
+                        maskInput >= 0 && effect.node->getInput(maskInput) == effect.aiMaskShuffleNode);
+    } else {
+        hasMaskInput = (effect.node && effect.node->getNInputs() > 1 && effect.node->getInput(1) == newRead);
+    }
+    if (!hasMaskInput) {
+        qDebug() << "FluxTimeline::replaceSelectedAIMaskCopy: wiring verification failed"
+                 << "layer" << _selectedLayer
+                 << "effect" << _selectedEffectIndex
+                 << "usage" << effect.aiMaskUsage
+                 << "mask" << hasMaskInput;
+        if (message) {
+            *message = QString::fromUtf8("Replace Mask failed: AI mask source was updated but graph wiring did not verify.");
+        }
+        update();
+        return false;
+    }
+    update();
+    if (message) *message = QString::fromUtf8("Replaced AI mask source.");
+    return true;
+}
+
 bool
 FluxTimeline::removeMaskFromLayer(int layerIndex, int maskIndex)
 {
@@ -1169,7 +1801,6 @@ FluxTimeline::removeMaskFromLayer(int layerIndex, int maskIndex)
     if (mask.maskNode && mask.maskNode->isActivated()) {
         mask.maskNode->deactivate(std::list<NodePtr>(), false, true);
     }
-    // Layer masks no longer use reformatNode (T064). Deactivate if present (old artifact).
     if (mask.reformatNode && mask.reformatNode->isActivated()) {
         mask.reformatNode->deactivate(std::list<NodePtr>(), false, true);
         mask.reformatNode.reset();
@@ -1351,16 +1982,88 @@ FluxTimeline::paintEvent(QPaintEvent* /*event*/)
     // Panel accent: small, non-invasive color cue.
     painter.fillRect(0, 0, totalRect.width(), 2, QColor(120, 92, 155));
 
-    // Layer bars area
+    // Nodegraph dirty banner
+    {
+        Gui* gui = getGui();
+        if (gui && gui->isFluxNodeGraphDirty()) {
+            painter.fillRect(0, 2, totalRect.width(), 22, QColor(210, 120, 20, 200));
+            painter.setPen(QPen(Qt::white));
+            QFont bannerFont = painter.font();
+            bannerFont.setPixelSize(13);
+            painter.setFont(bannerFont);
+            painter.drawText(QRect(0, 2, totalRect.width(), 22),
+                             Qt::AlignCenter,
+                             QString::fromUtf8("Node graph modified \342\200\224 click here or press Ctrl+Shift+Y to sync"));
+        }
+    }
+
+    // Sync button in ruler area (only when dirty)
+    {
+        Gui* gui = getGui();
+        if (gui && gui->isFluxNodeGraphDirty()) {
+            const int syncBtnW = 48;
+            const int syncBtnH = kTimeRulerHeight - 4;
+            const int syncBtnX = _layerLabelWidth + 4;
+            const int syncBtnY = 2;
+            painter.fillRect(syncBtnX, syncBtnY, syncBtnW, syncBtnH, QColor(210, 120, 20, 220));
+            painter.setPen(QPen(Qt::white));
+            QFont btnFont = painter.font();
+            btnFont.setPixelSize(11);
+            btnFont.setBold(true);
+            painter.setFont(btnFont);
+            painter.drawText(QRect(syncBtnX, syncBtnY, syncBtnW, syncBtnH),
+                             Qt::AlignCenter,
+                             QString::fromUtf8("Sync"));
+        }
+    }
     QRect barsRect(_layerLabelWidth, kTimeRulerHeight, totalRect.width() - _layerLabelWidth, totalRect.height() - kTimeRulerHeight);
     drawLayerBars(painter, barsRect);
 
     // Playhead
     drawPlayhead(painter, totalRect);
 
+    // Snap indicator (guide line)
+    drawSnapIndicator(painter, totalRect);
+
     // T019-B: Drag preview ghost bar
     if (_isDragOver) {
         drawDragPreview(painter, totalRect);
+    }
+
+    // Effect reorder drop indicator
+    if (_interactionMode == eModeReorderEffect &&
+        _reorderEffectLayerIndex >= 0 && _reorderEffectFromIndex >= 0 &&
+        _reorderEffectTargetIndex >= 0 && _reorderEffectFromIndex != _reorderEffectTargetIndex) {
+        // Find the target effect row to draw the insertion line
+        for (int ri = 0; ri < _visibleRows.size(); ++ri) {
+            const FluxVisibleRow& vr = _visibleRows[ri];
+            if (vr.type != eFluxVisibleRowEffect || vr.layerIndex != _reorderEffectLayerIndex) {
+                continue;
+            }
+            if (vr.childIndex == _reorderEffectTargetIndex) {
+                int vrY = kTimeRulerHeight + vr.y - _scrollOffsetY;
+                // Insertion line at top or bottom of target depending on direction
+                int lineY = (_reorderEffectTargetIndex < _reorderEffectFromIndex) ? vrY : vrY + vr.height;
+                painter.setPen(QPen(QColor(100, 180, 255), 2));
+                painter.drawLine(_layerLabelWidth, lineY, totalRect.width(), lineY);
+                // Small triangle indicators at both ends
+                painter.setBrush(QColor(100, 180, 255));
+                painter.setPen(Qt::NoPen);
+                QPolygon triangle;
+                triangle << QPoint(_layerLabelWidth, lineY - 4)
+                         << QPoint(_layerLabelWidth, lineY + 4)
+                         << QPoint(_layerLabelWidth + 6, lineY);
+                painter.drawPolygon(triangle);
+                triangle.clear();
+                int rightX = totalRect.width();
+                triangle << QPoint(rightX, lineY - 4)
+                         << QPoint(rightX, lineY + 4)
+                         << QPoint(rightX - 6, lineY);
+                painter.drawPolygon(triangle);
+                painter.setBrush(Qt::NoBrush);
+                break;
+            }
+        }
     }
 
     // Separator lines
@@ -1413,6 +2116,15 @@ FluxTimeline::paintEvent(QPaintEvent* /*event*/)
             painter.setPen(QColor(70, 70, 75));
             painter.drawRect(toggleRect);
         }
+    }
+
+    // Rubber-band selection rectangle
+    if (_interactionMode == eModeRubberBandSelect) {
+        QRect rubberRect = QRect(_rubberBandStart, _rubberBandCurrent).normalized();
+        painter.setPen(QPen(QColor(100, 150, 255, 180), 1));
+        painter.setBrush(QColor(100, 150, 255, 40));
+        painter.drawRect(rubberRect);
+        painter.setBrush(Qt::NoBrush);
     }
 }
 
@@ -1561,9 +2273,41 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             font.setPointSize(9);
             painter.setFont(font);
             QFontMetrics fm(font);
-            int availableWidth = nameRect.width() - textLeftPad - 4;
+            // Badge width reservation for viewer-input badges
+            int badgeReserveW = 0;
+            if (!layer.viewerInputBadges.isEmpty()) {
+                badgeReserveW = layer.viewerInputBadges.size() * 16 + (layer.viewerInputBadges.size() - 1) * 2 + 4;
+            }
+
+            int availableWidth = nameRect.width() - textLeftPad - 4 - badgeReserveW;
             QString displayName = fm.elidedText(layer.name, Qt::ElideRight, qMax(0, availableWidth));
-            painter.drawText(nameRect.adjusted(textLeftPad, 0, -4, 0), Qt::AlignVCenter | Qt::AlignLeft, displayName);
+            painter.drawText(nameRect.adjusted(textLeftPad, 0, -4 - badgeReserveW, 0), Qt::AlignVCenter | Qt::AlignLeft, displayName);
+
+            // ── Viewer-input badges on layer row ──
+            if (!layer.viewerInputBadges.isEmpty()) {
+                QFont badgeFont;
+                badgeFont.setPointSize(7);
+                badgeFont.setBold(true);
+                painter.setFont(badgeFont);
+                QFontMetrics bfm(badgeFont);
+                int bx = nameRect.right() - 4;
+                for (int bi = layer.viewerInputBadges.size() - 1; bi >= 0; --bi) {
+                    int bnum = layer.viewerInputBadges[bi];
+                    QString btxt = QString::number(bnum);
+                    int bw = qMax(14, bfm.horizontalAdvance(btxt) + 6);
+                    bx -= bw;
+                    QRect badgeRect(bx, y + (rowHeight - 14) / 2, bw, 14);
+                    painter.setPen(Qt::NoPen);
+                    painter.setBrush(QColor(40, 90, 170));
+                    painter.drawRoundedRect(badgeRect, 3, 3);
+                    painter.setBrush(Qt::NoBrush);
+                    painter.setPen(Qt::white);
+                    painter.drawText(badgeRect, Qt::AlignCenter, btxt);
+                    bx -= 2; // gap between badges
+                }
+                // Restore font
+                painter.setFont(font);
+            }
 
             // ── L/V/S buttons in control column at fixed positions ──
             QFont smallFont;
@@ -1760,25 +2504,73 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             QColor rowBg = isEffectSelected ? QColor(46, 93, 174) : QColor(33, 33, 37);
             painter.fillRect(0, y, width(), rowHeight, rowBg);
 
+            // Semi-transparent overlay for the effect being dragged
+            if (_interactionMode == eModeReorderEffect &&
+                _reorderEffectLayerIndex == li && _reorderEffectFromIndex == ei &&
+                _reorderEffectFromIndex != _reorderEffectTargetIndex) {
+                painter.fillRect(0, y, width(), rowHeight, QColor(0, 0, 0, 80));
+            }
+
             // Separator across timeline area
             painter.setPen(QColor(48, 48, 52));
             painter.drawLine(_layerLabelWidth, y + rowHeight, width(), y + rowHeight);
 
+            // Enable/disable button in the fixed control column (aligned with layer V column)
+            QRect enableRect(20, y + 4, 16, qMax(10, rowHeight - 8));
+            painter.setPen(effect.enabled ? QColor(120, 190, 120) : QColor(75, 75, 82));
+            painter.setBrush(effect.enabled ? QColor(44, 72, 44) : QColor(38, 38, 42));
+            painter.drawRoundedRect(enableRect, 2, 2);
+            painter.setPen(effect.enabled ? QColor(210, 240, 210) : QColor(105, 105, 112));
+            painter.drawText(enableRect, Qt::AlignCenter, QString::fromUtf8("V"));
+
             // Indented effect label in name column
             int labelX = kControlColumnWidth + kEffectIndent;
-            QRect effectLabelRect(labelX, y, _layerLabelWidth - labelX - 4, rowHeight);
+
+            // Badge width reservation for effect viewer-input badges
+            int effectBadgeReserveW = 0;
+            if (!effect.viewerInputBadges.isEmpty()) {
+                effectBadgeReserveW = effect.viewerInputBadges.size() * 16 + (effect.viewerInputBadges.size() - 1) * 2 + 4;
+            }
+
+            QRect effectLabelRect(labelX, y, _layerLabelWidth - labelX - 4 - effectBadgeReserveW, rowHeight);
             QFont effectFont;
             effectFont.setPointSize(8);
             painter.setFont(effectFont);
-            painter.setPen(isEffectSelected ? Qt::white : QColor(170, 170, 180));
+            painter.setPen(isEffectSelected ? Qt::white : (effect.enabled ? QColor(170, 170, 180) : QColor(95, 95, 105)));
             QFontMetrics efm(effectFont);
             int effectAvailW = effectLabelRect.width();
             QString effectLabel = efm.elidedText(effect.label, Qt::ElideRight, qMax(0, effectAvailW));
 
             // Small "fx" glyph prefix
-            painter.setPen(isEffectSelected ? QColor(200, 200, 255) : QColor(120, 140, 180));
+            painter.setPen(isEffectSelected ? QColor(200, 200, 255) : (effect.enabled ? QColor(120, 140, 180) : QColor(70, 80, 105)));
             painter.drawText(effectLabelRect, Qt::AlignVCenter | Qt::AlignLeft,
                              QString::fromUtf8("\xE2\x97\x8F ") + effectLabel);
+
+            // ── Viewer-input badges on effect row ──
+            if (!effect.viewerInputBadges.isEmpty()) {
+                QFont badgeFont;
+                badgeFont.setPointSize(7);
+                badgeFont.setBold(true);
+                painter.setFont(badgeFont);
+                QFontMetrics bfm(badgeFont);
+                int badgeAreaRight = _layerLabelWidth - 4;
+                int bx = badgeAreaRight;
+                for (int bi = effect.viewerInputBadges.size() - 1; bi >= 0; --bi) {
+                    int bnum = effect.viewerInputBadges[bi];
+                    QString btxt = QString::number(bnum);
+                    int bw = qMax(14, bfm.horizontalAdvance(btxt) + 6);
+                    bx -= bw;
+                    QRect badgeRect(bx, y + (rowHeight - 14) / 2, bw, 14);
+                    painter.setPen(Qt::NoPen);
+                    painter.setBrush(QColor(40, 90, 170));
+                    painter.drawRoundedRect(badgeRect, 3, 3);
+                    painter.setBrush(Qt::NoBrush);
+                    painter.setPen(Qt::white);
+                    painter.drawText(badgeRect, Qt::AlignCenter, btxt);
+                    bx -= 2; // gap between badges
+                }
+                painter.setFont(effectFont);
+            }
 
             // Separator in name column
             painter.setPen(QColor(48, 48, 52));
@@ -1804,6 +2596,14 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             painter.setPen(QColor(44, 44, 48));
             painter.drawLine(_layerLabelWidth, y + rowHeight, width(), y + rowHeight);
 
+            // Enable/disable button in the fixed control column (aligned with layer V column)
+            QRect enableRect(20, y + 4, 16, qMax(10, rowHeight - 8));
+            painter.setPen(mask.enabled ? QColor(100, 175, 140) : QColor(70, 70, 76));
+            painter.setBrush(mask.enabled ? QColor(36, 66, 54) : QColor(36, 36, 40));
+            painter.drawRoundedRect(enableRect, 2, 2);
+            painter.setPen(mask.enabled ? QColor(205, 235, 220) : QColor(100, 100, 108));
+            painter.drawText(enableRect, Qt::AlignCenter, QString::fromUtf8("V"));
+
             // Deeper indent than effect rows
             int labelX = kControlColumnWidth + kEffectIndent + 12;
             QRect maskLabelRect(labelX, y, _layerLabelWidth - labelX - 4, rowHeight);
@@ -1815,7 +2615,7 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             QString maskLabel = mask.name.isEmpty() ? QString::fromUtf8("Mask") : mask.name;
             maskLabel = mfm.elidedText(maskLabel, Qt::ElideRight, qMax(0, maskAvailW));
 
-            painter.setPen(isMaskSelected ? QColor(200, 200, 255) : QColor(100, 160, 140));
+            painter.setPen(isMaskSelected ? QColor(200, 200, 255) : (mask.enabled ? QColor(100, 160, 140) : QColor(70, 95, 88)));
             painter.drawText(maskLabelRect, Qt::AlignVCenter | Qt::AlignLeft,
                              QString::fromUtf8("M ") + maskLabel);
 
@@ -1874,8 +2674,12 @@ FluxTimeline::drawLayerBars(QPainter& painter,
                                   _dragPropertyIndex == visibleRow.propertyIndex);
 
             for (const FluxKeyframeKey& key : keys) {
-                // Skip the key being dragged — we draw it separately at the drag position
-                if (isThisDragRow && std::abs(key.time - _dragOrigKeyTime) < 0.5) {
+                // Skip the key being dragged (primary or multi-selected) — we draw ghosts
+                bool isDraggedKey = false;
+                if (_interactionMode == eModeDragKeyframe) {
+                    isDraggedKey = isKeyframeSelected(visibleRow.propertyIndex, key.time);
+                }
+                if (isDraggedKey) {
                     // Draw ghost at original position
                     int keyX = frameToX(static_cast<int>(key.time + 0.5));
                     if (keyX >= timelineLeft - diamondSize && keyX <= timelineRight + diamondSize) {
@@ -1908,9 +2712,7 @@ FluxTimeline::drawLayerBars(QPainter& painter,
                 diamond.lineTo(keyX - diamondSize, diamondY);
                 diamond.closeSubpath();
 
-                const bool isSelectedKey = (_selectedType == eFluxSelectionProperty &&
-                                            _selectedKeyPropertyIndex == visibleRow.propertyIndex &&
-                                            std::abs(key.time - _selectedKeyTime) < 0.5);
+                const bool isSelectedKey = isKeyframeSelected(visibleRow.propertyIndex, key.time);
 
                 if (key.isPartial) {
                     // Hollow diamond (partial grouped keys)
@@ -2011,8 +2813,30 @@ FluxTimeline::drawLayerBars(QPainter& painter,
                 }
             }
 
-            // Draw the dragged key at its current target position
-            if (isThisDragRow) {
+            // Draw all dragged selected keys at their current target positions
+            if (_interactionMode == eModeDragKeyframe && !_selectedKeys.isEmpty()) {
+                double delta = _dragCurrentKeyTime - _dragOrigKeyTime;
+                for (const SelectedKeyframe& sk : _selectedKeys) {
+                    if (sk.propertyIndex != visibleRow.propertyIndex) {
+                        continue;
+                    }
+                    double newTime = sk.keyTime + delta;
+                    int dragX = frameToX(static_cast<int>(newTime + 0.5));
+                    if (dragX >= timelineLeft - diamondSize && dragX <= timelineRight + diamondSize) {
+                        QPainterPath diamond;
+                        diamond.moveTo(dragX, diamondY - diamondSize);
+                        diamond.lineTo(dragX + diamondSize, diamondY);
+                        diamond.lineTo(dragX, diamondY + diamondSize);
+                        diamond.lineTo(dragX - diamondSize, diamondY);
+                        diamond.closeSubpath();
+                        painter.setPen(QPen(QColor(255, 220, 80), 2));
+                        painter.setBrush(QColor(255, 220, 80));
+                        painter.drawPath(diamond);
+                        painter.setBrush(Qt::NoBrush);
+                    }
+                }
+            } else if (isThisDragRow) {
+                // Single keyframe drag (no multi-select)
                 int dragX = frameToX(static_cast<int>(_dragCurrentKeyTime + 0.5));
                 if (dragX >= timelineLeft - diamondSize && dragX <= timelineRight + diamondSize) {
                     QPainterPath diamond;
@@ -2132,6 +2956,7 @@ FluxTimeline::rebuildVisibleRows()
     _propertyRows.clear();
     _selectedKeyPropertyIndex = -1;
     _selectedKeyTime = 0.0;
+    _selectedKeys.clear();
     int y = 0;
     for (int i = 0; i < _layers.size(); ++i) {
         FluxVisibleRow row;
@@ -2506,6 +3331,251 @@ FluxTimeline::onNativeKeyframeChanged()
 }
 
 bool
+FluxTimeline::isKeyframeSelected(int propertyIndex, double keyTime) const
+{
+    for (const SelectedKeyframe& sk : _selectedKeys) {
+        if (sk.propertyIndex == propertyIndex && std::abs(sk.keyTime - keyTime) < 0.5) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void
+FluxTimeline::toggleKeyframeSelection(int propertyIndex, double keyTime)
+{
+    for (int i = 0; i < _selectedKeys.size(); ++i) {
+        if (_selectedKeys[i].propertyIndex == propertyIndex &&
+            std::abs(_selectedKeys[i].keyTime - keyTime) < 0.5) {
+            _selectedKeys.removeAt(i);
+            return;
+        }
+    }
+    _selectedKeys.append(SelectedKeyframe(propertyIndex, keyTime));
+}
+
+void
+FluxTimeline::clearKeyframeSelection()
+{
+    _selectedKeys.clear();
+    _selectedKeyPropertyIndex = -1;
+    _selectedKeyTime = 0.0;
+}
+
+void
+FluxTimeline::copySelectedKeyframes()
+{
+    _keyframeClipboard.clear();
+
+    if (_selectedKeys.isEmpty()) {
+        return;
+    }
+
+    // Determine earliest source time across all selected keys
+    double earliest = 1e30;
+
+    // Phase 1: collect ClipboardKeyEntry for each selected non-roto key
+    for (const SelectedKeyframe& sk : _selectedKeys) {
+        if (sk.propertyIndex < 0 || sk.propertyIndex >= _propertyRows.size()) {
+            continue;
+        }
+        const FluxKeyframeProperty& prop = _propertyRows[sk.propertyIndex];
+        if (prop.isRotoAggregate || !prop.knob) {
+            continue;
+        }
+
+        double roundedTime = std::round(sk.keyTime);
+
+        for (int d : prop.dims) {
+            std::shared_ptr<Curve> curve = prop.knob->getCurve(ViewSpec::current(), d);
+            if (!curve) {
+                continue;
+            }
+            KeyFrame kf;
+            if (!curve->getKeyFrameWithTime(roundedTime, &kf)) {
+                continue;
+            }
+
+            ClipboardKeyEntry entry;
+            entry.ownerNode = prop.ownerNode;
+            entry.knob = prop.knob;
+            entry.dim = d;
+            entry.keyFrame = kf; // preserves value, interpolation, tangents
+            entry.sourceTime = roundedTime;
+            _keyframeClipboard.entries.append(entry);
+
+            if (roundedTime < earliest) {
+                earliest = roundedTime;
+            }
+        }
+    }
+
+    if (_keyframeClipboard.isEmpty()) {
+        return;
+    }
+
+    _keyframeClipboard.earliestSourceTime = earliest;
+}
+
+void
+FluxTimeline::pasteKeyframes()
+{
+    if (_keyframeClipboard.isEmpty()) {
+        return;
+    }
+
+    // basePasteFrame is the current playhead position
+    double basePasteFrame = static_cast<double>(_currentFrame);
+    double earliest = _keyframeClipboard.earliestSourceTime;
+
+    // Batch all knob changes to avoid per-key re-evaluations
+    // Group by knob for begin/end changes
+    std::set<KnobI*> touchedKnobs;
+    for (const ClipboardKeyEntry& e : _keyframeClipboard.entries) {
+        if (e.knob) {
+            touchedKnobs.insert(e.knob.get());
+        }
+    }
+    for (KnobI* knob : touchedKnobs) {
+        knob->beginChanges();
+    }
+
+    bool anyPasted = false;
+
+    for (const ClipboardKeyEntry& e : _keyframeClipboard.entries) {
+        if (!e.knob) {
+            continue;
+        }
+
+        double relativeOffset = e.sourceTime - earliest;
+        double targetTime = basePasteFrame + relativeOffset;
+
+        // Create a copy of the stored keyframe with time adjusted to target
+        KeyFrame pastedKey = e.keyFrame;
+        pastedKey.setTime(targetTime);
+
+        // Use the exact KeyFrame overload to preserve value/interpolation/tangents
+        e.knob->onKeyFrameSet(targetTime, ViewIdx(0), pastedKey, e.dim);
+        anyPasted = true;
+    }
+
+    for (KnobI* knob : touchedKnobs) {
+        knob->endChanges();
+    }
+
+    if (!anyPasted) {
+        return;
+    }
+
+    // Sync text animators for affected knobs
+    std::set<Node*> syncedNodes;
+    for (const ClipboardKeyEntry& e : _keyframeClipboard.entries) {
+        if (e.ownerNode && e.knob && !syncedNodes.count(e.ownerNode.get())) {
+            if (FluxTextAnimatorModel::isAnimatorKnobName(e.knob->getName())) {
+                FluxTextAnimatorModel::syncAnimatorStackToRenderer(e.ownerNode);
+            }
+            syncedNodes.insert(e.ownerNode.get());
+        }
+    }
+
+    // Save clipboard info for selection remap after rebuild
+    struct PastedKeyIdentity {
+        NodePtr ownerNode;
+        KnobIPtr knob;
+        double targetTime;
+    };
+    QList<PastedKeyIdentity> pastedIdentities;
+    for (const ClipboardKeyEntry& e : _keyframeClipboard.entries) {
+        double relativeOffset = e.sourceTime - earliest;
+        double targetTime = basePasteFrame + relativeOffset;
+        PastedKeyIdentity id;
+        id.ownerNode = e.ownerNode;
+        id.knob = e.knob;
+        id.targetTime = targetTime;
+        pastedIdentities.append(id);
+    }
+
+    rebuildVisibleRows();
+
+    // Select the pasted keys by mapping ownerNode+knob+targetTime to new property indices
+    _selectedKeys.clear();
+    for (const PastedKeyIdentity& pid : pastedIdentities) {
+        for (int pi = 0; pi < _propertyRows.size(); ++pi) {
+            const FluxKeyframeProperty& prop = _propertyRows[pi];
+            if (prop.ownerNode == pid.ownerNode && prop.knob == pid.knob) {
+                // Check if this property actually has a key at the target time
+                // (avoid duplicates in selection from multiple dims)
+                bool alreadySelected = false;
+                for (const SelectedKeyframe& sk : _selectedKeys) {
+                    if (sk.propertyIndex == pi && std::abs(sk.keyTime - pid.targetTime) < 0.5) {
+                        alreadySelected = true;
+                        break;
+                    }
+                }
+                if (!alreadySelected) {
+                    _selectedKeys.append(SelectedKeyframe(pi, pid.targetTime));
+                }
+                break;
+            }
+        }
+    }
+
+    // Update backward-compat single selection
+    if (!_selectedKeys.isEmpty()) {
+        _selectedKeyPropertyIndex = _selectedKeys[0].propertyIndex;
+        _selectedKeyTime = _selectedKeys[0].keyTime;
+    }
+
+    Q_EMIT compositingChanged();
+    Q_EMIT frameChanged(_currentFrame);
+    update();
+}
+
+void
+FluxTimeline::selectKeyframesInRect(const QRect& screenRect)
+{
+    // Normalize the rect (handle drag in any direction)
+    QRect normalized = screenRect.normalized();
+
+    int leftFrame = xToFrame(normalized.left());
+    int rightFrame = xToFrame(normalized.right());
+
+    for (int pi = 0; pi < _propertyRows.size(); ++pi) {
+        // Find the visible row for this property
+        int rowY = -1;
+        int rowH = kPropertyRowHeight;
+        for (const FluxVisibleRow& vr : _visibleRows) {
+            if (vr.type == eFluxVisibleRowProperty && vr.propertyIndex == pi) {
+                rowY = vr.y;
+                rowH = vr.height;
+                break;
+            }
+        }
+        if (rowY < 0) {
+            continue;
+        }
+
+        // Check vertical overlap (convert rowY to screen coordinates)
+        int screenRowY = kTimeRulerHeight + rowY - _scrollOffsetY;
+        if (screenRowY + rowH < normalized.top() || screenRowY > normalized.bottom()) {
+            continue;
+        }
+
+        // Find keyframes within horizontal range
+        const FluxKeyframeProperty& prop = _propertyRows[pi];
+        QList<FluxKeyframeKey> keys = keysForProperty(prop);
+        for (const FluxKeyframeKey& key : keys) {
+            int kf = static_cast<int>(key.time + 0.5);
+            if (kf >= leftFrame && kf <= rightFrame) {
+                if (!isKeyframeSelected(pi, key.time)) {
+                    _selectedKeys.append(SelectedKeyframe(pi, key.time));
+                }
+            }
+        }
+    }
+}
+
+bool
 FluxTimeline::layerHasExpandableChildren(int layerIndex) const
 {
     if (layerIndex < 0 || layerIndex >= _layers.size()) {
@@ -2624,6 +3694,91 @@ FluxTimeline::fitToView()
     _scrollOffsetY = 0;
     updateZoom();
     update();
+}
+
+bool
+FluxTimeline::addEffectByPluginId(const QString& pluginId, int major)
+{
+    // Same rejection logic as showNodeCreationDialog lambda
+    if (pluginId.isEmpty()) {
+        return false;
+    }
+    if (pluginId.contains(QString::fromUtf8("Read"), Qt::CaseInsensitive) ||
+        pluginId.contains(QString::fromUtf8("Write"), Qt::CaseInsensitive) ||
+        pluginId.contains(QString::fromUtf8("Merge"), Qt::CaseInsensitive) ||
+        pluginId.contains(QString::fromUtf8("Viewer"), Qt::CaseInsensitive)) {
+        return false;
+    }
+
+    int targetLayer = _selectedLayer;
+    if (targetLayer < 0 || targetLayer >= _layers.size()) {
+        return false;
+    }
+    if (!canAddEffectToRow(targetLayer)) {
+        return false;
+    }
+
+    Gui* gui = getGui();
+    if (!gui || !gui->getApp()) {
+        return false;
+    }
+    NodeCollectionPtr collection = std::dynamic_pointer_cast<NodeCollection>(gui->getApp()->getProject());
+    if (!collection) {
+        return false;
+    }
+
+    CreateNodeArgs args(pluginId.toStdString(), collection);
+    args.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+    args.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+    args.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+    args.setProperty<bool>(kCreateNodeArgsPropSilent, true);
+    if (major >= 0) {
+        args.setProperty<int>(kCreateNodeArgsPropPluginVersion, major, 0);
+    }
+
+    NodePtr node = gui->getApp()->createNode(args);
+    if (!node) {
+        fprintf(stderr, "FLUX ERROR: Failed to create effect node '%s' from toolbar\n",
+                pluginId.toStdString().c_str());
+        return false;
+    }
+    if (node->getNInputs() < 1) {
+        fprintf(stderr, "FLUX WARNING: plugin '%s' has no stack input; rejecting toolbar effect\n",
+                pluginId.toStdString().c_str());
+        node->deactivate(std::list<NodePtr>(), false, true);
+        return false;
+    }
+
+    // Do not force-open the settings panel from the toolbar action path.
+    // This path runs while Qt's tool-button menu activation stack is active;
+    // opening the panel immediately can assert in ViewerTab::setPluginViewerInterface()
+    // when it tries to insert the node viewer context. The node is still added to
+    // the Flux layer/effect model; selecting it can open/show its controls through
+    // the normal timeline/properties path.
+
+    FluxEffect effect;
+    effect.pluginId = pluginId;
+    effect.label = QString::fromStdString(node->getLabel());
+    effect.node = node;
+    effect.enabled = true;
+
+    _layers[targetLayer].effects.append(effect);
+    _layers[targetLayer].expanded = true;
+    refreshVisibleRows();
+    _selectedType = eFluxSelectionLayer;
+    _selectedLayer = targetLayer;
+    _selectedEffectIndex = -1;
+    _selectedMaskIndex = -1;
+    _selectedPropertyIndex = -1;
+    Q_EMIT layerSelected(targetLayer);
+    Q_EMIT effectsChanged(targetLayer);
+    Q_EMIT compositingChanged();
+    update();
+
+    fprintf(stderr, "FLUX: Added effect '%s' to layer %d '%s' from toolbar\n",
+            effect.label.toStdString().c_str(), targetLayer,
+            _layers[targetLayer].name.toStdString().c_str());
+    return true;
 }
 
 void
@@ -2829,6 +3984,32 @@ FluxTimeline::hitTest(int x,
 void
 FluxTimeline::mousePressEvent(QMouseEvent* event)
 {
+    // ── Dirty-banner click detection (before all other handlers) ──
+    if (event->button() == Qt::LeftButton) {
+        const int mx = event->pos().x();
+        const int my = event->pos().y();
+
+        // Check dirty banner (same geometry as painted in paintEvent: y=2, h=22, full width)
+        Gui* gui = getGui();
+        if (gui && gui->isFluxNodeGraphDirty()) {
+            if (my >= 2 && my < 24 && mx >= 0) {
+                Q_EMIT nodegraphSyncRequested();
+                return;
+            }
+
+            // Check Sync button in ruler area (syncBtnX=layerLabelWidth+4, syncBtnY=2, W=48, H=rulerHeight-4)
+            const int syncBtnW = 48;
+            const int syncBtnH = kTimeRulerHeight - 4;
+            const int syncBtnX = _layerLabelWidth + 4;
+            const int syncBtnY = 2;
+            if (mx >= syncBtnX && mx < syncBtnX + syncBtnW &&
+                my >= syncBtnY && my < syncBtnY + syncBtnH) {
+                Q_EMIT nodegraphSyncRequested();
+                return;
+            }
+        }
+    }
+
     // ── Middle button or Alt+Left: start pan ──
     if (event->button() == Qt::MiddleButton ||
         (event->button() == Qt::LeftButton && (event->modifiers() & Qt::AltModifier))) {
@@ -2838,6 +4019,8 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
         _panStartScrollX = _scrollOffsetX;
         _panStartScrollY = _scrollOffsetY;
         setCursor(Qt::ClosedHandCursor);
+        clearSnapState();
+        _snapShiftHeld = false;
         return;
     }
 
@@ -2871,6 +4054,8 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
         _resizeStartX = x;
         _resizeStartWidth = _layerLabelWidth;
         setCursor(Qt::SplitHCursor);
+        clearSnapState();
+        _snapShiftHeld = false;
         return;
     }
 
@@ -2883,6 +4068,8 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             _timeline->seekFrame(SequenceTime(_currentFrame), false, nullptr, eTimelineChangeReasonUserSeek);
         }
         Q_EMIT frameChanged(_currentFrame);
+        clearSnapState();
+        _snapShiftHeld = false;
         update();
         return;
     }
@@ -2903,13 +4090,35 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
         }
 
         if (clickRow->type == eFluxVisibleRowEffect) {
-            // Select effect sub-row in label area
+            int li = clickRow->layerIndex;
+            int ei = clickRow->childIndex;
+            QRect enableRect(20, kTimeRulerHeight + clickRow->y - _scrollOffsetY + 4, 16, qMax(10, clickRow->height - 8));
+            if (enableRect.contains(x, y) && li >= 0 && li < _layers.size() && ei >= 0 && ei < _layers[li].effects.size()) {
+                _layers[li].effects[ei].enabled = !_layers[li].effects[ei].enabled;
+                Q_EMIT effectsChanged(li);
+                Q_EMIT compositingChanged();
+                update();
+                return;
+            }
+
+            // Select effect sub-row in label area and prepare for potential reorder drag
             _selectedType = eFluxSelectionEffect;
-            _selectedLayer = clickRow->layerIndex;
-            _selectedEffectIndex = clickRow->childIndex;
+            _selectedLayer = li;
+            _selectedEffectIndex = ei;
             _selectedMaskIndex = -1;
             _selectedPropertyIndex = -1;
             Q_EMIT effectSelected(_selectedLayer, _selectedEffectIndex);
+
+            // Start potential effect reorder (only if layer not locked and layer has >1 effect)
+            if (!_layers[li].locked && _layers[li].effects.size() > 1) {
+                _interactionMode = eModeReorderEffect;
+                _interactionLayerIndex = li;
+                _interactionStartX = x;
+                _interactionStartY = y;
+                _reorderEffectLayerIndex = li;
+                _reorderEffectFromIndex = ei;
+                _reorderEffectTargetIndex = ei;
+            }
             update();
             return;
         }
@@ -2926,11 +4135,22 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
         }
 
         if (clickRow->type == eFluxVisibleRowMask) {
+            int li = clickRow->layerIndex;
+            int mi = clickRow->maskIndex;
+            QRect enableRect(20, kTimeRulerHeight + clickRow->y - _scrollOffsetY + 4, 16, qMax(10, clickRow->height - 8));
+            if (enableRect.contains(x, y) && li >= 0 && li < _layers.size() && mi >= 0 && mi < _layers[li].masks.size()) {
+                _layers[li].masks[mi].enabled = !_layers[li].masks[mi].enabled;
+                Q_EMIT masksChanged(li);
+                Q_EMIT compositingChanged();
+                update();
+                return;
+            }
+
             // Select mask sub-row in label area
             _selectedType = eFluxSelectionMask;
-            _selectedLayer = clickRow->layerIndex;
+            _selectedLayer = li;
             _selectedEffectIndex = clickRow->effectIndex;
-            _selectedMaskIndex = clickRow->maskIndex;
+            _selectedMaskIndex = mi;
             _selectedPropertyIndex = -1;
             Q_EMIT maskSelected(_selectedLayer, _selectedMaskIndex);
             update();
@@ -2946,6 +4166,7 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             _selectedPropertyIndex = clickRow->propertyIndex;
             _selectedKeyPropertyIndex = -1;
             _selectedKeyTime = 0.0;
+            _selectedKeys.clear();
             update();
             return;
         }
@@ -3021,12 +4242,25 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
         // Check if an effect or mask sub-row was clicked (no bar interactions)
         const FluxVisibleRow* clickRow = yToRow(y);
         if (clickRow && clickRow->type == eFluxVisibleRowEffect) {
+            int li = clickRow->layerIndex;
+            int ei = clickRow->childIndex;
             _selectedType = eFluxSelectionEffect;
-            _selectedLayer = clickRow->layerIndex;
-            _selectedEffectIndex = clickRow->childIndex;
+            _selectedLayer = li;
+            _selectedEffectIndex = ei;
             _selectedMaskIndex = -1;
             _selectedPropertyIndex = -1;
             Q_EMIT effectSelected(_selectedLayer, _selectedEffectIndex);
+
+            // Start potential effect reorder (only if layer not locked and layer has >1 effect)
+            if (li >= 0 && li < _layers.size() && !_layers[li].locked && _layers[li].effects.size() > 1) {
+                _interactionMode = eModeReorderEffect;
+                _interactionLayerIndex = li;
+                _interactionStartX = x;
+                _interactionStartY = y;
+                _reorderEffectLayerIndex = li;
+                _reorderEffectFromIndex = ei;
+                _reorderEffectTargetIndex = ei;
+            }
             update();
             return;
         }
@@ -3058,6 +4292,7 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
                 return;
             }
             const FluxKeyframeProperty& prop = _propertyRows[propIdx];
+            bool ctrlHeld = (QApplication::keyboardModifiers() & Qt::ControlModifier) != 0;
 
             // Select this property row
             _selectedType = eFluxSelectionProperty;
@@ -3065,23 +4300,53 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             _selectedEffectIndex = -1;
             _selectedMaskIndex = -1;
             _selectedPropertyIndex = propIdx;
-            _selectedKeyPropertyIndex = -1;
-            _selectedKeyTime = 0.0;
 
             // Key hit-test: check if mouse is on a keyframe diamond
             double toleranceFrames = qMax(1.0, 8.0 / _zoom);
             double nearestTime = 0.0;
             if (nearestKeyTimeForProperty(prop, xToFrame(x), toleranceFrames, &nearestTime)) {
-                _selectedKeyPropertyIndex = propIdx;
-                _selectedKeyTime = nearestTime;
-                // Start dragging the keyframe
-                _interactionMode = eModeDragKeyframe;
-                _interactionStartX = x;
-                _interactionStartY = y;
-                _dragPropertyIndex = propIdx;
-                _dragOrigKeyTime = nearestTime;
-                _dragCurrentKeyTime = nearestTime;
-                setCursor(Qt::SplitHCursor);
+                if (ctrlHeld) {
+                    // Ctrl+click: toggle this keyframe in/out of multi-select
+                    toggleKeyframeSelection(propIdx, nearestTime);
+                } else if (isKeyframeSelected(propIdx, nearestTime)) {
+                    // Already selected — drag all selected keys
+                    _interactionMode = eModeDragKeyframe;
+                    _interactionStartX = x;
+                    _interactionStartY = y;
+                    _dragPropertyIndex = propIdx;
+                    _dragOrigKeyTime = nearestTime;
+                    _dragCurrentKeyTime = nearestTime;
+                    clearSnapState();
+                    _snapShiftHeld = (QApplication::keyboardModifiers() & Qt::ShiftModifier) != 0;
+                    setCursor(Qt::SplitHCursor);
+                } else {
+                    // Regular click: select only this keyframe
+                    _selectedKeys.clear();
+                    _selectedKeys.append(SelectedKeyframe(propIdx, nearestTime));
+                    _selectedKeyPropertyIndex = propIdx;
+                    _selectedKeyTime = nearestTime;
+                    // Start dragging the keyframe
+                    _interactionMode = eModeDragKeyframe;
+                    _interactionStartX = x;
+                    _interactionStartY = y;
+                    _dragPropertyIndex = propIdx;
+                    _dragOrigKeyTime = nearestTime;
+                    _dragCurrentKeyTime = nearestTime;
+                    clearSnapState();
+                    _snapShiftHeld = (QApplication::keyboardModifiers() & Qt::ShiftModifier) != 0;
+                    setCursor(Qt::SplitHCursor);
+                }
+            } else {
+                // Click on empty space in property row
+                if (!ctrlHeld) {
+                    // Clear keyframe selection and start rubber-band select
+                    clearKeyframeSelection();
+                    _interactionMode = eModeRubberBandSelect;
+                    _interactionStartX = x;
+                    _interactionStartY = y;
+                    _rubberBandStart = QPoint(x, y);
+                    _rubberBandCurrent = QPoint(x, y);
+                }
             }
             update();
             return;
@@ -3091,19 +4356,19 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
         HitZone zone = hitTest(x, y, &layerIdx);
 
         if (zone == eHitNone) {
-            // Clicked empty space in bar area — move playhead only
+            // Clicked empty space in bar area — start rubber-band select
             _selectedType = eFluxSelectionNone;
             _selectedLayer = -1;
             _selectedEffectIndex = -1;
             _selectedMaskIndex = -1;
             _selectedPropertyIndex = -1;
+            clearKeyframeSelection();
             Q_EMIT layerSelected(-1);
-            _interactionMode = eModeDragPlayhead;
-            _currentFrame = xToFrame(x);
-            if (_timeline) {
-                _timeline->seekFrame(SequenceTime(_currentFrame), false, nullptr, eTimelineChangeReasonUserSeek);
-            }
-            Q_EMIT frameChanged(_currentFrame);
+            _interactionMode = eModeRubberBandSelect;
+            _interactionStartX = x;
+            _interactionStartY = y;
+            _rubberBandStart = QPoint(x, y);
+            _rubberBandCurrent = QPoint(x, y);
             update();
             return;
         }
@@ -3133,12 +4398,16 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
         } else if (zone == eHitTrimLeft) {
             if (canTrimRow(layerIdx)) {
                 _interactionMode = eModeTrimLeft;
+                clearSnapState();
+                _snapShiftHeld = (QApplication::keyboardModifiers() & Qt::ShiftModifier) != 0;
             } else {
                 _interactionMode = eModeNone;
             }
         } else if (zone == eHitTrimRight) {
             if (canTrimRow(layerIdx)) {
                 _interactionMode = eModeTrimRight;
+                clearSnapState();
+                _snapShiftHeld = (QApplication::keyboardModifiers() & Qt::ShiftModifier) != 0;
             } else {
                 _interactionMode = eModeNone;
             }
@@ -3205,7 +4474,42 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
         }
         int deltaX = x - _interactionStartX;
         int frameDelta = (int)( deltaX / _zoom );
-        int newIn = _interactionOrigInPoint + frameDelta;
+        int candidateEdge = _interactionOrigInPoint + _interactionOrigTimeOffset + frameDelta;
+        int newIn;
+
+        // ── Shift-toggle snap ──
+        bool shiftNow = (QApplication::keyboardModifiers() & Qt::ShiftModifier) != 0;
+        if (shiftNow && !_snapShiftHeld) {
+            _snapShiftHeld = true;
+            auto targets = collectSnapTargets(eModeTrimLeft, _interactionLayerIndex, -1, 0.0);
+            int snapped = candidateEdge;
+            SnapTargetKind kind = eSnapNone;
+            if (resolveSnapFrame(candidateEdge, targets, &snapped, &kind)) {
+                setSnapState(snapped, kind);
+                newIn = snapped - _layers[_interactionLayerIndex].timeOffset;
+            } else {
+                clearSnapState();
+                newIn = candidateEdge - _layers[_interactionLayerIndex].timeOffset;
+            }
+        } else if (!shiftNow && _snapShiftHeld) {
+            _snapShiftHeld = false;
+            clearSnapState();
+            newIn = candidateEdge - _layers[_interactionLayerIndex].timeOffset;
+        } else if (_snapShiftHeld) {
+            auto targets = collectSnapTargets(eModeTrimLeft, _interactionLayerIndex, -1, 0.0);
+            int snapped = candidateEdge;
+            SnapTargetKind kind = eSnapNone;
+            if (resolveSnapFrame(candidateEdge, targets, &snapped, &kind)) {
+                setSnapState(snapped, kind);
+                newIn = snapped - _layers[_interactionLayerIndex].timeOffset;
+            } else {
+                clearSnapState();
+                newIn = candidateEdge - _layers[_interactionLayerIndex].timeOffset;
+            }
+        } else {
+            newIn = _interactionOrigInPoint + frameDelta;
+        }
+
         // Clamp: inPoint must stay before outPoint
         newIn = qMin(newIn, _layers[_interactionLayerIndex].outPoint - 1);
         _layers[_interactionLayerIndex].inPoint = newIn;
@@ -3222,12 +4526,46 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
         }
         int deltaX = x - _interactionStartX;
         int frameDelta = (int)( deltaX / _zoom );
-        int newOut = _interactionOrigOutPoint + frameDelta;
+        int candidateEdge = _interactionOrigOutPoint + _interactionOrigTimeOffset + frameDelta;
+        int newOut;
+
+        // ── Shift-toggle snap ──
+        bool shiftNow = (QApplication::keyboardModifiers() & Qt::ShiftModifier) != 0;
+        if (shiftNow && !_snapShiftHeld) {
+            _snapShiftHeld = true;
+            auto targets = collectSnapTargets(eModeTrimRight, _interactionLayerIndex, -1, 0.0);
+            int snapped = candidateEdge;
+            SnapTargetKind kind = eSnapNone;
+            if (resolveSnapFrame(candidateEdge, targets, &snapped, &kind)) {
+                setSnapState(snapped, kind);
+                newOut = snapped - _layers[_interactionLayerIndex].timeOffset;
+            } else {
+                clearSnapState();
+                newOut = candidateEdge - _layers[_interactionLayerIndex].timeOffset;
+            }
+        } else if (!shiftNow && _snapShiftHeld) {
+            _snapShiftHeld = false;
+            clearSnapState();
+            newOut = candidateEdge - _layers[_interactionLayerIndex].timeOffset;
+        } else if (_snapShiftHeld) {
+            auto targets = collectSnapTargets(eModeTrimRight, _interactionLayerIndex, -1, 0.0);
+            int snapped = candidateEdge;
+            SnapTargetKind kind = eSnapNone;
+            if (resolveSnapFrame(candidateEdge, targets, &snapped, &kind)) {
+                setSnapState(snapped, kind);
+                newOut = snapped - _layers[_interactionLayerIndex].timeOffset;
+            } else {
+                clearSnapState();
+                newOut = candidateEdge - _layers[_interactionLayerIndex].timeOffset;
+            }
+        } else {
+            newOut = _interactionOrigOutPoint + frameDelta;
+        }
+
         // Clamp: outPoint must stay after inPoint
-        newOut = qMax(newOut, _interactionOrigInPoint + 1);
+        newOut = qMax(newOut, _layers[_interactionLayerIndex].inPoint + 1);
         _layers[_interactionLayerIndex].outPoint = newOut;
-        // Update explicit trim state:
-        // trimEnd = how many frames we've moved outPoint left from initial position
+        // Update explicit trim state
         int trimDelta = _interactionOrigOutPoint - newOut;
         _layers[_interactionLayerIndex].trimEnd = qMax(0, _interactionOrigTrimEnd + trimDelta);
         update();
@@ -3267,6 +4605,60 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
         break;
     }
 
+    case eModeReorderEffect: {
+        if (_reorderEffectLayerIndex < 0 || _reorderEffectLayerIndex >= _layers.size()) {
+            break;
+        }
+
+        // Drag threshold: only activate visual feedback after moving a few pixels
+        int deltaY = y - _interactionStartY;
+        if (qAbs(deltaY) < 4 && _reorderEffectTargetIndex == _reorderEffectFromIndex) {
+            break;
+        }
+
+        // Find which effect row the mouse is over (same layer only)
+        int targetEffectIdx = -1;
+        for (int ri = 0; ri < _visibleRows.size(); ++ri) {
+            const FluxVisibleRow& vr = _visibleRows[ri];
+            if (vr.type != eFluxVisibleRowEffect || vr.layerIndex != _reorderEffectLayerIndex) {
+                continue;
+            }
+            int vrY = kTimeRulerHeight + vr.y - _scrollOffsetY;
+            if (y >= vrY && y < vrY + vr.height) {
+                targetEffectIdx = vr.childIndex;
+                break;
+            }
+        }
+
+        // If not directly over an effect row, find nearest based on Y position
+        if (targetEffectIdx < 0) {
+            int bestDist = 0x7fffffff;
+            int bestIdx = _reorderEffectFromIndex;
+            for (int ri = 0; ri < _visibleRows.size(); ++ri) {
+                const FluxVisibleRow& vr = _visibleRows[ri];
+                if (vr.type != eFluxVisibleRowEffect || vr.layerIndex != _reorderEffectLayerIndex) {
+                    continue;
+                }
+                int vrY = kTimeRulerHeight + vr.y - _scrollOffsetY;
+                int midY = vrY + vr.height / 2;
+                int dist = qAbs(y - midY);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestIdx = vr.childIndex;
+                }
+            }
+            targetEffectIdx = bestIdx;
+        }
+
+        if (targetEffectIdx >= 0) {
+            _reorderEffectTargetIndex = targetEffectIdx;
+            setCursor(Qt::DragMoveCursor);
+        }
+
+        update();
+        break;
+    }
+
     case eModePan: {
         int deltaX = x - _interactionStartX;
         int deltaY = y - _interactionStartY;
@@ -3284,12 +4676,52 @@ FluxTimeline::mouseMoveEvent(QMouseEvent* event)
         break;
     }
 
+    case eModeRubberBandSelect: {
+        _rubberBandCurrent = QPoint(x, y);
+        update();
+        break;
+    }
+
     case eModeDragKeyframe: {
         if (_dragPropertyIndex < 0 || _dragPropertyIndex >= _propertyRows.size()) {
             break;
         }
         int targetFrame = xToFrame(x);
-        _dragCurrentKeyTime = qBound((double)_firstFrame, (double)targetFrame, (double)_lastFrame);
+        double candidate = (double)targetFrame; // No project-edge clamp — preserve relative range
+
+        // ── Shift-toggle snap ──
+        bool shiftNow = (QApplication::keyboardModifiers() & Qt::ShiftModifier) != 0;
+        if (shiftNow && !_snapShiftHeld) {
+            _snapShiftHeld = true;
+            auto targets = collectSnapTargets(eModeDragKeyframe, -1, _dragPropertyIndex, _dragOrigKeyTime);
+            int snapped = static_cast<int>(candidate + 0.5);
+            SnapTargetKind kind = eSnapNone;
+            if (resolveSnapFrame(static_cast<int>(candidate + 0.5), targets, &snapped, &kind)) {
+                setSnapState(snapped, kind);
+                _dragCurrentKeyTime = snapped;
+            } else {
+                clearSnapState();
+                _dragCurrentKeyTime = candidate;
+            }
+        } else if (!shiftNow && _snapShiftHeld) {
+            _snapShiftHeld = false;
+            clearSnapState();
+            _dragCurrentKeyTime = candidate;
+        } else if (_snapShiftHeld) {
+            auto targets = collectSnapTargets(eModeDragKeyframe, -1, _dragPropertyIndex, _dragOrigKeyTime);
+            int snapped = static_cast<int>(candidate + 0.5);
+            SnapTargetKind kind = eSnapNone;
+            if (resolveSnapFrame(static_cast<int>(candidate + 0.5), targets, &snapped, &kind)) {
+                setSnapState(snapped, kind);
+                _dragCurrentKeyTime = snapped;
+            } else {
+                clearSnapState();
+                _dragCurrentKeyTime = candidate;
+            }
+        } else {
+            _dragCurrentKeyTime = candidate;
+        }
+
         setCursor(Qt::SplitHCursor);
         update();
         break;
@@ -3339,6 +4771,132 @@ FluxTimeline::mouseReleaseEvent(QMouseEvent* /*event*/)
         } else {
             updateLayerMoveKnob(_interactionLayerIndex);
         }
+
+        // Shift all keyframes owned by this layer (user properties, effects, masks)
+        // by the same movement delta as the layer bar.
+        if (_interactionLayerIndex >= 0 && _interactionLayerIndex < _layers.size()) {
+            const FluxLayer& layer = _layers[_interactionLayerIndex];
+            int frameDelta = layer.timeOffset - _interactionOrigTimeOffset;
+            if (frameDelta != 0) {
+                // System/timing knobs handled by updateLayerMoveKnob already — skip them.
+                static const std::set<std::string> kSkipKnobNames = {
+                    "timeOffset", "frameRange", "before", "after"
+                };
+
+                // Collect all animatable properties for this layer
+                QList<FluxKeyframeProperty> allProps;
+
+                // Layer-level user properties (excluding timing knobs)
+                QList<FluxKeyframeProperty> layerProps = buildLayerProperties(layer, _ungroupedKeyframeProperties);
+                for (const FluxKeyframeProperty& prop : layerProps) {
+                    if (prop.knob && kSkipKnobNames.count(prop.knob->getName())) {
+                        continue;
+                    }
+                    allProps.append(prop);
+                }
+
+                // All effect properties
+                bool isAdj = isAdjustmentRow(_interactionLayerIndex);
+                for (int ei = 0; ei < layer.effects.size(); ++ei) {
+                    QList<FluxKeyframeProperty> effectProps =
+                        buildEffectProperties(layer.effects[ei], isAdj, _ungroupedKeyframeProperties);
+                    allProps.append(effectProps);
+                }
+
+                // All mask properties (layer masks and effect masks)
+                for (int mi = 0; mi < layer.masks.size(); ++mi) {
+                    QList<FluxKeyframeProperty> maskProps = buildMaskProperties(layer.masks[mi]);
+                    allProps.append(maskProps);
+                }
+
+                // Build pending moves for every key across all properties
+                struct LayerPendingMove {
+                    const FluxKeyframeProperty* prop;
+                    double srcTime;
+                    double dstTime;
+                };
+                QList<LayerPendingMove> pendingMoves;
+
+                for (const FluxKeyframeProperty& prop : allProps) {
+                    QList<FluxKeyframeKey> keys = keysForProperty(prop);
+                    for (const FluxKeyframeKey& k : keys) {
+                        pendingMoves.append({&prop, k.time, k.time + frameDelta});
+                    }
+                }
+
+                // Sort in safe order to avoid self-collisions
+                if (frameDelta > 0) {
+                    std::sort(pendingMoves.begin(), pendingMoves.end(),
+                              [](const LayerPendingMove& a, const LayerPendingMove& b) { return a.srcTime > b.srcTime; });
+                } else {
+                    std::sort(pendingMoves.begin(), pendingMoves.end(),
+                              [](const LayerPendingMove& a, const LayerPendingMove& b) { return a.srcTime < b.srcTime; });
+                }
+
+                // Apply moves
+                bool anyMoved = false;
+                for (const LayerPendingMove& pm : pendingMoves) {
+                    if (moveKeysAtTime(*pm.prop, pm.srcTime, pm.dstTime)) {
+                        anyMoved = true;
+                    }
+                }
+
+                if (anyMoved) {
+                    // Sync text animators if any affected property belongs to a text layer
+                    for (const FluxKeyframeProperty& prop : allProps) {
+                        syncTextAnimatorPropertyIfNeeded(prop);
+                    }
+
+                    // Build set of owner nodes for the moved layer so we can
+                    // identify which selected keys belong to it.
+                    std::set<Node*> movedOwnerNodes;
+                    if (layer.gizmoNode) {
+                        movedOwnerNodes.insert(layer.gizmoNode.get());
+                    }
+                    for (int ei = 0; ei < layer.effects.size(); ++ei) {
+                        if (layer.effects[ei].node) {
+                            movedOwnerNodes.insert(layer.effects[ei].node.get());
+                        }
+                    }
+                    for (int mi = 0; mi < layer.masks.size(); ++mi) {
+                        if (layer.masks[mi].maskNode) {
+                            movedOwnerNodes.insert(layer.masks[mi].maskNode.get());
+                        }
+                    }
+
+                    // Identify property indices belonging to the moved layer
+                    // (using _propertyRows BEFORE rebuild clears them).
+                    std::set<int> movedPropIndices;
+                    for (int pi = 0; pi < _propertyRows.size(); ++pi) {
+                        if (_propertyRows[pi].ownerNode &&
+                            movedOwnerNodes.count(_propertyRows[pi].ownerNode.get())) {
+                            movedPropIndices.insert(pi);
+                        }
+                    }
+
+                    // Preserve selection across row rebuild
+                    QList<SelectedKeyframe> savedSelection = _selectedKeys;
+                    int savedKeyPropIdx = _selectedKeyPropertyIndex;
+                    double savedKeyTime = _selectedKeyTime;
+
+                    rebuildVisibleRows();
+
+                    // Shift keyTimes for selected keys that belong to the moved layer
+                    for (int i = 0; i < savedSelection.size(); ++i) {
+                        if (movedPropIndices.count(savedSelection[i].propertyIndex)) {
+                            savedSelection[i].keyTime += frameDelta;
+                        }
+                    }
+                    if (savedKeyPropIdx >= 0 && movedPropIndices.count(savedKeyPropIdx)) {
+                        savedKeyTime += frameDelta;
+                    }
+
+                    _selectedKeys = savedSelection;
+                    _selectedKeyPropertyIndex = savedKeyPropIdx;
+                    _selectedKeyTime = savedKeyTime;
+                }
+            }
+        }
     } else if (_interactionMode == eModeTrimLeft || _interactionMode == eModeTrimRight) {
         // TRIM: only inPoint/outPoint changes
         if (isAdjustmentRow(_interactionLayerIndex)) {
@@ -3355,6 +4913,18 @@ FluxTimeline::mouseReleaseEvent(QMouseEvent* /*event*/)
         Q_EMIT compositingChanged();
     }
 
+    if (_interactionMode == eModeReorderEffect) {
+        if (_reorderEffectLayerIndex >= 0 && _reorderEffectFromIndex >= 0 &&
+            _reorderEffectTargetIndex >= 0 &&
+            _reorderEffectFromIndex != _reorderEffectTargetIndex &&
+            _reorderEffectLayerIndex < _layers.size()) {
+            moveEffectInLayer(_reorderEffectLayerIndex, _reorderEffectFromIndex, _reorderEffectTargetIndex);
+        }
+        _reorderEffectLayerIndex = -1;
+        _reorderEffectFromIndex = -1;
+        _reorderEffectTargetIndex = -1;
+    }
+
     if (_interactionMode == eModeDragKeyframe) {
         if (_dragPropertyIndex >= 0 && _dragPropertyIndex < _propertyRows.size()) {
             double oldTime = _dragOrigKeyTime;
@@ -3362,10 +4932,79 @@ FluxTimeline::mouseReleaseEvent(QMouseEvent* /*event*/)
             double roundedOld = std::round(oldTime);
             double roundedNew = std::round(newTime);
             if (std::abs(roundedNew - roundedOld) > 0.5) {
-                const FluxKeyframeProperty& prop = _propertyRows[_dragPropertyIndex];
-                if (moveKeysAtTime(prop, roundedOld, roundedNew)) {
-                    syncTextAnimatorPropertyIfNeeded(prop);
+                double delta = roundedNew - roundedOld;
+
+                // Build a sorted move list to avoid selected-key self-collisions:
+                // Move later source times first when dragging right, earlier first when dragging left.
+                struct PendingMove {
+                    int listIndex;       ///< index into _selectedKeys
+                    double srcTime;
+                    double dstTime;
+                };
+                QList<PendingMove> moveList;
+                for (int i = 0; i < _selectedKeys.size(); ++i) {
+                    const SelectedKeyframe& sk = _selectedKeys[i];
+                    if (sk.propertyIndex < 0 || sk.propertyIndex >= _propertyRows.size()) {
+                        continue;
+                    }
+                    double srcTime = std::round(sk.keyTime);
+                    double dstTime = srcTime + delta; // No project-edge clamp — preserve relative range
+                    if (std::abs(dstTime - srcTime) > 0.5) {
+                        moveList.append({i, srcTime, dstTime});
+                    }
+                }
+                if (delta > 0.0) {
+                    std::sort(moveList.begin(), moveList.end(),
+                              [](const PendingMove& a, const PendingMove& b) { return a.srcTime > b.srcTime; });
+                } else if (delta < 0.0) {
+                    std::sort(moveList.begin(), moveList.end(),
+                              [](const PendingMove& a, const PendingMove& b) { return a.srcTime < b.srcTime; });
+                }
+
+                // Apply moves in safe order
+                bool anyMoved = false;
+                QList<int> movedIndices;
+                for (const PendingMove& pm : moveList) {
+                    const SelectedKeyframe& sk = _selectedKeys[pm.listIndex];
+                    const FluxKeyframeProperty& prop = _propertyRows[sk.propertyIndex];
+                    if (moveKeysAtTime(prop, pm.srcTime, pm.dstTime)) {
+                        anyMoved = true;
+                        movedIndices.append(pm.listIndex);
+                    }
+                }
+
+                if (anyMoved) {
+                    // Update selection times for keys that actually moved
+                    for (const PendingMove& pm : moveList) {
+                        if (movedIndices.contains(pm.listIndex)) {
+                            _selectedKeys[pm.listIndex].keyTime = pm.dstTime;
+                        }
+                    }
+
+                    // Sync primary selection for backward compat
+                    if (!_selectedKeys.isEmpty()) {
+                        _selectedKeyPropertyIndex = _selectedKeys[0].propertyIndex;
+                        _selectedKeyTime = _selectedKeys[0].keyTime;
+                    }
+                    // Sync text animators if any affected property belongs to a text layer
+                    for (const SelectedKeyframe& sk : _selectedKeys) {
+                        if (sk.propertyIndex >= 0 && sk.propertyIndex < _propertyRows.size()) {
+                            syncTextAnimatorPropertyIfNeeded(_propertyRows[sk.propertyIndex]);
+                        }
+                    }
+
+                    // Save selection before rebuildVisibleRows() clears it
+                    QList<SelectedKeyframe> savedSelection = _selectedKeys;
+                    int savedKeyPropIdx = _selectedKeyPropertyIndex;
+                    double savedKeyTime = _selectedKeyTime;
+
                     rebuildVisibleRows();
+
+                    // Restore selection so keyframes remain selected after drag
+                    _selectedKeys = savedSelection;
+                    _selectedKeyPropertyIndex = savedKeyPropIdx;
+                    _selectedKeyTime = savedKeyTime;
+
                     Q_EMIT compositingChanged();
                     Q_EMIT frameChanged(_currentFrame);
                 }
@@ -3376,14 +5015,28 @@ FluxTimeline::mouseReleaseEvent(QMouseEvent* /*event*/)
         _dragCurrentKeyTime = 0.0;
     }
 
-    if (_interactionMode == eModePan || _interactionMode == eModeResizePanel) {
+    if (_interactionMode == eModeRubberBandSelect) {
+        // Finalize rubber-band selection
+        QRect rubberRect = QRect(_rubberBandStart, _rubberBandCurrent).normalized();
+        selectKeyframesInRect(rubberRect);
+        // Update backward-compat single selection from first selected key
+        if (!_selectedKeys.isEmpty()) {
+            _selectedKeyPropertyIndex = _selectedKeys[0].propertyIndex;
+            _selectedKeyTime = _selectedKeys[0].keyTime;
+        }
+    }
+
+    if (_interactionMode == eModePan || _interactionMode == eModeResizePanel || _interactionMode == eModeRubberBandSelect) {
         unsetCursor();
     }
 
+    clearSnapState();
+    _snapShiftHeld = false;
     _interactionMode = eModeNone;
     _interactionLayerIndex = -1;
     _reorderTargetRow = -1;
     unsetCursor();
+
     update();
 }
 
@@ -3564,7 +5217,8 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                 _selectedPropertyIndex = propIdx;
                 _selectedKeyPropertyIndex = -1;
                 _selectedKeyTime = 0.0;
-                update();
+                _selectedKeys.clear();
+                update();;
 
                 // Toggle mode action
                 QString modeLabel = _showKeyframeCurves
@@ -3792,7 +5446,7 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                 update();
             });
 
-            // Open Read Node (footage layers only)
+            // Open Read Node / source viewer (footage layers only)
             if (_layers[layerIdx].type == QString::fromUtf8("footage") && _layers[layerIdx].readerNode) {
                 QAction* openReadAction = menu.addAction(QString::fromUtf8("Open Read Node"));
                 connect(openReadAction, &QAction::triggered, this, [this, layerIdx]() {
@@ -3811,6 +5465,18 @@ FluxTimeline::contextMenuEvent(QContextMenuEvent* event)
                             nodeGui->setVisibleSettingsPanel(true);
                         }
                     }
+                });
+
+                QAction* sourceViewerAction = menu.addAction(QString::fromUtf8("Open Source in AI Viewer"));
+                connect(sourceViewerAction, &QAction::triggered, this, [this, layerIdx]() {
+                    _selectedType = eFluxSelectionLayer;
+                    _selectedLayer = layerIdx;
+                    _selectedEffectIndex = -1;
+                    _selectedMaskIndex = -1;
+                    _selectedPropertyIndex = -1;
+                    Q_EMIT layerSelected(layerIdx);
+                    Q_EMIT sourceViewerRequested(layerIdx);
+                    update();
                 });
             }
 
@@ -3906,7 +5572,26 @@ void
 FluxTimeline::keyPressEvent(QKeyEvent* event)
 {
     if (event->key() == Qt::Key_Delete) {
-        if (_selectedType == eFluxSelectionProperty &&
+        if (!_selectedKeys.isEmpty()) {
+            // Delete all selected keyframes
+            bool anyDeleted = false;
+            for (const SelectedKeyframe& sk : _selectedKeys) {
+                if (sk.propertyIndex >= 0 && sk.propertyIndex < _propertyRows.size()) {
+                    const FluxKeyframeProperty& prop = _propertyRows[sk.propertyIndex];
+                    if (deleteKeysAtTime(prop, sk.keyTime)) {
+                        anyDeleted = true;
+                        syncTextAnimatorPropertyIfNeeded(prop);
+                    }
+                }
+            }
+            if (anyDeleted) {
+                clearKeyframeSelection();
+                rebuildVisibleRows();
+                Q_EMIT compositingChanged();
+                Q_EMIT frameChanged(_currentFrame);
+                update();
+            }
+        } else if (_selectedType == eFluxSelectionProperty &&
             _selectedKeyPropertyIndex >= 0 &&
             _selectedKeyPropertyIndex < _propertyRows.size()) {
             const FluxKeyframeProperty& prop = _propertyRows[_selectedKeyPropertyIndex];
@@ -3940,6 +5625,14 @@ FluxTimeline::keyPressEvent(QKeyEvent* event)
             duplicateLayer(_selectedLayer);
         }
         event->accept();
+    } else if (event->key() == Qt::Key_C && (event->modifiers() & Qt::ControlModifier) && !(event->modifiers() & Qt::ShiftModifier)) {
+        // Ctrl+C = Copy selected keyframes
+        copySelectedKeyframes();
+        event->accept();
+    } else if (event->key() == Qt::Key_V && (event->modifiers() & Qt::ControlModifier) && !(event->modifiers() & Qt::ShiftModifier)) {
+        // Ctrl+V = Paste keyframes at playhead
+        pasteKeyframes();
+        event->accept();
     } else if (event->key() == Qt::Key_F && event->modifiers() == Qt::NoModifier) {
         // F = Fit to view
         fitToView();
@@ -3957,6 +5650,17 @@ FluxTimeline::keyPressEvent(QKeyEvent* event)
         Q_EMIT layerSelected(-1);
         update();
         event->accept();
+    } else if (event->modifiers() == Qt::NoModifier) {
+        // Handle number keys 1-9 for viewer input switching via native-key normalization
+        // (supports AZERTY, QWERTZ, and other layouts)
+        Qt::Key normalizedKey = (Qt::Key)Gui::handleNativeKeys(event->key(), event->nativeScanCode(), event->nativeVirtualKey());
+        if (normalizedKey >= Qt::Key_1 && normalizedKey <= Qt::Key_9) {
+            int viewerInputIndex = normalizedKey - Qt::Key_1; // 0-based: Key_1→0, Key_9→8
+            Q_EMIT viewerInputSwitchRequested(viewerInputIndex);
+            event->accept();
+        } else {
+            QWidget::keyPressEvent(event);
+        }
     } else {
         QWidget::keyPressEvent(event);
     }
@@ -4360,6 +6064,9 @@ FluxTimeline::serializeForProject() const
         layerSer.trimEnd = layer.trimEnd;
         layerSer.nodeInitialized = layer.nodeInitialized;
 
+        // Source FPS
+        layerSer.sourceFrameRate = layer.sourceFrameRate;
+
         // Solid color
         layerSer.solidColorR = layer.solidColor.red();
         layerSer.solidColorG = layer.solidColor.green();
@@ -4391,6 +6098,22 @@ FluxTimeline::serializeForProject() const
             effectSer.pluginId = effect.pluginId.toStdString();
             effectSer.label = effect.label.toStdString();
             effectSer.enabled = effect.enabled;
+            effectSer.isAIMaskCopy = effect.isAIMaskCopy;
+            effectSer.aiMaskUsage = effect.aiMaskUsage.toStdString();
+            effectSer.aiMaskTargetPlane = effect.aiMaskTargetPlane.toStdString();
+            effectSer.aiMaskSourceChannel = effect.aiMaskSourceChannel.toStdString();
+            effectSer.aiMaskOperation = effect.aiMaskOperation.toStdString();
+            effectSer.aiMaskSourceRelativePath = effect.aiMaskSourceRelativePath.toStdString();
+            effectSer.aiMaskManifestRelativePath = effect.aiMaskManifestRelativePath.toStdString();
+            if (effect.aiMaskReadNode) {
+                effectSer.aiMaskReadNodeScriptName = effect.aiMaskReadNode->getFullyQualifiedName();
+            }
+            if (effect.aiMaskShuffleNode) {
+                effectSer.aiMaskShuffleNodeScriptName = effect.aiMaskShuffleNode->getFullyQualifiedName();
+            }
+            if (effect.aiMaskChannelMergeNode) {
+                effectSer.aiMaskChannelMergeNodeScriptName = effect.aiMaskChannelMergeNode->getFullyQualifiedName();
+            }
             if (effect.node) {
                 effectSer.nodeScriptName = effect.node->getFullyQualifiedName();
             }
@@ -4471,6 +6194,10 @@ FluxTimeline::restoreFromProjectSerialization(const FluxTimelineSerialization& s
         layer.trimEnd = layerSer.trimEnd;
         layer.nodeInitialized = layerSer.nodeInitialized;
 
+        // Source FPS (sanitize non-finite / non-positive to 0.0)
+        layer.sourceFrameRate = (std::isfinite(layerSer.sourceFrameRate) && layerSer.sourceFrameRate > 0.0)
+            ? layerSer.sourceFrameRate : 0.0;
+
         // Solid color
         layer.solidColor = QColor(layerSer.solidColorR, layerSer.solidColorG, layerSer.solidColorB);
 
@@ -4509,13 +6236,41 @@ FluxTimeline::restoreFromProjectSerialization(const FluxTimelineSerialization& s
             effect.pluginId = QString::fromStdString(effectSer.pluginId);
             effect.label = QString::fromStdString(effectSer.label);
             effect.enabled = effectSer.enabled;
+            effect.isAIMaskCopy = effectSer.isAIMaskCopy;
+            effect.aiMaskUsage = QString::fromStdString(effectSer.aiMaskUsage);
+            if (effect.isAIMaskCopy && effect.aiMaskUsage.isEmpty()) {
+                effect.aiMaskUsage = QString::fromUtf8("legacy-custom-plane");
+            }
+            effect.aiMaskTargetPlane = QString::fromStdString(effectSer.aiMaskTargetPlane);
+            effect.aiMaskSourceChannel = QString::fromStdString(effectSer.aiMaskSourceChannel);
+            if (effect.aiMaskSourceChannel.isEmpty()) {
+                effect.aiMaskSourceChannel = QString::fromUtf8("red");
+            }
+            effect.aiMaskOperation = QString::fromStdString(effectSer.aiMaskOperation);
+            if (effect.aiMaskUsage == QString::fromUtf8("layer-alpha") && effect.aiMaskOperation.isEmpty()) {
+                effect.aiMaskOperation = QString::fromUtf8("max");
+            }
+            effect.aiMaskSourceRelativePath = QString::fromStdString(effectSer.aiMaskSourceRelativePath);
+            effect.aiMaskManifestRelativePath = QString::fromStdString(effectSer.aiMaskManifestRelativePath);
+            if (!effectSer.aiMaskReadNodeScriptName.empty()) {
+                effect.aiMaskReadNode = project->getNodeByFullySpecifiedName(effectSer.aiMaskReadNodeScriptName);
+            }
+            if (!effectSer.aiMaskShuffleNodeScriptName.empty()) {
+                effect.aiMaskShuffleNode = project->getNodeByFullySpecifiedName(effectSer.aiMaskShuffleNodeScriptName);
+            }
+            if (!effectSer.aiMaskChannelMergeNodeScriptName.empty()) {
+                effect.aiMaskChannelMergeNode = project->getNodeByFullySpecifiedName(effectSer.aiMaskChannelMergeNodeScriptName);
+            }
 
             if (!effectSer.nodeScriptName.empty()) {
                 effect.node = project->getNodeByFullySpecifiedName(effectSer.nodeScriptName);
                 if (!effect.node) {
                     qDebug() << "FluxTimeline::restore: effect node not found:" << QString::fromStdString(effectSer.nodeScriptName);
-                    // Skip this effect — node is gone
-                    continue;
+                    if (effect.aiMaskUsage != QString::fromUtf8("layer-alpha")) {
+                        // Skip normal effects if their node is gone. AI layer-alpha
+                        // ChannelMerge rows can be recreated from persisted media metadata.
+                        continue;
+                    }
                 }
             }
 
@@ -4557,7 +6312,6 @@ FluxTimeline::restoreFromProjectSerialization(const FluxTimelineSerialization& s
                     qDebug() << "FluxTimeline::restore: mask reformat node not found:" << QString::fromStdString(maskSer.reformatNodeScriptName);
                 }
             }
-
             layer.masks.append(mask);
         }
 
@@ -4572,10 +6326,222 @@ FluxTimeline::restoreFromProjectSerialization(const FluxTimelineSerialization& s
     _selectedLayer = ser.selectedLayer;
     _selectedKeyPropertyIndex = -1;
     _selectedKeyTime = 0.0;
+    _selectedKeys.clear();
 
     rebuildVisibleRows();
     update();
+
+    Q_EMIT projectLayersRestored();
 }
+// ── Snap helpers ──
+
+QList<FluxTimeline::SnapTarget>
+FluxTimeline::collectSnapTargets(InteractionMode mode,
+                                 int sourceLayerIndex,
+                                 int sourcePropertyIndex,
+                                 double sourceKeyTime) const
+{
+    QList<SnapTarget> targets;
+
+    // ── Layer edge targets ──
+    for (int i = 0; i < _layers.size(); ++i) {
+        const FluxLayer& layer = _layers[i];
+        int startEdge = layer.inPoint + layer.timeOffset;
+        int endEdge   = layer.outPoint + layer.timeOffset;
+
+        // Exclude self-edges for the dragged element
+        bool excludeStart = false;
+        bool excludeEnd   = false;
+
+        if (mode == eModeTrimLeft && i == sourceLayerIndex) {
+            excludeStart = true;
+        }
+        if (mode == eModeTrimRight && i == sourceLayerIndex) {
+            excludeEnd = true;
+        }
+
+        if (!excludeStart) {
+            SnapTarget t;
+            t.frame = startEdge;
+            t.kind = eSnapLayerEdge;
+            t.layerIndex = i;
+            t.propertyIndex = -1;
+            targets.append(t);
+        }
+        if (!excludeEnd) {
+            SnapTarget t;
+            t.frame = endEdge;
+            t.kind = eSnapLayerEdge;
+            t.layerIndex = i;
+            t.propertyIndex = -1;
+            targets.append(t);
+        }
+    }
+
+    // ── Keyframe targets ──
+    // We iterate all layers and all their properties (layer, effect, mask)
+    // using the same builders as rebuildVisibleRows.
+    for (int i = 0; i < _layers.size(); ++i) {
+        const FluxLayer& layer = _layers[i];
+
+        // Layer properties (includes text animator properties for text layers)
+        if (layer.gizmoNode) {
+            QList<FluxKeyframeProperty> layerProps = buildLayerProperties(layer, _ungroupedKeyframeProperties);
+            for (int p = 0; p < layerProps.size(); ++p) {
+                // Skip the dragged property's key at sourceKeyTime
+                if (mode == eModeDragKeyframe &&
+                    i == sourceLayerIndex &&
+                    sourcePropertyIndex >= 0 &&
+                    sourcePropertyIndex < _propertyRows.size()) {
+                    // Compare by knob identity
+                    const FluxKeyframeProperty& dragProp = _propertyRows[sourcePropertyIndex];
+                    if (layerProps[p].knob == dragProp.knob && layerProps[p].ownerNode == dragProp.ownerNode) {
+                        // Add all keys except the one at sourceKeyTime
+                        QList<FluxKeyframeKey> keys = keysForProperty(layerProps[p]);
+                        for (const auto& k : keys) {
+                            int rounded = static_cast<int>(k.time + 0.5);
+                            if (mode == eModeDragKeyframe && std::abs(k.time - sourceKeyTime) < 0.5) {
+                                continue;
+                            }
+                            SnapTarget t;
+                            t.frame = rounded;
+                            t.kind = eSnapKeyframe;
+                            t.layerIndex = i;
+                            t.propertyIndex = -1; // not referencing _propertyRows
+                            targets.append(t);
+                        }
+                        continue;
+                    }
+                }
+                QList<FluxKeyframeKey> keys = keysForProperty(layerProps[p]);
+                for (const auto& k : keys) {
+                    SnapTarget t;
+                    t.frame = static_cast<int>(k.time + 0.5);
+                    t.kind = eSnapKeyframe;
+                    t.layerIndex = i;
+                    t.propertyIndex = -1;
+                    targets.append(t);
+                }
+            }
+        }
+
+        // Effect properties
+        for (int ei = 0; ei < layer.effects.size(); ++ei) {
+            const FluxEffect& effect = layer.effects[ei];
+            if (!effect.node) continue;
+            QList<FluxKeyframeProperty> effectProps =
+                buildEffectProperties(effect, isAdjustmentRow(i), _ungroupedKeyframeProperties);
+            for (int p = 0; p < effectProps.size(); ++p) {
+                QList<FluxKeyframeKey> keys = keysForProperty(effectProps[p]);
+                for (const auto& k : keys) {
+                    SnapTarget t;
+                    t.frame = static_cast<int>(k.time + 0.5);
+                    t.kind = eSnapKeyframe;
+                    t.layerIndex = i;
+                    t.propertyIndex = -1;
+                    targets.append(t);
+                }
+            }
+        }
+
+        // Mask properties
+        for (int mi = 0; mi < layer.masks.size(); ++mi) {
+            const FluxMask& mask = layer.masks[mi];
+            QList<FluxKeyframeProperty> maskProps = buildMaskProperties(mask);
+            for (int p = 0; p < maskProps.size(); ++p) {
+                QList<FluxKeyframeKey> keys = keysForProperty(maskProps[p]);
+                for (const auto& k : keys) {
+                    SnapTarget t;
+                    t.frame = static_cast<int>(k.time + 0.5);
+                    t.kind = eSnapKeyframe;
+                    t.layerIndex = i;
+                    t.propertyIndex = -1;
+                    targets.append(t);
+                }
+            }
+        }
+    }
+
+    return targets;
+}
+
+bool
+FluxTimeline::resolveSnapFrame(int candidateFrame,
+                                const QList<SnapTarget>& targets,
+                                int* snappedFrame,
+                                SnapTargetKind* snappedKind) const
+{
+    if (targets.isEmpty()) {
+        return false;
+    }
+
+    int candX = frameToX(candidateFrame);
+    double bestDist = _snapTolerancePixels + 1.0; // +1 so equal-tolerance fails
+    int bestFrame = candidateFrame;
+    SnapTargetKind bestKind = eSnapNone;
+
+    for (const SnapTarget& t : targets) {
+        int tX = frameToX(t.frame);
+        double dist = qAbs(tX - candX);
+        if (dist < bestDist ||
+            (dist == bestDist && t.kind < bestKind) ||
+            (dist == bestDist && t.kind == bestKind && t.frame < bestFrame)) {
+            bestDist = dist;
+            bestFrame = t.frame;
+            bestKind = t.kind;
+        }
+    }
+
+    if (bestDist <= _snapTolerancePixels) {
+        *snappedFrame = bestFrame;
+        *snappedKind = bestKind;
+        return true;
+    }
+    return false;
+}
+
+void
+FluxTimeline::clearSnapState()
+{
+    _snapActive = false;
+    _snapFrame = 0;
+    _snapKind = eSnapNone;
+}
+
+void
+FluxTimeline::setSnapState(int snappedFrame, SnapTargetKind kind)
+{
+    _snapActive = true;
+    _snapFrame = snappedFrame;
+    _snapKind = kind;
+}
+
+void
+FluxTimeline::drawSnapIndicator(QPainter& painter, const QRect& rect)
+{
+    if (!_snapActive || !_snapShiftHeld) {
+        return;
+    }
+
+    int x = frameToX(_snapFrame);
+    if (x < _layerLabelWidth) {
+        return;
+    }
+
+    // Vertical snap guide line — cyan/blue, distinct from red playhead
+    QColor snapColor(0, 200, 220, 180);
+    painter.setPen(QPen(snapColor, 1, Qt::DashLine));
+    painter.drawLine(x, kTimeRulerHeight, x, rect.height());
+
+    // Small label near the ruler
+    QFont font;
+    font.setPointSize(7);
+    painter.setFont(font);
+    painter.setPen(snapColor);
+    QRect labelRect(x - 30, kTimeRulerHeight - 14, 60, 14);
+    painter.drawText(labelRect, Qt::AlignCenter, QString::fromUtf8("%1").arg(_snapFrame));
+}
+
 NATRON_NAMESPACE_EXIT
 
 NATRON_NAMESPACE_USING

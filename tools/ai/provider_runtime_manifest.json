@@ -1,0 +1,148 @@
+{
+  "manifest_version": 1,
+  "schema": "org.flux.ai.provider-runtime-manifest.v1",
+  "runtimes": [
+    {
+      "id": "sam3",
+      "display_name": "SAM3 Transformers provider runtime",
+      "provider": "Meta SAM / Hugging Face Transformers",
+      "models": [
+        "sam3_transformers"
+      ],
+      "env_dir_name": "sam3",
+      "python": {
+        "supported_min": "3.10",
+        "supported_max_exclusive": "3.14",
+        "override_env": "FLUX_AI_PYTHON"
+      },
+      "install_policy": "external_per_provider_venv_no_model_downloads",
+      "packages": [
+        "torch",
+        "torchvision",
+        "transformers",
+        "accelerate",
+        "huggingface_hub",
+        "pillow",
+        "numpy",
+        "opencv-python-headless",
+        "matanyone2 @ git+https://github.com/pq-yang/MatAnyone2.git"
+      ],
+      "cuda": {
+        "default": "cu128",
+        "indices": {
+          "cu128": "https://download.pytorch.org/whl/cu128",
+          "cu126": "https://download.pytorch.org/whl/cu126",
+          "cpu": "https://download.pytorch.org/whl/cpu"
+        }
+      },
+      "self_check": {
+        "script": "tools/ai/sam3_transformers_real_inference_probe.py",
+        "args": [
+          "--self-check",
+          "--json"
+        ],
+        "extra_imports": [
+          "matanyone2"
+        ]
+      },
+      "launch": {
+        "python_kind": "venv",
+        "venv_dir": "venv"
+      }
+    },
+    {
+      "id": "videomama",
+      "display_name": "VideoMaMa provider runtime",
+      "provider": "VideoMaMa / Stable Video Diffusion",
+      "models": [
+        "videomama"
+      ],
+      "env_dir_name": "videomama",
+      "python": {
+        "supported_min": "3.10",
+        "supported_max_exclusive": "3.14",
+        "override_env": "FLUX_VIDEOMAMA_PYTHON"
+      },
+      "install_policy": "external_per_provider_venv_no_model_downloads",
+      "packages": [
+        "torch",
+        "torchvision",
+        "diffusers>=0.24.0",
+        "accelerate",
+        "safetensors",
+        "pillow",
+        "numpy",
+        "opencv-python-headless"
+      ],
+      "cuda": {
+        "default": "cu128",
+        "indices": {
+          "cu128": "https://download.pytorch.org/whl/cu128",
+          "cu126": "https://download.pytorch.org/whl/cu126",
+          "cpu": "https://download.pytorch.org/whl/cpu"
+        }
+      },
+      "self_check": {
+        "script": "tools/ai/videomama_worker.py",
+        "args": [
+          "--self-check"
+        ],
+        "extra_imports": [
+          "torch",
+          "diffusers",
+          "safetensors",
+          "numpy",
+          "PIL"
+        ]
+      },
+      "launch": {
+        "python_kind": "venv",
+        "venv_dir": "venv"
+      }
+    },
+    {
+      "id": "sam31",
+      "display_name": "SAM3.1 provider runtime",
+      "provider": "Meta SAM",
+      "models": [
+        "sam31_sam3plus"
+      ],
+      "env_dir_name": "sam31",
+      "python": {
+        "supported_min": "3.10",
+        "supported_max_exclusive": "3.14",
+        "override_env": "FLUX_AI_PYTHON"
+      },
+      "install_policy": "external_per_provider_venv_no_model_downloads",
+      "packages": [
+        "torch",
+        "torchvision",
+        "transformers",
+        "accelerate",
+        "huggingface_hub",
+        "pillow",
+        "numpy",
+        "opencv-python-headless"
+      ],
+      "cuda": {
+        "default": "cu128",
+        "indices": {
+          "cu128": "https://download.pytorch.org/whl/cu128",
+          "cu126": "https://download.pytorch.org/whl/cu126",
+          "cpu": "https://download.pytorch.org/whl/cpu"
+        }
+      },
+      "self_check": {
+        "script": "tools/ai/sam31_real_inference_probe.py",
+        "args": [
+          "--self-check",
+          "--json"
+        ]
+      },
+      "launch": {
+        "python_kind": "venv",
+        "venv_dir": "venv"
+      }
+    }
+  ]
+}

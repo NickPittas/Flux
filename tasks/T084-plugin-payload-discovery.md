@@ -1,8 +1,9 @@
 # T084 — Plugin payload discovery/deploy completeness
 
-Status: IN_PROGRESS
+Status: DONE
 Owner: forge
 Started: 2026-05-26
+Completed: 2026-05-26
 
 ## Goal
 
@@ -42,7 +43,7 @@ list when the repo contains additional deployable plugins.
   `Contents/Linux-x86-64/<bundle-name>.ofx` for ldd/check validation.
 - The generated launcher now executes `$FLUX_INSTALL_PREFIX/bin/flux`, exports
   only installed plugin paths, and never executes the build tree.
-- `install-manifest.txt` records installed files for safe `--uninstall`.
+- `install-manifest.txt` records installed files for safe interactive uninstall.
 
 ## Validation
 
@@ -53,12 +54,12 @@ mkdir -p /tmp/flux-t084-deploy/home /tmp/flux-install-test/share/Flux/Plugins/OF
 FLUX_INSTALL_PREFIX=/tmp/flux-install-test/share/Flux \
 FLUX_BIN_DIR=/tmp/flux-install-test/bin \
 FLUX_OFX_CACHE_DIR=/tmp/flux-install-test/cache/OFXLoadCache \
-./tools/linux/flux-linux-setup.sh --deploy-extras --install-launcher --install-app --no-check --force
+# obsolete pre-interactive deploy command removed; use tools/linux/flux-linux-setup.sh and choose Install/repair runtime only
 find /tmp/flux-install-test/share/Flux/Plugins/PyPlugs -maxdepth 1 -type f -name '*.py' -printf '%f\\n' | sort
 find /tmp/flux-install-test/share/Flux/Plugins/OFX -maxdepth 1 -type d -name '*.ofx.bundle' -printf '%f\\n' | sort
 find /tmp/flux-install-test/share/Flux/Plugins -type l -print
 FLUX_INSTALL_PREFIX=/tmp/flux-install-test/share/Flux FLUX_BIN_DIR=/tmp/flux-install-test/bin \
-  ./tools/linux/flux-linux-setup.sh --uninstall --force --no-check
+  # obsolete pre-interactive uninstall command removed; use tools/linux/flux-linux-setup.sh and choose Uninstall Flux
 git diff --check
 ```
 
@@ -84,8 +85,8 @@ SeExpr.ofx.bundle
 Text.ofx.bundle
 ```
 
-## Remaining Validation
+## Closure
 
-- Re-run inside a freshly recreated Fedora NVIDIA distrobox after Nick finishes
-  manual TUI inspection.
-- Launch installed Flux and verify runtime cache IDs for the required OFX providers.
+Nick accepted moving T084 to DONE on 2026-05-26. The deploy/discovery
+implementation and local validation above are the recorded closure evidence for
+this tracking task.

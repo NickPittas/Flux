@@ -554,6 +554,15 @@ Gui::getFluxExportPanel() const
     return _imp->_fluxExportPanel;
 }
 
+FluxAiPanel*
+Gui::getFluxAiPanel() const
+{
+    if (!_imp) {
+        return nullptr;
+    }
+    return _imp->_fluxAiPanel;
+}
+
 FluxTimeline*
 Gui::getFluxTimeline() const
 {

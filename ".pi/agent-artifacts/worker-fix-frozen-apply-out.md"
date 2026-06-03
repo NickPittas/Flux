@@ -1,0 +1,7 @@
+/home/npittas/Flux/.pi/agent-artifacts/worker-fix-frozen-apply-out.md
+
+**Status: Done** — Both fixes implemented and build passes.
+
+- **Fix 1**: Added `_matAnyone2Running` flag; set false + `stopMatAnyone2Worker()` on infer_video success/failure/cancel, load failure, and worker exit. Panel unfreezes after inference completes.
+- **Fix 2**: Added `masks` array to MatAnyone2 manifest (scans output dir for `mask_*.png`) and fallback `selected_mask_path` derivation when worker doesn't provide one.
+- **Validation**: `git diff --check` clean, `cmake --build build --target Natron` succeeded.

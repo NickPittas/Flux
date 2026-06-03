@@ -1,0 +1,37 @@
+# Agent Summary
+
+## Status
+Done with concerns
+
+## Task Completed
+Located the main Flux installer/bootstrap script at `tools/linux/flux-linux-setup.sh`, the SAM3/SAM3.1 provider runtime manifest at `tools/ai/provider_runtime_manifest.json`, the actual provider venv installer at `tools/ai/flux_provider_runtime.py`, and the model download manager at `tools/ai/flux_model_manager.py`. The SAM3 env is created as a per-provider venv under `~/.local/share/Flux/ai-envs/<env_dir_name>/venv`, then populated with `pip` plus `torch`/`torchvision` and the remaining manifest packages; model downloads are handled separately by the model manager via Hugging Face snapshot download or direct URL fetches. I could not persist the locator report file because writes to `.pi/` were blocked by the harness.
+
+## Files Inspected
+- `file:///home/npittas/Flux/tools/linux/flux-linux-setup.sh`: main bootstrap/installer flow, `bootstrap_python_runtime()`, `run_ai_runtime_manager()`, `run_ai_runtime_install()`, `run_full_bootstrap()`
+- `file:///home/npittas/Flux/tools/ai/provider_runtime_manifest.json`: SAM3/SAM3.1 runtime definitions, package list, env/venv layout, self-check scripts
+- `file:///home/npittas/Flux/tools/ai/flux_provider_runtime.py`: actual provider runtime install logic and venv creation
+- `file:///home/npittas/Flux/tools/ai/flux_model_manager.py`: model install/download logic
+- `file:///home/npittas/Flux/tasks/T083-full-session-handoff.md`: referenced task context for AI runtime/model work
+
+## Files Changed
+- None in source.
+- Attempted to write locator report to `file:///home/npittas/Flux/.pi/agent-artifacts/loc-installer-matanyone2.md`, but the path was protected by the harness.
+
+## Validation
+- command: `fffind "installer bootstrap setup"`
+  - result: passed
+  - evidence: located `tools/linux/flux-linux-setup.sh` and `tools/ai/flux_model_manager.py`
+- command: `ffgrep "provider_runtime_manifest.json"`, `ffgrep "matanyone2"`, `ffgrep "sam3"`
+  - result: passed
+  - evidence: confirmed manifest path and AI runtime-related files
+- command: `grep/read` on `tools/linux/flux-linux-setup.sh`, `tools/ai/flux_provider_runtime.py`, `tools/ai/flux_model_manager.py`, `tools/ai/provider_runtime_manifest.json`
+  - result: passed
+  - evidence: verified `python3 -m pip install --upgrade --target ...`, `python -m venv`, `pip install torch torchvision`, and `snapshot_download(...)`
+
+## Blockers / Decisions Needed
+- None for locating.
+- Report-file persistence is blocked by protected `.pi/` writes in this harness.
+
+## Risks / Follow-up
+- The bootstrap script installs embedded Python deps into `${FLUX_INSTALL_PREFIX}/Plugins/python`, but the actual provider runtime uses a separate per-provider venv; that split is intentional and worth preserving in any later changes.
+- If you want a persisted locator artifact, the parent/orchestrator must write the report file outside the protected `.pi/` path or persist the inline summary itself.

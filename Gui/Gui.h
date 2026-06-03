@@ -32,6 +32,7 @@ CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
 #include <QtGlobal> // for Q_OS_*
 #include <QMainWindow>
+#include <QJsonObject>
 #include <QUrl>
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
@@ -41,6 +42,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Engine/ScriptObject.h"
 #include "Engine/ViewIdx.h"
 #include "Engine/EngineFwd.h"
+#include <functional>
 
 #include "Gui/SerializableWindow.h"
 #ifdef __NATRON_WIN32__
@@ -85,6 +87,12 @@ public:
      * @brief Creates the whole gui. Must be called only once after the Gui object has been created.
      **/
     void createGui();
+
+    /** @brief Export current selected Flux footage source frame as a temporary PNG for external SAM3 inference. */
+    QString exportFluxSam3SourceFrameForSelectedLayer(QJsonObject* sourceMetadata = 0);
+    QString exportFluxSam3SourceFrameForSourceContext(int layerIndex, const QString& layerName, const QString& filePath, const NodePtr& readerNode, const QString& readerLabel, int timelineFrame, int sourceFrame, QJsonObject* sourceMetadata = 0, QString* diagnostics = 0);
+    QString exportFluxSam3SourceSequenceForSourceContext(int layerIndex, const QString& layerName, const QString& filePath, const NodePtr& readerNode, const QString& readerLabel, int firstSourceFrame, int lastSourceFrame, QJsonObject* sourceMetadata = 0, QString* diagnostics = 0, std::function<bool(int completed, int total)> progressCallback = std::function<bool(int completed, int total)>());
+    bool previewFluxAiResultPngInWorkViewer(const QString& absolutePngPath, QString* diagnostics = 0);
 
     NodeGuiPtr createNodeGUI(NodePtr node,
                              const CreateNodeArgs& args);
@@ -364,10 +372,21 @@ public:
     /** @brief Returns the Flux effects stack panel (may be null if not in Flux mode). */
     class FluxEffectsPanel* getFluxEffectsPanel() const;
     class FluxExportPanel* getFluxExportPanel() const;
+    class FluxAiPanel* getFluxAiPanel() const;
     class FluxTimeline* getFluxTimeline() const;
     NodePtr getFluxBgReformatNode() const;
     void setFluxBgReformatNode(const NodePtr& node);
     void rebuildCompositingGraph(class FluxTimeline* timeline);
+
+    // Nodegraph-to-timeline sync API
+    bool isFluxNodeGraphDirty() const;
+    void clearFluxNodeGraphDirty();
+    void syncFluxTimelineFromNodeGraph();
+
+    bool isFluxAiWorkViewerNode(const NodePtr& node) const;
+    ViewerTab* getFluxMainCompositingViewerTab() const;
+    ViewerTab* ensureFluxAiWorkViewerTab(NodePtr* viewerNode = 0);
+    void showFluxViewerTab(ViewerTab* viewerTab);
     QVBoxLayout* getPropertiesLayout() const;
     PropertiesBinWrapper* getPropertiesBin() const;
     const RegisteredTabs & getRegisteredTabs() const;
@@ -698,6 +717,9 @@ public Q_SLOTS:
 #ifdef Q_OS_DARWIN
     void dockClicked();
 #endif
+
+    // Nodegraph-to-timeline dirty handler (connected via SIGNAL/SLOT to compositing-tree nodes)
+    void onCompositingTreeNodeChanged(int inputNb = 0);
     
 private:
 

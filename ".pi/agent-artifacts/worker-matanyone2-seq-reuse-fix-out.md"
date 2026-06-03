@@ -1,0 +1,27 @@
+# Agent Summary
+
+## Status
+Done
+
+## Task Completed
+Fixed source sequence reuse in `runMatAnyone2()` so that relative frame paths from the manifest (`./source_000001.png`) are resolved against `temporary_source_sequence_dir` before checking existence. The manifest check now reads `source_frame_start`/`source_frame_end` for range matching and iterates both `matanyone2_source_sequence` and `sam3_source_sequence` keys. The cached-sequence frame-existence check was also fixed with the same `QDir(dir).filePath(relPath)` resolution.
+
+## Files Inspected
+- `Gui/FluxAiPanel.cpp`: Located the manifest-check block and cached-sequence block in `runMatAnyone2()`
+
+## Files Changed
+- `Gui/FluxAiPanel.cpp`: Two fixes in `runMatAnyone2()`:
+  1. **Manifest check block**: Replaced single-pass lookup with a loop over both `matanyone2_source_sequence` and `sam3_source_sequence` keys. Reads `temporary_source_sequence_dir` as base dir, `source_frame_start`/`source_frame_end` for range comparison, and resolves relative frame paths via `QDir(baseDir).filePath(relPath)` before `QFileInfo::isFile()`.
+  2. **Cached sequence check**: Same relative-path fix — resolves first/last frame paths against `_cachedSourceSequenceDir` before existence check.
+
+## Validation
+- command: `git diff --check`
+- result: passed (no whitespace errors)
+- command: `cmake --build build --target Natron -j$(nproc)`
+- result: passed (built successfully, no errors)
+
+## Blockers / Decisions Needed
+- None.
+
+## Risks / Follow-up
+- The cached-sequence fix was a proactive fix for the same class of bug (relative paths). If cached paths are always absolute from export, this is defensive; no behavioral change in that case.

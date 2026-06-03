@@ -30,6 +30,7 @@
 
 #include <list>
 #include <map>
+#include <set>
 #include <vector>
 
 CLANG_DIAG_OFF(deprecated)
@@ -303,6 +304,7 @@ public:
     class FluxTimeline* _fluxTimeline;
     class FluxEffectsPanel* _fluxEffectsPanel;
     class FluxExportPanel* _fluxExportPanel;
+    class FluxAiPanel* _fluxAiPanel;
     class FluxTextPanel* _fluxTextPanel;
     class FluxTextAnimatorPanel* _fluxTextAnimatorPanel;
     TabWidget* _fluxViewerPane;
@@ -319,6 +321,11 @@ public:
     NodePtr _fluxExportReformatNode;
     NodePtr _fluxExportWriteNode;
     NodePtr _fluxFinalOutputNode;
+
+    // Flux nodegraph-to-timeline sync state
+    bool _fluxNodeGraphDirty = false;
+    bool _fluxSyncInProgress = false;
+    std::set<NodeWPtr, std::owner_less<NodeWPtr>> _fluxCompositingTreeNodes;
 };
 
 NATRON_NAMESPACE_EXIT

@@ -30,6 +30,7 @@
 
 #include <list>
 #include <string>
+#include <vector>
 
 #if !defined(Q_MOC_RUN) && !defined(SBK_RUN)
 GCC_DIAG_UNUSED_LOCAL_TYPEDEFS_OFF
@@ -42,6 +43,8 @@ GCC_DIAG_OFF(unused-parameter)
 #include <boost/serialization/map.hpp>
 // /usr/local/include/boost/serialization/shared_ptr.hpp:112:5: warning: unused typedef 'boost_static_assert_typedef_112' [-Wunused-local-typedef]
 #include <boost/serialization/shared_ptr.hpp>
+#include <boost/serialization/string.hpp>
+#include <boost/serialization/vector.hpp>
 #include <boost/serialization/version.hpp>
 GCC_DIAG_UNUSED_LOCAL_TYPEDEFS_ON
 GCC_DIAG_ON(unused-parameter)
@@ -85,7 +88,8 @@ GCC_DIAG_ON(unused-parameter)
 #define PROJECT_GUI_SERIALIZATION_INTRODUCES_PYTHON_PANELS 11
 #define PROJECT_GUI_SERIALIZATION_INTRODUCES_PANEL_STATES 12
 #define PROJECT_GUI_SERIALIZATION_INTRODUCES_FLUX 13
-#define PROJECT_GUI_SERIALIZATION_VERSION PROJECT_GUI_SERIALIZATION_INTRODUCES_FLUX
+#define PROJECT_GUI_SERIALIZATION_INTRODUCES_FLUX_AI_PANEL 14
+#define PROJECT_GUI_SERIALIZATION_VERSION PROJECT_GUI_SERIALIZATION_INTRODUCES_FLUX_AI_PANEL
 
 #define PANE_SERIALIZATION_INTRODUCES_CURRENT_TAB 2
 #define PANE_SERIALIZATION_INTRODUCES_SIZE 3
@@ -642,6 +646,49 @@ public:
 };
 
 
+struct FluxAiPanelSerialization
+{
+    std::string selectedTask;
+    std::string selectedModelId;
+    bool hasPrompt;
+    std::string promptJson;
+    std::string sourceLabel;
+    std::string outputLabel;
+    std::string statusLabel;
+    std::string lastResultManifestProjectRelative;
+    std::vector<std::string> resultManifestHistoryProjectRelative;
+
+    FluxAiPanelSerialization()
+        : selectedTask()
+        , selectedModelId()
+        , hasPrompt(false)
+        , promptJson()
+        , sourceLabel()
+        , outputLabel()
+        , statusLabel()
+        , lastResultManifestProjectRelative()
+        , resultManifestHistoryProjectRelative()
+    {
+    }
+
+    template<class Archive>
+    void serialize(Archive & ar,
+                   const unsigned int version)
+    {
+        ar & ::boost::serialization::make_nvp("SelectedTask", selectedTask);
+        ar & ::boost::serialization::make_nvp("SelectedModelId", selectedModelId);
+        ar & ::boost::serialization::make_nvp("HasPrompt", hasPrompt);
+        ar & ::boost::serialization::make_nvp("PromptJson", promptJson);
+        ar & ::boost::serialization::make_nvp("SourceLabel", sourceLabel);
+        ar & ::boost::serialization::make_nvp("OutputLabel", outputLabel);
+        ar & ::boost::serialization::make_nvp("StatusLabel", statusLabel);
+        ar & ::boost::serialization::make_nvp("LastResultManifestProjectRelative", lastResultManifestProjectRelative);
+        if (version >= 1) {
+            ar & ::boost::serialization::make_nvp("ResultManifestHistoryProjectRelative", resultManifestHistoryProjectRelative);
+        }
+    }
+};
+
 class ProjectGuiSerialization
 {
     ///All nodes gui data
@@ -669,6 +716,7 @@ class ProjectGuiSerialization
     ///The boost version passed to load(), this is not used on save
     unsigned int _version;
     FluxTimelineSerialization _fluxTimeline;
+    FluxAiPanelSerialization _fluxAiPanel;
 
     friend class ::boost::serialization::access;
 
@@ -691,6 +739,7 @@ class ProjectGuiSerialization
         ar & ::boost::serialization::make_nvp("OpenedPanelsMinimized", _openedPanelsMinimizedOrdered);
         ar & ::boost::serialization::make_nvp("OpenedPanelsHideUnmodified", _openedPanelsHideUnmodifiedOrdered);
         ar & ::boost::serialization::make_nvp("FluxTimeline", _fluxTimeline);
+        ar & ::boost::serialization::make_nvp("FluxAiPanel", _fluxAiPanel);
     }
 
     template<class Archive>
@@ -743,6 +792,9 @@ class ProjectGuiSerialization
         if (version >= PROJECT_GUI_SERIALIZATION_INTRODUCES_FLUX) {
             ar & ::boost::serialization::make_nvp("FluxTimeline", _fluxTimeline);
         }
+        if (version >= PROJECT_GUI_SERIALIZATION_INTRODUCES_FLUX_AI_PANEL) {
+            ar & ::boost::serialization::make_nvp("FluxAiPanel", _fluxAiPanel);
+        }
 
         _version = version;
     }
@@ -759,6 +811,7 @@ public:
         , _openedPanelsMinimizedOrdered()
         , _openedPanelsHideUnmodifiedOrdered()
         , _version(0)
+        , _fluxAiPanel()
     {
     }
 
@@ -829,6 +882,11 @@ public:
         return _fluxTimeline;
     }
 
+    const FluxAiPanelSerialization& getFluxAiPanel() const
+    {
+        return _fluxAiPanel;
+    }
+
     BOOST_SERIALIZATION_SPLIT_MEMBER()
 };
 
@@ -840,6 +898,7 @@ BOOST_CLASS_VERSION(NATRON_NAMESPACE::SplitterSerialization, SPLITTER_SERIALIZAT
 BOOST_CLASS_VERSION(NATRON_NAMESPACE::PaneLayout, PANE_SERIALIZATION_VERSION)
 BOOST_CLASS_VERSION(NATRON_NAMESPACE::PythonPanelSerialization, PYTHON_PANEL_SERIALIZATION_VERSION)
 BOOST_CLASS_VERSION(NATRON_NAMESPACE::ViewerData, VIEWER_DATA_SERIALIZATION_VERSION)
+BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxAiPanelSerialization, 1)
 BOOST_CLASS_VERSION(NATRON_NAMESPACE::ProjectGuiSerialization, PROJECT_GUI_SERIALIZATION_VERSION)
 
 

@@ -1,0 +1,14 @@
+# Optional dependencies for Flux AI native-runtime spike scripts.
+# Install into a disposable spike environment, not into Flux runtime blindly.
+
+numpy
+Pillow
+opencv-python
+psutil
+
+# Optional, route-specific packages. Install only when running those routes.
+# onnx
+# onnxruntime-gpu
+# torch
+# torchvision
+# tensorrt

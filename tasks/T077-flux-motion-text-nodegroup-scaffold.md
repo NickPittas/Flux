@@ -93,7 +93,7 @@ FLUX_USER_PYPLUG_DIR=/tmp/opencode/t077/home/.Natron/PyPlugs \
 FLUX_USER_OFX_DIR=/tmp/opencode/t077/home/.OFX/Plugins \
 FLUX_OFX_CACHE_DIR=/tmp/opencode/t077/home/.cache/INRIA/Natron/OFXLoadCache \
 FLUX_LAUNCHER_PATH=/tmp/opencode/t077/bin/flux \
-./tools/linux/flux-linux-setup.sh --deploy-extras --clear-ofx-cache --no-check --force
+# obsolete pre-interactive deploy command removed; use tools/linux/flux-linux-setup.sh and choose Install/repair runtime only
 ```
 
 Headless PyPlug creation regression proof:

@@ -24,6 +24,10 @@ Before any non-trivial change, the agent MUST:
 
 If new information invalidates the approved plan, STOP and ask Nick before changing direction.
 
+## Rule 1A: Source-of-Truth Hierarchy for Delegated Work
+
+Nick's direct commands and the original approved plan outrank task packets, subagent prompts, summaries, and review notes. Every subagent prompt and review must explicitly require checking work against that hierarchy. Any drift from Nick's commands or the approved plan is a blocker and must be escalated to Nick instead of silently substituting another workflow.
+
 ## Rule 2: Git Requires Explicit Approval
 
 NEVER commit, amend, revert, reset, push, stage broad changes, or otherwise alter git history/state unless Nick explicitly asks for that exact git action.

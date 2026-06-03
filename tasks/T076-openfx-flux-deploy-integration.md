@@ -16,7 +16,7 @@ Make the Flux-owned OFX renderer path from T075 part of the normal Linux build/d
 
 ## Scope
 
-- Build `openfx-flux/` as a separate CMake OFX project during `--build` / `--bootstrap`.
+- Build `openfx-flux/` as a separate CMake OFX project during the interactive build/full setup actions.
 - Install the generated `FluxTextRender.ofx.bundle` into the repository-local `plugins/` runtime bundle area.
 - Deploy it with the existing OFX bundle deploy path into `~/.OFX/Plugins/` or the configured `FLUX_USER_OFX_DIR`.
 - Include `net.flux.openfx.TextRender` in runtime validation expectations.
@@ -33,10 +33,10 @@ Make the Flux-owned OFX renderer path from T075 part of the normal Linux build/d
 ## Validation
 
 - `bash -n tools/linux/flux-linux-setup.sh`
-- `./tools/linux/flux-linux-setup.sh --help`
+- historical installer help check (obsolete argument interface removed)
 - Alternate-root configure/build/deploy validation with temporary `FLUX_*` paths.
-- `--validate-ldd` reports `FluxTextRender.ofx` clean.
-- `--validate-ofx-discovery` finds and creates `net.flux.openfx.TextRender` with a cold isolated cache.
+- Interactive validation reports `FluxTextRender.ofx` clean.
+- Interactive OFX discovery validation finds and creates `net.flux.openfx.TextRender` with a cold isolated cache.
 - Main Flux build remains valid:
   ```bash
   cmake --build /home/npittas/Flux/build --target Natron -- -j$(nproc)
@@ -48,7 +48,7 @@ The previous completion claim is revoked. The work below proves only a narrow bu
 
 ### Implemented
 
-- `tools/linux/flux-linux-setup.sh --build` now builds:
+- The interactive build action now builds:
   - `Natron`
   - `NatronRenderer`
   - `openfx-flux` / `FluxTextRender.ofx.bundle`
@@ -59,7 +59,7 @@ The previous completion claim is revoked. The work below proves only a narrow bu
   - staging,
   - `ldd` validation,
   - runtime expected ID checks.
-- Added `--validate-ofx-discovery`:
+- Added OFX discovery validation:
   - creates an isolated cold-cache validation home,
   - symlinks only the deployed/built `FluxTextRender.ofx.bundle` into a temp OFX path,
   - uses `NatronRenderer` to discover and create `net.flux.openfx.TextRender`,
@@ -72,8 +72,7 @@ Syntax/help/build:
 
 ```bash
 bash -n tools/linux/flux-linux-setup.sh
-./tools/linux/flux-linux-setup.sh --help
-./tools/linux/flux-linux-setup.sh --build --no-check --jobs 8
+# obsolete pre-interactive installer commands removed; use tools/linux/flux-linux-setup.sh and choose Build Flux from source
 ```
 
 Build result:
@@ -89,14 +88,7 @@ FLUX_USER_PYPLUG_DIR=/tmp/opencode/t076-runtime/PyPlugs \
 FLUX_USER_OFX_DIR=/tmp/opencode/t076-runtime/OFX \
 FLUX_OFX_CACHE_DIR=/tmp/opencode/t076-runtime/OFXLoadCache \
 FLUX_LAUNCHER_PATH=/tmp/opencode/t076-runtime/bin/flux \
-./tools/linux/flux-linux-setup.sh \
-  --deploy-extras \
-  --install-launcher \
-  --clear-ofx-cache \
-  --validate-ldd \
-  --validate-ofx-discovery \
-  --no-check \
-  --force
+# obsolete pre-interactive deploy command removed; use tools/linux/flux-linux-setup.sh and choose Install/repair runtime only, then Validate installation
 ```
 
 Results:
@@ -110,7 +102,7 @@ Results:
 Staging validation:
 
 ```bash
-./tools/linux/flux-linux-setup.sh --stage-extras /tmp/opencode/t076-stage --no-check
+# obsolete pre-interactive staging command removed; current installer is interactive-only
 ```
 
 Result: staged `FluxTextRender.ofx.bundle` alongside IO/Misc/extras.
@@ -126,7 +118,7 @@ Result: passed.
 ### Review
 
 - Oracle review initially flagged that discovery validation could silently skip if `NatronRenderer` was missing.
-- Fixed by building `NatronRenderer` during `--build` and failing hard if discovery validation cannot find Renderer.
+- Fixed by building `NatronRenderer` during the interactive build action and failing hard if discovery validation cannot find Renderer.
 - Final Oracle verdict applied only to narrow deploy/discovery mechanics. It is not product acceptance and does not permit marking this task done.
 
 ### Notes

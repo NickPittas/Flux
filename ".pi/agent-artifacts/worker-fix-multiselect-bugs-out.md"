@@ -1,0 +1,22 @@
+# Agent Summary
+
+## Status
+Done
+
+## Task Completed
+Fixed three rubber-band multi-select keyframe bugs in `Gui/FluxTimeline.cpp`: (1) coordinate mismatch in `selectKeyframesInRect()` vertical overlap test, (2) rubber-band now starts from any y-position below the time ruler as a last fallback, (3) clicking an already-selected keyframe preserves multi-selection and enters drag mode.
+
+## Files Changed
+- `Gui/FluxTimeline.cpp`: Three targeted fixes applied
+
+## Validation
+- `git diff --check`: passed
+- `cmake --build build --target Natron -j$(nproc)`: passed (built + linked successfully)
+
+## Blockers / Decisions Needed
+None
+
+## Risks / Follow-up
+Bug 2 replaces "click empty bar area → move playhead" with "click empty bar area → rubber-band select". Playhead drag is still available via the time ruler. If both behaviors are needed on empty bar space, that would be a follow-up task.
+
+Report saved to: `/home/npittas/Flux/.pi/agent-artifacts/worker-fix-multiselect-bugs-out.md`

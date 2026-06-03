@@ -24,12 +24,10 @@ tracking systems.
 ```bash
 git clone --recursive <flux-repo-url> Flux
 cd Flux
-export FLUX_ROOT="$PWD"
-./tools/linux/flux-linux-setup.sh --bootstrap
+tools/linux/flux-linux-setup.sh
 ```
 
-See `INSTALL_FLUX_LINUX.md` for Fedora-first setup details, including the
-required pre-staged OpenFX payloads for IO/Misc/extras. The inherited Natron
+See `INSTALL_FLUX_LINUX.md` for the Fedora-first interactive setup flow. The installer takes no arguments; all choices are made inside the guided menu. The inherited Natron
 README below remains upstream reference material.
 
 ---

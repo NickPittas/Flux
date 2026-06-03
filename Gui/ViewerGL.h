@@ -35,6 +35,10 @@
 #include "Global/GLIncludes.h" //!<must be included before QGlWidget because of gl.h and glew.h
 
 #include <QSize>
+#include <QPointF>
+#include <QJsonObject>
+#include <QImage>
+#include <QString>
 
 #include <QOpenGLWidget>
 

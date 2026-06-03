@@ -1,0 +1,26 @@
+# Agent Summary
+
+## Status
+Done
+
+## Task Completed
+Created a ready narrow implementation plan for fixing MatAnyone2 CUDA OOM by stopping the competing persistent GPU worker before startup, adding MatAnyone2 CUDA allocator/cache handling, and deferring half-resolution processing.
+
+## Files Inspected
+- `file:///home/npittas/Flux/Gui/FluxAiPanel.cpp`: located SAM3/MatAnyone2 worker start, shutdown, and process-state anchors.
+- `file:///home/npittas/Flux/Gui/FluxAiPanel.h`: confirmed worker process/state members and private method area.
+- `file:///home/npittas/Flux/tools/ai/matanyone2_worker.py`: located torch import paths, model load, and existing unload cache cleanup.
+
+## Files Changed
+- `file:///home/npittas/Flux/.pi/agent-artifacts/plan-fix-matanyone2-gpu-mem.md`: wrote the planner report and task packet.
+
+## Validation
+- command: `wc -l /home/npittas/Flux/.pi/agent-artifacts/plan-fix-matanyone2-gpu-mem.md`
+- result: passed
+- evidence: plan file exists with 150 lines and status `ready`.
+
+## Blockers / Decisions Needed
+- None.
+
+## Risks / Follow-up
+- Reviewer gate required before handing this plan to implementation.

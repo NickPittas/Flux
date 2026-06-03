@@ -1,0 +1,26 @@
+{
+  "matanyone2": {
+    "clip": "",
+    "clip_env": "FLUX_MATANYONE2_CLIP",
+    "clip_exists": false,
+    "first_mask": "",
+    "first_mask_env": "FLUX_MATANYONE2_FIRST_MASK",
+    "first_mask_exists": false,
+    "ready_for_baseline": false
+  },
+  "sam3": {
+    "dimensions": {
+      "height": 480,
+      "width": 640
+    },
+    "exists": true,
+    "proof_asset": "tools/ai/proof_assets/sam31_probe_source.ppm",
+    "recommended_center_point": {
+      "label": 1,
+      "x": 320,
+      "y": 240
+    },
+    "sha256": "13e77a941774a4150dde8b24c24e5a0a8eaa6a9440cd719b2f61301120730017"
+  },
+  "schema": "flux.ai_native_spikes.assets.v1"
+}

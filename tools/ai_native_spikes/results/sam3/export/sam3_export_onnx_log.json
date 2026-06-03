@@ -1,0 +1,26 @@
+{
+  "device": "cuda",
+  "elapsed_seconds": 19.331,
+  "errors": [
+    "export output not valid JSON: Expecting value: line 1 column 2 (char 1)"
+  ],
+  "export_attempt": {
+    "attempted": true,
+    "elapsed_seconds": 18.975,
+    "error": "JSON parse failed: Expecting value: line 1 column 2 (char 1)",
+    "returncode": 0,
+    "stdout_preview": "[torch.onnx] Obtain model graph for `Sam3TrackerONNXWrapper([...]` with `torch.export.export(..., strict=False)`...\n[torch.onnx] Obtain model graph for `Sam3TrackerONNXWrapper([...]` with `torch.export.export(..., strict=False)`... \u274c\n[torch.onnx] Obtain model graph for `Sam3TrackerONNXWrapper([...]` with `torch.export.export(..., strict=True)`...\n[torch.onnx] Obtain model graph for `Sam3TrackerONNXWrapper([...]` with `torch.export.export(..., strict=True)`... \u274c\n{\n  \"errors\": [\n    \"onnx_export_legacy_cpu_dynamo_false: IndexError: too many indices for tensor of dimension 3\",\n    \"onnx_export_default_cpu: TorchExportError: Failed to export the model with torch.export. \\u001b[96mThis is step 1/3\\u001b[0m of exporting the model to ONNX. Next steps:\\n- Modify the model code for `torch.export.export` to succeed. Refer to https://pytorch.org/docs/stable/generated/exportdb/index.html for more information.\\n- Debug `torch.export.export` and submit a PR to PyTorch.\\n- Create an issue in the PyTorch GitHub repository against the \\u001b[96m*torch.export*\\u001b[0m component and attach the full error stack as well as reproduction scripts.\\n\\n## Exception summary\\n\\n<class 'IndexError'>: too many indices for tensor of dimension 3\\n\\n(Refer to the full stack trace above for more information.)\",\n    \"onnx_export: all export strategies failed\"\n  ],\n  \"image\": {\n    \"height\": 480,\n    \"path\": \"/home/npittas/Flux/tools/ai/proof_assets/sam31_probe_source.ppm\",\n    \"width\": 640\n  },\n  \"status\": \"export_failed\",\n  \"steps\": {\n    \"build_wrapper\": {\n      \"elapsed_seconds\": 0.001,\n      \"forward_input_names\": [\n        \"pixel_values\",\n        \"input_boxes\"\n      ],\n      \"sample_shapes\": {\n        \"input_boxes\": [\n          1,\n          1,\n          4\n        ],\n        \"pixel_values\": [\n          1,\n          3,\n          1008,\n          1008\n        ]\n      },\n      \"status\": \"done\",\n      \"t0\": 293661.484363788\n    },\n    \"dry_run_forward\": {\n      \"elapsed_seconds\": 0.412,\n      \"has_pred_masks\": true,\n      \"index_0_shape\": [\n        1,\n        1,\n        3\n      ],\n      \"output_attributes\": [\n        {\n          \"dtype\": \"torch.float32\",\n          \"name\": \"iou_scores\",\n          \"shape\": [\n            1,\n            1,\n            3\n          ]\n        },\n        {\n          \"dtype\": \"torch.float32\",\n          \"name\": \"object_score_logits\",\n          \"shape\": [\n            1,\n            1,\n            1\n          ]\n        },\n        {\n          \"dtype\": \"torch.float32\",\n          \"name\": \"pred_masks\",\n          \"shape\": [\n            1,\n            1,\n            3,\n            288,\n            288\n          ]\n        }\n      ],\n      \"output_class\": \"Sam3TrackerImageSegmentationOutput\",\n      \"pred_masks_dtype\": \"torch.float32\",\n      \"pred_masks_shape\": [\n        1,\n        1,\n        3,\n        288,\n        288\n      ],\n      \"status\": \"done\",\n      \"t0\": 293661.072143549,\n      \"tuple_length\": 4,\n      \"tuple_shapes\": [\n        [\n          1,\n          1,\n  ",
+    "success": false
+  },
+  "model": {
+    "installed": true,
+    "local_path": "/home/npittas/.local/share/Flux/models/sam3_transformers/3c879f39826c281e95690f02c7821c4de09afae7"
+  },
+  "opset": 17,
+  "prompt_kind": "box",
+  "route": "onnx",
+  "runtime_python": "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python",
+  "schema": "org.flux.ai.sam3-export-probe.onnx.v1",
+  "status": "export_failed",
+  "timestamp": "2026-06-01T11:42:09.894183+00:00"
+}

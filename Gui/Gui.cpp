@@ -1251,6 +1251,42 @@ Gui::dockClicked()
 }
 #endif
 
+bool
+Gui::isFluxNodeGraphDirty() const
+{
+    return _imp ? _imp->_fluxNodeGraphDirty : false;
+}
+
+void
+Gui::clearFluxNodeGraphDirty()
+{
+    if (_imp) {
+        _imp->_fluxNodeGraphDirty = false;
+        if (_imp->_fluxTimeline) {
+            _imp->_fluxTimeline->update();
+        }
+    }
+}
+
+void
+Gui::onCompositingTreeNodeChanged(int inputNb)
+{
+    Q_UNUSED(inputNb);
+    if (!_imp) {
+        return;
+    }
+    if (_imp->_fluxSyncInProgress) {
+        return;
+    }
+    if (_imp->_fluxNodeGraphDirty) {
+        return;
+    }
+    _imp->_fluxNodeGraphDirty = true;
+    if (_imp->_fluxTimeline) {
+        _imp->_fluxTimeline->update();
+    }
+}
+
 NATRON_NAMESPACE_EXIT
 
 NATRON_NAMESPACE_USING

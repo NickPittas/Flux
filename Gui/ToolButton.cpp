@@ -35,6 +35,7 @@ CLANG_DIAG_ON(deprecated)
 
 #include "Gui/GuiAppInstance.h"
 #include "Gui/Gui.h"
+#include "Gui/FluxTimeline.h"
 #include "Engine/CreateNodeArgs.h"
 #include "Engine/Project.h"
 
@@ -189,7 +190,20 @@ ToolButton::onTriggered()
     if (!app) {
         return;
     }
-    NodeCollectionPtr group = app->getGui()->getLastSelectedNodeCollection();
+
+    // Delegate to Flux timeline if a valid layer is selected
+    Gui* gui = app->getGui();
+    if (gui) {
+        class FluxTimeline* timeline = gui->getFluxTimeline();
+        if (timeline) {
+            if (timeline->addEffectByPluginId(_imp->_id, _imp->_major)) {
+                return;
+            }
+        }
+    }
+
+    // Fall back to standard Natron toolbar behavior
+    NodeCollectionPtr group = gui ? gui->getLastSelectedNodeCollection() : NodeCollectionPtr();
 
     assert(group);
     CreateNodeArgs args(_imp->_id.toStdString(), group);

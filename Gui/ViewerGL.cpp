@@ -85,6 +85,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/ViewerTab.h"
 
 #include <QOpenGLContext>
+#include <QtGlobal>
 
 
 #define USER_ROI_BORDER_TICK_SIZE 15.f
@@ -505,7 +506,6 @@ ViewerGL::paintGL()
             }
             renderText(pos.x(), pos.y(), tr("Overlays off"), QColor(200, 0, 0), f);
         }
-
         if (_imp->ms == eMouseStateSelecting) {
             _imp->drawSelectionRectangle();
         }

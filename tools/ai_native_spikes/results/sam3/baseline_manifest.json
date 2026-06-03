@@ -1,0 +1,491 @@
+{
+  "critical_failures": null,
+  "device": "cuda",
+  "elapsed_seconds": 15.711,
+  "image": {
+    "height": 480,
+    "path": "/home/npittas/Flux/tools/ai/proof_assets/sam31_probe_source.ppm",
+    "width": 640
+  },
+  "overall_status": "ok",
+  "prompt_set": "default",
+  "prompts": {
+    "box": "160,120,480,360",
+    "point": "320,240,1",
+    "text": "object"
+  },
+  "results": [
+    {
+      "command": [
+        "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python",
+        "/home/npittas/Flux/tools/ai/sam3_transformers_real_inference_probe.py",
+        "--json",
+        "--device",
+        "cuda",
+        "--image",
+        "/home/npittas/Flux/tools/ai/proof_assets/sam31_probe_source.ppm",
+        "--output-dir",
+        "/home/npittas/Flux/tools/ai_native_spikes/results/sam3/point",
+        "--prompt-kind",
+        "point",
+        "--source-width",
+        "640",
+        "--source-height",
+        "480",
+        "--point",
+        "320,240,1"
+      ],
+      "elapsed_seconds": 5.441,
+      "parsed_json": {
+        "backend": {
+          "blockers": {
+            "video_propagation_or_later_frame_correction": "official temporal API setup failed: RuntimeError: --video is required for real temporal API proof"
+          },
+          "capabilities": {
+            "box_prompt": true,
+            "concept_box_prompt": true,
+            "concept_text_prompt": true,
+            "mask_paint_prompt": true,
+            "point_prompt": true,
+            "text_prompt": true,
+            "tracker_box_prompt": true,
+            "tracker_point_prompt": true,
+            "video_propagation_or_later_frame_correction": false,
+            "video_tracker_api": true
+          },
+          "kind": "sam3_concept_and_tracker",
+          "name": "transformers"
+        },
+        "dependencies": {
+          "PIL": {
+            "available": true,
+            "error": null,
+            "module": "PIL",
+            "version": "unknown"
+          },
+          "cv2": {
+            "available": true,
+            "error": null,
+            "module": "cv2",
+            "version": "unknown"
+          },
+          "huggingface_hub": {
+            "available": true,
+            "error": null,
+            "module": "huggingface_hub",
+            "version": "1.16.4"
+          },
+          "numpy": {
+            "available": true,
+            "error": null,
+            "module": "numpy",
+            "version": "2.4.4"
+          },
+          "torch": {
+            "available": true,
+            "error": null,
+            "module": "torch",
+            "version": "2.11.0+cu128"
+          },
+          "transformers": {
+            "available": true,
+            "error": null,
+            "module": "transformers",
+            "version": "5.9.0"
+          }
+        },
+        "device": {
+          "cuda": {
+            "available": true,
+            "device_count": 1,
+            "devices": [
+              "NVIDIA GeForce RTX 4090"
+            ],
+            "error": null
+          },
+          "requested": "cuda",
+          "selected": "cuda"
+        },
+        "errors": [],
+        "model": {
+          "id": "sam3_transformers",
+          "local_path": "/home/npittas/.local/share/Flux/models/sam3_transformers/3c879f39826c281e95690f02c7821c4de09afae7",
+          "repo": "facebook/sam3",
+          "revision": "3c879f39826c281e95690f02c7821c4de09afae7"
+        },
+        "prompt_contract": {
+          "kind": "point",
+          "source_height": 480,
+          "source_width": 640,
+          "source_xy": {
+            "label": 1,
+            "x": 320,
+            "y": 240
+          }
+        },
+        "prompts": {
+          "mask_prompt_path": null,
+          "point": {
+            "label": 1,
+            "x": 320,
+            "y": 240
+          },
+          "video_path": null
+        },
+        "proofs": {
+          "point": {
+            "mask_path": "/home/npittas/Flux/tools/ai_native_spikes/results/sam3/point/mask_point.png",
+            "mask_size": [
+              640,
+              480
+            ],
+            "nonzero_pixels": 2718,
+            "prompt": {
+              "label": 1,
+              "x": 320,
+              "y": 240
+            },
+            "runtime_blocker": null,
+            "status": "succeeded",
+            "unsupported_by_detected_api": false
+          }
+        },
+        "python": {
+          "executable": "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python",
+          "version": "3.11.15"
+        },
+        "schema": "org.flux.ai.sam3-transformers-real-inference-result.v1",
+        "selected_mask_path": "/home/npittas/Flux/tools/ai_native_spikes/results/sam3/point/mask_point.png",
+        "selected_prompt_kind": "point",
+        "source_image": {
+          "declared_height": 480,
+          "declared_width": 640,
+          "height": 480,
+          "path": "/home/npittas/Flux/tools/ai/proof_assets/sam31_probe_source.ppm",
+          "width": 640
+        },
+        "timestamp": "2026-06-01T10:23:58.135786+00:00",
+        "unsupported": {
+          "mask_paint_prompt": "not_requested",
+          "video_propagation_or_later_frame_correction": "not_requested"
+        }
+      },
+      "prompt_kind": "point",
+      "returncode": 0,
+      "stderr_path": "/home/npittas/Flux/tools/ai_native_spikes/results/sam3/point/probe_stderr.txt",
+      "stderr_preview": "\nLoading weights:   0%|          | 0/1468 [00:00<?, ?it/s]\nLoading weights: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 1468/1468 [00:00<00:00, 16820.44it/s]\n[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.\n\nLoading weights:   0%|          | 0/685 [00:00<?, ?it/s]\nLoading weights: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 685/685 [00:00<00:00, 15832.88it/s]\n",
+      "stdout_path": "/home/npittas/Flux/tools/ai_native_spikes/results/sam3/point/probe_stdout.json"
+    },
+    {
+      "command": [
+        "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python",
+        "/home/npittas/Flux/tools/ai/sam3_transformers_real_inference_probe.py",
+        "--json",
+        "--device",
+        "cuda",
+        "--image",
+        "/home/npittas/Flux/tools/ai/proof_assets/sam31_probe_source.ppm",
+        "--output-dir",
+        "/home/npittas/Flux/tools/ai_native_spikes/results/sam3/box",
+        "--prompt-kind",
+        "box",
+        "--source-width",
+        "640",
+        "--source-height",
+        "480",
+        "--box",
+        "160,120,480,360"
+      ],
+      "elapsed_seconds": 5.106,
+      "parsed_json": {
+        "backend": {
+          "blockers": {
+            "video_propagation_or_later_frame_correction": "official temporal API setup failed: RuntimeError: --video is required for real temporal API proof"
+          },
+          "capabilities": {
+            "box_prompt": true,
+            "concept_box_prompt": true,
+            "concept_text_prompt": true,
+            "mask_paint_prompt": true,
+            "point_prompt": true,
+            "text_prompt": true,
+            "tracker_box_prompt": true,
+            "tracker_point_prompt": true,
+            "video_propagation_or_later_frame_correction": false,
+            "video_tracker_api": true
+          },
+          "kind": "sam3_concept_and_tracker",
+          "name": "transformers"
+        },
+        "dependencies": {
+          "PIL": {
+            "available": true,
+            "error": null,
+            "module": "PIL",
+            "version": "unknown"
+          },
+          "cv2": {
+            "available": true,
+            "error": null,
+            "module": "cv2",
+            "version": "unknown"
+          },
+          "huggingface_hub": {
+            "available": true,
+            "error": null,
+            "module": "huggingface_hub",
+            "version": "1.16.4"
+          },
+          "numpy": {
+            "available": true,
+            "error": null,
+            "module": "numpy",
+            "version": "2.4.4"
+          },
+          "torch": {
+            "available": true,
+            "error": null,
+            "module": "torch",
+            "version": "2.11.0+cu128"
+          },
+          "transformers": {
+            "available": true,
+            "error": null,
+            "module": "transformers",
+            "version": "5.9.0"
+          }
+        },
+        "device": {
+          "cuda": {
+            "available": true,
+            "device_count": 1,
+            "devices": [
+              "NVIDIA GeForce RTX 4090"
+            ],
+            "error": null
+          },
+          "requested": "cuda",
+          "selected": "cuda"
+        },
+        "errors": [],
+        "model": {
+          "id": "sam3_transformers",
+          "local_path": "/home/npittas/.local/share/Flux/models/sam3_transformers/3c879f39826c281e95690f02c7821c4de09afae7",
+          "repo": "facebook/sam3",
+          "revision": "3c879f39826c281e95690f02c7821c4de09afae7"
+        },
+        "prompt_contract": {
+          "kind": "box",
+          "source_height": 480,
+          "source_width": 640,
+          "source_xyxy": [
+            160.0,
+            120.0,
+            480.0,
+            360.0
+          ]
+        },
+        "prompts": {
+          "box": [
+            160.0,
+            120.0,
+            480.0,
+            360.0
+          ],
+          "mask_prompt_path": null,
+          "video_path": null
+        },
+        "proofs": {
+          "box": {
+            "mask_path": "/home/npittas/Flux/tools/ai_native_spikes/results/sam3/box/mask_box.png",
+            "mask_size": [
+              640,
+              480
+            ],
+            "nonzero_pixels": 18441,
+            "prompt": [
+              160.0,
+              120.0,
+              480.0,
+              360.0
+            ],
+            "runtime_blocker": null,
+            "status": "succeeded",
+            "unsupported_by_detected_api": false
+          }
+        },
+        "python": {
+          "executable": "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python",
+          "version": "3.11.15"
+        },
+        "schema": "org.flux.ai.sam3-transformers-real-inference-result.v1",
+        "selected_mask_path": "/home/npittas/Flux/tools/ai_native_spikes/results/sam3/box/mask_box.png",
+        "selected_prompt_kind": "box",
+        "source_image": {
+          "declared_height": 480,
+          "declared_width": 640,
+          "height": 480,
+          "path": "/home/npittas/Flux/tools/ai/proof_assets/sam31_probe_source.ppm",
+          "width": 640
+        },
+        "timestamp": "2026-06-01T10:24:03.541916+00:00",
+        "unsupported": {
+          "mask_paint_prompt": "not_requested",
+          "video_propagation_or_later_frame_correction": "not_requested"
+        }
+      },
+      "prompt_kind": "box",
+      "returncode": 0,
+      "stderr_path": "/home/npittas/Flux/tools/ai_native_spikes/results/sam3/box/probe_stderr.txt",
+      "stderr_preview": "\nLoading weights:   0%|          | 0/1468 [00:00<?, ?it/s]\nLoading weights: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 1468/1468 [00:00<00:00, 21043.77it/s]\n[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.\n\nLoading weights:   0%|          | 0/685 [00:00<?, ?it/s]\nLoading weights: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 685/685 [00:00<00:00, 21012.62it/s]\n",
+      "stdout_path": "/home/npittas/Flux/tools/ai_native_spikes/results/sam3/box/probe_stdout.json"
+    },
+    {
+      "command": [
+        "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python",
+        "/home/npittas/Flux/tools/ai/sam3_transformers_real_inference_probe.py",
+        "--json",
+        "--device",
+        "cuda",
+        "--image",
+        "/home/npittas/Flux/tools/ai/proof_assets/sam31_probe_source.ppm",
+        "--output-dir",
+        "/home/npittas/Flux/tools/ai_native_spikes/results/sam3/text",
+        "--prompt-kind",
+        "text",
+        "--source-width",
+        "640",
+        "--source-height",
+        "480",
+        "--text",
+        "object"
+      ],
+      "elapsed_seconds": 5.163,
+      "parsed_json": {
+        "backend": {
+          "blockers": {
+            "video_propagation_or_later_frame_correction": "official temporal API setup failed: RuntimeError: --video is required for real temporal API proof"
+          },
+          "capabilities": {
+            "box_prompt": true,
+            "concept_box_prompt": true,
+            "concept_text_prompt": true,
+            "mask_paint_prompt": true,
+            "point_prompt": true,
+            "text_prompt": true,
+            "tracker_box_prompt": true,
+            "tracker_point_prompt": true,
+            "video_propagation_or_later_frame_correction": false,
+            "video_tracker_api": true
+          },
+          "kind": "sam3_concept_and_tracker",
+          "name": "transformers"
+        },
+        "dependencies": {
+          "PIL": {
+            "available": true,
+            "error": null,
+            "module": "PIL",
+            "version": "unknown"
+          },
+          "cv2": {
+            "available": true,
+            "error": null,
+            "module": "cv2",
+            "version": "unknown"
+          },
+          "huggingface_hub": {
+            "available": true,
+            "error": null,
+            "module": "huggingface_hub",
+            "version": "1.16.4"
+          },
+          "numpy": {
+            "available": true,
+            "error": null,
+            "module": "numpy",
+            "version": "2.4.4"
+          },
+          "torch": {
+            "available": true,
+            "error": null,
+            "module": "torch",
+            "version": "2.11.0+cu128"
+          },
+          "transformers": {
+            "available": true,
+            "error": null,
+            "module": "transformers",
+            "version": "5.9.0"
+          }
+        },
+        "device": {
+          "cuda": {
+            "available": true,
+            "device_count": 1,
+            "devices": [
+              "NVIDIA GeForce RTX 4090"
+            ],
+            "error": null
+          },
+          "requested": "cuda",
+          "selected": "cuda"
+        },
+        "errors": [],
+        "model": {
+          "id": "sam3_transformers",
+          "local_path": "/home/npittas/.local/share/Flux/models/sam3_transformers/3c879f39826c281e95690f02c7821c4de09afae7",
+          "repo": "facebook/sam3",
+          "revision": "3c879f39826c281e95690f02c7821c4de09afae7"
+        },
+        "prompt_contract": {
+          "kind": "text",
+          "source_height": 480,
+          "source_width": 640,
+          "text": "object"
+        },
+        "prompts": {
+          "mask_prompt_path": null,
+          "text": "object",
+          "video_path": null
+        },
+        "proofs": {
+          "text": {
+            "prompt": "object",
+            "runtime_blocker": "IndexError: index 0 is out of bounds for axis 0 with size 0",
+            "status": "blocked",
+            "unsupported_by_detected_api": false
+          }
+        },
+        "python": {
+          "executable": "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python",
+          "version": "3.11.15"
+        },
+        "schema": "org.flux.ai.sam3-transformers-real-inference-result.v1",
+        "selected_mask_path": null,
+        "selected_prompt_kind": "text",
+        "source_image": {
+          "declared_height": 480,
+          "declared_width": 640,
+          "height": 480,
+          "path": "/home/npittas/Flux/tools/ai/proof_assets/sam31_probe_source.ppm",
+          "width": 640
+        },
+        "timestamp": "2026-06-01T10:24:08.664777+00:00",
+        "unsupported": {
+          "mask_paint_prompt": "not_requested",
+          "video_propagation_or_later_frame_correction": "not_requested"
+        }
+      },
+      "prompt_kind": "text",
+      "returncode": 4,
+      "stderr_path": "/home/npittas/Flux/tools/ai_native_spikes/results/sam3/text/probe_stderr.txt",
+      "stderr_preview": "\nLoading weights:   0%|          | 0/1468 [00:00<?, ?it/s]\nLoading weights: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 1468/1468 [00:00<00:00, 21919.76it/s]\n[transformers] You are using a model of type `sam3_video` to instantiate a model of type `sam3_tracker`. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.\n\nLoading weights:   0%|          | 0/685 [00:00<?, ?it/s]\nLoading weights: 100%|\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588| 685/685 [00:00<00:00, 24213.07it/s]\n",
+      "stdout_path": "/home/npittas/Flux/tools/ai_native_spikes/results/sam3/text/probe_stdout.json"
+    }
+  ],
+  "runtime_id": "sam3",
+  "runtime_python": "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python",
+  "schema": "flux.ai_native_spikes.sam3_baseline.v1",
+  "timestamp": "2026-06-01T10:24:12.397446+00:00"
+}

@@ -1,0 +1,32 @@
+Only the two allowed files were modified.
+
+# Agent Summary
+
+## Status
+Done
+
+## Task Completed
+Implemented snap behavior for keyframes and trim edges in the timeline. Holding Shift during drag enables snapping to other keyframes and layer edges; releasing Shift disables it mid-drag. Visual feedback is a cyan dashed vertical guide line with a frame number label. Snap tolerance is configurable via `_snapTolerancePixels` (default 10px).
+
+## Files Inspected
+- `plans/plan-snap-keyframes.md`: detailed implementation plan with data structures and algorithms
+- `Gui/FluxTimeline.h`: class structure, InteractionMode enum, member layout
+- `Gui/FluxTimeline.cpp`: mousePressEvent, mouseMoveEvent, mouseReleaseEvent, paintEvent, frameToX/xToFrame, drawPlayhead
+- `Gui/FluxKeyframeModel.h`: buildLayerProperties, buildEffectProperties, buildMaskProperties, keysForProperty, moveKeysAtTime APIs
+
+## Files Changed
+- `Gui/FluxTimeline.h`: Added `SnapTargetKind` enum, `SnapTarget` struct, snap state members (`_snapTolerancePixels`, `_snapActive`, `_snapFrame`, `_snapKind`, `_snapShiftHeld`), and snap helper method declarations (`collectSnapTargets`, `resolveSnapFrame`, `clearSnapState`, `setSnapState`, `drawSnapIndicator`)
+- `Gui/FluxTimeline.cpp`: Implemented all snap helpers, hooked Shift-toggle snap logic into `mouseMoveEvent` for `eModeTrimLeft`, `eModeTrimRight`, and `eModeDragKeyframe`, added `clearSnapState()`/`_snapShiftHeld=false` calls in `mousePressEvent` for pan/resize/playhead/empty-space branches and at start of snap-capable drags, added snap state cleanup in `mouseReleaseEvent`, and added `drawSnapIndicator()` call in `paintEvent` after playhead
+
+## Validation
+- command: `git diff --check`
+- result: passed (no whitespace errors)
+- command: `cmake --build build --target Natron -j$(nproc)`
+- result: passed — build succeeded with zero warnings, linking successful
+
+## Blockers / Decisions Needed
+- None.
+
+## Risks / Follow-up
+- The `collectSnapTargets()` method iterates all layers and all their properties on every mouse move when Shift is held. For projects with many layers/effects, this could cause jitter during drag. Future optimization: cache targets per drag and invalidate only on mode change.
+- Manual GUI validation is required per the plan (drag keyframes/trim handles with Shift, verify snap guide appears/disappears, verify commit positions).

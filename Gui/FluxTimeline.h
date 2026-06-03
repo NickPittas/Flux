@@ -43,6 +43,8 @@ CLANG_DIAG_ON(uninitialized)
 
 #include "Engine/Knob.h"
 
+#include "Engine/Curve.h"
+
 #include "Gui/FluxTimelineSerialization.h"
 #include "Gui/FluxKeyframeModel.h"
 
@@ -92,10 +94,75 @@ struct FluxEffect {
     QString label;
     NodePtr node;
     bool enabled;
+    QList<int> viewerInputBadges; ///< transient viewer-input badge numbers (1-based)
+    bool isAIMaskCopy; // legacy custom-plane AI mask row
+    QString aiMaskUsage; // "layer-alpha" or "effect-mask"; empty for normal effects
+    QString aiMaskTargetPlane; // legacy custom plane name
+    QString aiMaskSourceChannel; // red, green, blue, alpha
+    QString aiMaskOperation; // copy, plus, max, multiply, screen
+    QString aiMaskSourceRelativePath;
+    QString aiMaskManifestRelativePath;
+    NodePtr aiMaskReadNode;
+    NodePtr aiMaskShuffleNode;
+    NodePtr aiMaskChannelMergeNode;
 
     FluxEffect()
         : enabled(true)
+        , isAIMaskCopy(false)
+        , aiMaskSourceChannel(QString::fromUtf8("red"))
+        , aiMaskOperation(QString::fromUtf8("max"))
     {}
+};
+
+/** @brief Identifies a single selected keyframe by its location in the timeline model. */
+struct SelectedKeyframe {
+    int propertyIndex; ///< index into _propertyRows
+    double keyTime;    ///< keyframe time
+
+    SelectedKeyframe()
+        : propertyIndex(-1)
+        , keyTime(0.0)
+    {}
+
+    SelectedKeyframe(int propIdx, double time)
+        : propertyIndex(propIdx)
+        , keyTime(time)
+    {}
+
+    bool operator==(const SelectedKeyframe& o) const
+    {
+        return propertyIndex == o.propertyIndex && std::abs(keyTime - o.keyTime) < 0.5;
+    }
+
+    bool operator!=(const SelectedKeyframe& o) const { return !(*this == o); }
+};
+
+/** @brief One copied keyframe per dimension, preserving value/interpolation/tangents. */
+struct ClipboardKeyEntry {
+    NodePtr ownerNode;
+    KnobIPtr knob;
+    int dim;
+    KeyFrame keyFrame; // original copied keyframe (source time)
+    double sourceTime; // original source time for offset calc
+
+    ClipboardKeyEntry()
+        : dim(0)
+        , sourceTime(0.0)
+    {}
+};
+
+/** @brief Clipboard for timeline keyframe copy/paste. Stores all copied keys with
+ *         enough identity to reapply even if _propertyRows rebuilds. */
+struct TimelineKeyframeClipboard {
+    QList<ClipboardKeyEntry> entries;
+    double earliestSourceTime; // min sourceTime across all entries, for relative offset
+
+    TimelineKeyframeClipboard()
+        : earliestSourceTime(0.0)
+    {}
+
+    bool isEmpty() const { return entries.isEmpty(); }
+    void clear() { entries.clear(); earliestSourceTime = 0.0; }
 };
 
 struct FluxMask {
@@ -107,7 +174,7 @@ struct FluxMask {
     int effectIndex;     // -1 = layer mask; >=0 future effect-mask owner
 
     NodePtr maskNode;    // Roto/RotoPaint node
-    NodePtr reformatNode;// future mask branch source
+    NodePtr reformatNode;// native mask branch source
 
     FluxMask()
         : type(QString::fromUtf8("layer"))
@@ -133,6 +200,7 @@ struct FluxLayer {
     int timeOffset;      // how many frames the bar moved. Changes on move only.
     int trimStart;       // frames trimmed from start of media (0 = no trim)
     int trimEnd;         // frames trimmed from end of media (0 = no trim)
+    double sourceFrameRate; // source media FPS (0.0 = unknown/not yet probed)
     bool nodeInitialized;// true after deferredInit has successfully set frameRange/timeOffset
     QColor solidColor;   // color for solid layers (used when creating Constant node)
     int parentLayerIndex;// index of parent layer (-1 = no parent), for null/parenting
@@ -148,6 +216,7 @@ struct FluxLayer {
     QList<FluxEffect> effects; // ordered child effects; adjustment rows contain only effects
     QList<FluxMask> masks;    // masks attached to this layer
     NodePtr maskApplyNode;    // node that receives mask input (future use)
+    QList<int> viewerInputBadges; ///< transient viewer-input badge numbers (1-based)
     bool hasPrecompBranch;    // true if layer has a precomp branch (future use)
 
     FluxLayer()
@@ -164,13 +233,15 @@ struct FluxLayer {
         , timeOffset(0)
         , trimStart(0)
         , trimEnd(0)
+        , sourceFrameRate(0.0)
         , nodeInitialized(false)
         , solidColor(128, 128, 128)
         , parentLayerIndex(-1)
         , expanded(false)
         , color(QColor(80, 130, 200))
         , hasPrecompBranch(false)
-    {}
+    {
+    }
 };
 
 class FluxTimeline
@@ -250,6 +321,16 @@ public:
 
     /** @brief Remove a mask from a layer. Returns true on success. */
     bool removeMaskFromLayer(int layerIndex, int maskIndex);
+    /** @brief Add an effect to the currently selected layer by plugin ID.
+     *         Reuses the same guards/logic as showNodeCreationDialog: checks selected
+     *         layer, canAddEffectToRow, rejects Read/Write/Merge/Viewer/no-input effects.
+     *         Returns true if the effect was added to a Flux layer.
+     *         Returns false if delegation should not happen (no valid selection,
+     *         unsupported plugin, etc.), allowing the caller to fall back. */
+    bool addEffectByPluginId(const QString& pluginId, int major = -1);
+
+    bool addAIMaskCopyToSelectedLayer(const QString& relativeMask, const QString& manifestRelative, QString* message, const QString& readRelativeMask = QString());
+    bool replaceSelectedAIMaskCopy(const QString& relativeMask, const QString& manifestRelative, QString* message, const QString& readRelativeMask = QString());
 
 Q_SIGNALS:
 
@@ -258,6 +339,15 @@ Q_SIGNALS:
 
     /** @brief Emitted when a layer is selected. */
     void layerSelected(int index);
+
+    /** @brief Request an original/source viewer for a footage layer. */
+    void sourceViewerRequested(int index);
+
+    /** @brief Request blocking original/source one-frame capture. */
+    void sourceFrameCaptureRequested();
+
+    /** @brief Request one-shot point capture in the original/source viewer. */
+    void sourceViewerPointCaptureRequested(int index);
 
     /** @brief Emitted when a text animator row is selected. */
     void textAnimatorSelected(int layerIndex, int animatorId);
@@ -270,6 +360,11 @@ Q_SIGNALS:
 
     /** @brief Emitted when a layer is added from a drag-drop from the Project Bin. */
     void layerAddedFromDrop(QString filePath, int row, int inFrame);
+
+    /** @brief Emitted after project serialization restores timeline layers.
+     *         Listeners (e.g. Project Bin) can repopulate transient state from
+     *         the restored layer list. */
+    void projectLayersRestored();
 
     /** @brief Emitted when the compositing graph needs rebuilding (layer added/removed/reordered/trimmed). */
     void compositingChanged();
@@ -286,6 +381,14 @@ Q_SIGNALS:
     /** @brief Emitted when masks are added/removed on a layer. */
     void masksChanged(int layerIndex);
 
+    /** @brief Emitted when the user presses a number key (1-9) with the timeline focused.
+     *         viewerInputIndex is zero-based (0 for key 1, 8 for key 9). */
+    void viewerInputSwitchRequested(int viewerInputIndex);
+
+    /** @brief Emitted when the user clicks the dirty banner or Sync button,
+     *         or presses Ctrl+Shift+Y, to request a nodegraph-to-timeline sync. */
+    void nodegraphSyncRequested();
+
 public Q_SLOTS:
 
     /** @brief Responds to external TimeLine frame changes (from Viewer playback, etc.). */
@@ -299,6 +402,23 @@ public Q_SLOTS:
     void addEffectToSelectedLayer();
     void addMaskToSelectedRow();
     void addAdjustmentEffectRow();
+
+    /** @brief Resolve the Natron node for the current timeline selection, used by
+     *         Gui05 to connect the viewer to the correct input.
+     *         Returns null NodePtr if no valid node can be resolved.
+     *         For viewerInputIndex==0, returns null (Gui05 resolves full comp). */
+    NodePtr selectedViewerSwitchTargetNode(int viewerInputIndex) const;
+
+    /** @brief Set a viewer-input badge on the row that owns the given node.
+     *         Removes that input number from all other rows first.
+     *         viewerInputIndex is zero-based. */
+    void setViewerInputBadgeForNode(int viewerInputIndex, const NodePtr& node);
+
+    /** @brief Remove a specific viewer-input badge from all rows. */
+    void clearViewerInputBadge(int viewerInputIndex);
+
+    /** @brief Remove all viewer-input badges from all layers and effects. */
+    void clearAllViewerInputBadges();
 
     /** @brief Responds to native knob keyframe signals (external keyframe changes). */
     void onNativeKeyframeChanged();
@@ -384,6 +504,26 @@ private:
     /** @brief Connect native knob keyframe signals for all currently modeled nodes. */
     void refreshKeyframeSignalConnections();
 
+    /** @brief Check if a specific keyframe is in the multi-select set. */
+    bool isKeyframeSelected(int propertyIndex, double keyTime) const;
+
+    /** @brief Toggle a keyframe in/out of the multi-select set. */
+    void toggleKeyframeSelection(int propertyIndex, double keyTime);
+
+    /** @brief Clear all keyframe selections. */
+    void clearKeyframeSelection();
+
+    /** @brief Select all keyframes within a screen rectangle. */
+    void selectKeyframesInRect(const QRect& screenRect);
+
+    /** @brief Copy all selected non-roto keyframes into the internal clipboard. */
+    void copySelectedKeyframes();
+
+    /** @brief Paste clipboard keyframes at the current frame, preserving relative offsets. */
+    void pasteKeyframes();
+
+    TimelineKeyframeClipboard _keyframeClipboard;
+
     QList<FluxLayer> _layers;
     QList<FluxVisibleRow> _visibleRows;
     QList<FluxKeyframeProperty> _propertyRows; ///< parallel store for eFluxVisibleRowProperty rows
@@ -398,6 +538,9 @@ private:
     int _selectedPropertyIndex; ///< index into _propertyRows when eFluxSelectionProperty
     int _selectedKeyPropertyIndex;
     double _selectedKeyTime;
+    QList<SelectedKeyframe> _selectedKeys; ///< multi-select keyframe set
+    QPoint _rubberBandStart;               ///< screen coords at rubber-band drag start
+    QPoint _rubberBandCurrent;             ///< current screen coords during rubber-band drag
     double _zoom;         // pixels per frame
     int _scrollOffsetX;
     int _scrollOffsetY;
@@ -427,7 +570,9 @@ private:
         eModeReorderLayer,   // dragging a layer up/down to reorder
         eModePan,            // middle-mouse or Alt+Left pan (both axes)
         eModeResizePanel,    // resizing the left label panel
-        eModeDragKeyframe    // dragging a keyframe diamond horizontally
+        eModeDragKeyframe,   // dragging a keyframe diamond horizontally
+    eModeRubberBandSelect, // rubber-band drag to select multiple keyframes
+    eModeReorderEffect    // dragging an effect row up/down to reorder within a layer
     };
 
     InteractionMode _interactionMode;
@@ -449,10 +594,33 @@ private:
     int _resizeStartX;         // mouse X at resize start
     int _resizeStartWidth;     // _layerLabelWidth at resize start
 
+    // ── Snap data structures ──
+    enum SnapTargetKind { eSnapNone, eSnapKeyframe, eSnapLayerEdge };
+
+    struct SnapTarget {
+        int frame;
+        SnapTargetKind kind;
+        int layerIndex;       // source layer index (for layer edges)
+        int propertyIndex;    // index into _propertyRows (for keyframes)
+
+        SnapTarget()
+            : frame(0)
+            , kind(eSnapNone)
+            , layerIndex(-1)
+            , propertyIndex(-1)
+        {}
+    };
+
     // Keyframe drag state
     int _dragPropertyIndex;    // index into _propertyRows for the dragged key
     double _dragOrigKeyTime;   // original key time at drag start
     double _dragCurrentKeyTime;// current target key time during drag
+
+    int _snapTolerancePixels; // configurable snap tolerance in screen pixels
+    bool _snapActive;         // true when a snap target is currently engaged
+    int _snapFrame;           // frame to which the snap guide is drawn
+    SnapTargetKind _snapKind; // kind of snap target (keyframe or layer edge)
+    bool _snapShiftHeld;      // tracks whether Shift was held in the last move event
 
     // Keyframe display mode
     bool _showKeyframeCurves; ///< false = diamond keyframe mode, true = inline curve preview
@@ -470,6 +638,24 @@ private:
     /** @brief Set of RotoContext raw pointers we have already connected lifecycle signals to,
      *         so new/removed shapes trigger a row rebuild. */
     std::set<RotoContext*> _connectedRotoContexts;
+
+    // Snap helper methods
+    QList<SnapTarget> collectSnapTargets(InteractionMode mode,
+                                         int sourceLayerIndex,
+                                         int sourcePropertyIndex,
+                                         double sourceKeyTime) const;
+    bool resolveSnapFrame(int candidateFrame,
+                          const QList<SnapTarget>& targets,
+                          int* snappedFrame,
+                          SnapTargetKind* snappedKind) const;
+    void clearSnapState();
+    void setSnapState(int snappedFrame, SnapTargetKind kind);
+    void drawSnapIndicator(QPainter& painter, const QRect& rect);
+
+    // Effect reorder drag state
+    int _reorderEffectLayerIndex;  // layer index of the dragged effect
+    int _reorderEffectFromIndex;   // original effect index in the layer
+    int _reorderEffectTargetIndex; // target insertion index during drag
 
     // Drag and drop state
     bool _isDragOver;

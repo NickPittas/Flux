@@ -1,0 +1,35 @@
+# Agent Summary
+
+## Status
+Done
+
+## Task Completed
+Diagnosed the exact root cause of effect-reorder nodegraph disconnections. The model reorder in `FluxTimeline::moveEffectInLayer()` is correct, but `Gui::rebuildCompositingGraph()` reuses stale effect-to-effect connections because `preserveInlineChainInput()` incorrectly preserves an effect's old input when that old upstream still reaches the new expected source in the not-yet-rewired graph. After moving Grade above Blur, Grade keeps its old input (Blur), Blur keeps its old input path, and they wire into each other instead of following the new list order, orphaning Checkerboard and creating a cycle that breaks the merge chain.
+
+## Files Inspected
+- `Gui/FluxTimeline.h`: `FluxEffect`, `FluxLayer` structs; confirms effects stored in ordered `QList<FluxEffect>`
+- `Gui/FluxTimeline.cpp` (lines ~1440-1480): `moveEffectInLayer()` — correctly uses `QList::move()` and updates mask `effectIndex` mappings
+- `Gui/Gui05.cpp` (lines ~2503-2525): `preserveInlineChainInput()` — preserves `currentInput` when `upstreamContainsNode(currentInput, expectedSource)` is true
+- `Gui/Gui05.cpp` (lines ~3020-3170): `rebuildCompositingGraph()` effect wiring loop — iterates `layer.effects` in order, calls `preserveInlineChainInput(effect.node, 0, layerOutput)` before connecting each effect
+- `Gui/Gui05.cpp` (lines ~2438-2470): `upstreamContainsNode()` — BFS walk that finds expected source via the old, still-connected graph
+
+## Files Changed
+None (diagnosis only)
+
+## Validation
+- command: code-path trace via targeted reads/grep
+- result: passed
+- evidence: Traced reorder of [Checkerboard, Blur, Grade] → [Checkerboard, Grade, Blur]. During rebuild:
+  1. Grade processed at index 1; `currentInput` = Blur (old connection). Blur still upstream-contains Checkerboard (new `expectedSource`). `preserveInlineChainInput` returns Blur. Grade reconnects to Blur.
+  2. Blur processed at index 2; `currentInput` = Checkerboard. Checkerboard does not upstream-contain Grade. Returns Grade. Blur reconnects to Grade.
+  3. Merge `preserveInlineChainInput` sees Grade upstream-contains Blur and returns Grade. Merge connects to Grade instead of Blur.
+  4. Result: Checkerboard orphaned; Grade ↔ Blur cycle breaks the merge chain.
+
+## Blockers / Decisions Needed
+None
+
+## Risks / Follow-up
+Fix options:
+1. In `rebuildCompositingGraph`, disconnect all effect input 0s before the wiring loop so `preserveInlineChainInput` sees null `currentInput`.
+2. Or, modify `preserveInlineChainInput` to reject `currentInput` if it is another effect in the same `FluxLayer.effects` list (distinguish manual inline nodes from reordered effects).
+3. Or, skip `preserveInlineChainInput` entirely for effect nodes and always use `expectedSource`, preserving inline chains only for gizmo/merge boundaries.

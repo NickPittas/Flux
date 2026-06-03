@@ -1,0 +1,476 @@
+{
+    "created_at_utc": "2026-05-29T15:15:38Z",
+    "masks": {
+        "1": "FluxGenerated/AI/live/sam3_transformers/current/mask_1.png",
+        "2": "FluxGenerated/AI/live/sam3_transformers/current/mask_2.png",
+        "3": "FluxGenerated/AI/live/sam3_transformers/current/mask_3.png",
+        "4": "FluxGenerated/AI/live/sam3_transformers/current/mask_4.png",
+        "combined": "FluxGenerated/AI/live/sam3_transformers/current/mask_live_combined.png"
+    },
+    "model_id": "sam3_transformers",
+    "output_dir_project_relative": "",
+    "probe_result_project_relative": "FluxGenerated/AI/live/sam3_transformers/current/sam3_transformers_real_inference_result.json",
+    "prompts": [
+    ],
+    "proof_nonzero_pixels": {
+        "1": 57956,
+        "2": 54579,
+        "3": 58345,
+        "4": 11359
+    },
+    "provider_runtime_id": "sam3",
+    "result_manifest_path_project_relative": "result_manifest.json",
+    "run_id": "",
+    "schema": "flux.ai.result_manifest.v1",
+    "selected_mask_path_project_relative": "FluxGenerated/AI/live/sam3_transformers/current/mask_live_combined.png",
+    "selected_prompt": {
+    },
+    "selected_prompt_kind": "",
+    "source_dimensions": {
+        "height": 1056,
+        "width": 2496
+    },
+    "source_metadata": {
+    },
+    "task": "",
+    "worker_result": {
+        "backend": {
+            "blockers": {
+                "video_propagation_or_later_frame_correction": "official temporal API setup failed: RuntimeError: --video is required for real temporal API proof"
+            },
+            "capabilities": {
+                "box_prompt": true,
+                "concept_box_prompt": true,
+                "concept_text_prompt": true,
+                "mask_paint_prompt": true,
+                "point_prompt": true,
+                "text_prompt": true,
+                "tracker_box_prompt": true,
+                "tracker_point_prompt": true,
+                "video_propagation_or_later_frame_correction": false,
+                "video_tracker_api": true
+            },
+            "kind": "sam3_concept_and_tracker",
+            "name": "transformers",
+            "temporal_api_proof": {
+                "backend": {
+                    "kind": "sam3_tracker_video",
+                    "name": "transformers"
+                },
+                "blockers": [
+                    "official temporal API setup failed: RuntimeError: --video is required for real temporal API proof"
+                ],
+                "capabilities": {
+                    "video_propagation_or_later_frame_correction": false,
+                    "video_tracker_api": true
+                },
+                "classes": {
+                    "model": "Sam3TrackerVideoModel",
+                    "processor": "Sam3TrackerVideoProcessor"
+                },
+                "device": {
+                    "cuda": {
+                        "available": true,
+                        "device_count": 1,
+                        "devices": [
+                            "NVIDIA GeForce RTX 4090"
+                        ],
+                        "error": null
+                    },
+                    "requested": "cuda",
+                    "selected": "cuda"
+                },
+                "proof": {
+                    "fake_masks_generated": false,
+                    "invocation_attempted": false,
+                    "video_path": null
+                },
+                "schema": "org.flux.ai.sam3-transformers-temporal-api-proof.v1",
+                "signatures": {
+                    "model_forward": {
+                        "parameters": [
+                            "self",
+                            "inference_session",
+                            "frame_idx",
+                            "frame",
+                            "reverse",
+                            "run_mem_encoder",
+                            "kwargs"
+                        ],
+                        "signature": "(self, inference_session: transformers.models.sam3_tracker_video.modeling_sam3_tracker_video.Sam3TrackerVideoInferenceSession, frame_idx: int | None = None, frame: torch.Tensor | None = None, reverse: bool = False, run_mem_encoder: bool = True, **kwargs) -> transformers.models.sam3_tracker_video.modeling_sam3_tracker_video.Sam3TrackerVideoSegmentationOutput"
+                    },
+                    "model_init": {
+                        "parameters": [
+                            "self",
+                            "config",
+                            "remove_vision_encoder"
+                        ],
+                        "signature": "(self, config: transformers.models.sam3_tracker_video.configuration_sam3_tracker_video.Sam3TrackerVideoConfig, remove_vision_encoder: bool = False)"
+                    },
+                    "processor_call": {
+                        "parameters": [
+                            "self",
+                            "images",
+                            "segmentation_maps",
+                            "input_points",
+                            "input_labels",
+                            "input_boxes",
+                            "original_sizes",
+                            "return_tensors",
+                            "kwargs"
+                        ],
+                        "signature": "(self, images: Union[ForwardRef('PIL.Image.Image'), numpy.ndarray, ForwardRef('torch.Tensor'), list['PIL.Image.Image'], list[numpy.ndarray], list['torch.Tensor'], NoneType] = None, segmentation_maps: Union[ForwardRef('PIL.Image.Image'), numpy.ndarray, ForwardRef('torch.Tensor'), list['PIL.Image.Image'], list[numpy.ndarray], list['torch.Tensor'], NoneType] = None, input_points: list[list[list[list[float]]]] | torch.Tensor | None = None, input_labels: list[list[list[int]]] | torch.Tensor | None = None, input_boxes: list[list[list[float]]] | torch.Tensor | None = None, original_sizes: list[list[float]] | torch.Tensor | None = None, return_tensors: str | transformers.utils.generic.TensorType | None = None, **kwargs) -> transformers.tokenization_utils_base.BatchEncoding"
+                    },
+                    "processor_init": {
+                        "parameters": [
+                            "self",
+                            "image_processor",
+                            "video_processor",
+                            "target_size",
+                            "point_pad_value",
+                            "kwargs"
+                        ],
+                        "signature": "(self, image_processor, video_processor, target_size: int | None = None, point_pad_value: int = -10, **kwargs)"
+                    }
+                },
+                "status": "blocked",
+                "timestamp": "2026-05-29T15:15:24.398904+00:00"
+            }
+        },
+        "combined_prompt_count": 4,
+        "errors": [
+        ],
+        "masks": {
+            "1": "/home/npittas/Videos/For_Test/FluxGenerated/AI/live/sam3_transformers/current/mask_1.png",
+            "2": "/home/npittas/Videos/For_Test/FluxGenerated/AI/live/sam3_transformers/current/mask_2.png",
+            "3": "/home/npittas/Videos/For_Test/FluxGenerated/AI/live/sam3_transformers/current/mask_3.png",
+            "4": "/home/npittas/Videos/For_Test/FluxGenerated/AI/live/sam3_transformers/current/mask_4.png",
+            "combined": "/home/npittas/Videos/For_Test/FluxGenerated/AI/live/sam3_transformers/current/mask_live_combined.png"
+        },
+        "proofs": {
+            "1": {
+                "mask_path": "/home/npittas/Videos/For_Test/FluxGenerated/AI/live/sam3_transformers/current/mask_1.png",
+                "mask_size": [
+                    2496,
+                    1056
+                ],
+                "nonzero_pixels": 57956,
+                "prompt": {
+                    "label": 1,
+                    "x": 555,
+                    "y": 259
+                },
+                "prompt_contract": {
+                    "ai_paint_prompt": {
+                        "backendTag": "",
+                        "coordinateSpace": "canonical",
+                        "enabled": true,
+                        "frameOwnershipSource": "metadataTimelineFrame",
+                        "id": 1,
+                        "label": "",
+                        "metadata": {
+                            "frameOwnership": "timelineFrame",
+                            "timelineFrame": "1",
+                            "timelineTime": "1"
+                        },
+                        "role": "include",
+                        "selected": false,
+                        "sourceFrame": 1,
+                        "time": 1,
+                        "timelineFrame": 1,
+                        "type": "point"
+                    },
+                    "canonical": {
+                        "x": 554.8596671709531,
+                        "y": 797.2273121533033
+                    },
+                    "id": "1",
+                    "label": 1,
+                    "source_float": {
+                        "x": 554.8596671709531,
+                        "y": 258.7726878466967
+                    },
+                    "source_height": 1056,
+                    "source_metadata": {
+                        "ai_paint_prompt_frame_source": "metadataTimelineFrame",
+                        "current_source_frame": 1,
+                        "exported_png_height": 1056,
+                        "exported_png_width": 2496,
+                        "height": 1056,
+                        "original_first_frame": 1,
+                        "original_last_frame": 81,
+                        "reader_label": "Read1",
+                        "render_mode": "external-source-ffmpeg",
+                        "selected_layer_index": 0,
+                        "selected_layer_name": "lightx2v_lora_rank_comparison.mp4",
+                        "source_file_basename": "lightx2v_lora_rank_comparison",
+                        "source_file_suffix": "mp4",
+                        "source_frame": 1,
+                        "source_frame_rate": 16,
+                        "temporary_source_png_basename": "source_lightx2v_lora_rank_comparison.mp4_36_c8b94f6c77a0.png",
+                        "temporary_source_png_note": "Temporary source PNG path is intentionally not persisted.",
+                        "time_offset": 0,
+                        "timeline_frame": 1,
+                        "trim_source_end": 81,
+                        "trim_source_start": 1,
+                        "width": 2496
+                    },
+                    "source_width": 2496,
+                    "source_xy": {
+                        "x": 555,
+                        "y": 259
+                    },
+                    "type": "point"
+                },
+                "runtime_blocker": null,
+                "status": "succeeded",
+                "unsupported_by_detected_api": false
+            },
+            "2": {
+                "mask_path": "/home/npittas/Videos/For_Test/FluxGenerated/AI/live/sam3_transformers/current/mask_2.png",
+                "mask_size": [
+                    2496,
+                    1056
+                ],
+                "nonzero_pixels": 54579,
+                "prompt": {
+                    "label": 1,
+                    "x": 1283,
+                    "y": 720
+                },
+                "prompt_contract": {
+                    "ai_paint_prompt": {
+                        "backendTag": "",
+                        "coordinateSpace": "canonical",
+                        "enabled": true,
+                        "frameOwnershipSource": "metadataTimelineFrame",
+                        "id": 2,
+                        "label": "",
+                        "metadata": {
+                            "frameOwnership": "timelineFrame",
+                            "timelineFrame": "36",
+                            "timelineTime": "36"
+                        },
+                        "role": "include",
+                        "selected": false,
+                        "sourceFrame": 36,
+                        "time": 36,
+                        "timelineFrame": 36,
+                        "type": "point"
+                    },
+                    "canonical": {
+                        "x": 1282.6897428139175,
+                        "y": 336.4428038325773
+                    },
+                    "id": "2",
+                    "label": 1,
+                    "source_float": {
+                        "x": 1282.6897428139177,
+                        "y": 719.5571961674227
+                    },
+                    "source_height": 1056,
+                    "source_metadata": {
+                        "ai_paint_prompt_frame_source": "metadataTimelineFrame",
+                        "current_source_frame": 36,
+                        "exported_png_height": 1056,
+                        "exported_png_width": 2496,
+                        "height": 1056,
+                        "original_first_frame": 1,
+                        "original_last_frame": 81,
+                        "reader_label": "Read1",
+                        "render_mode": "external-source-ffmpeg",
+                        "selected_layer_index": 0,
+                        "selected_layer_name": "lightx2v_lora_rank_comparison.mp4",
+                        "source_file_basename": "lightx2v_lora_rank_comparison",
+                        "source_file_suffix": "mp4",
+                        "source_frame": 36,
+                        "source_frame_rate": 16,
+                        "temporary_source_png_basename": "source_lightx2v_lora_rank_comparison.mp4_36_c8b94f6c77a0.png",
+                        "temporary_source_png_note": "Temporary source PNG path is intentionally not persisted.",
+                        "time_offset": 0,
+                        "timeline_frame": 36,
+                        "trim_source_end": 81,
+                        "trim_source_start": 1,
+                        "width": 2496
+                    },
+                    "source_width": 2496,
+                    "source_xy": {
+                        "x": 1283,
+                        "y": 720
+                    },
+                    "type": "point"
+                },
+                "runtime_blocker": null,
+                "status": "succeeded",
+                "unsupported_by_detected_api": false
+            },
+            "3": {
+                "mask_path": "/home/npittas/Videos/For_Test/FluxGenerated/AI/live/sam3_transformers/current/mask_3.png",
+                "mask_size": [
+                    2496,
+                    1056
+                ],
+                "nonzero_pixels": 58345,
+                "prompt": {
+                    "label": 1,
+                    "x": 1405,
+                    "y": 734
+                },
+                "prompt_contract": {
+                    "ai_paint_prompt": {
+                        "backendTag": "",
+                        "coordinateSpace": "canonical",
+                        "enabled": true,
+                        "frameOwnershipSource": "metadataTimelineFrame",
+                        "id": 3,
+                        "label": "",
+                        "metadata": {
+                            "frameOwnership": "timelineFrame",
+                            "timelineFrame": "36",
+                            "timelineTime": "36"
+                        },
+                        "role": "include",
+                        "selected": false,
+                        "sourceFrame": 36,
+                        "time": 36,
+                        "timelineFrame": 36,
+                        "type": "point"
+                    },
+                    "canonical": {
+                        "x": 1404.8674533535045,
+                        "y": 322.4796369137674
+                    },
+                    "id": "3",
+                    "label": 1,
+                    "source_float": {
+                        "x": 1404.8674533535045,
+                        "y": 733.5203630862326
+                    },
+                    "source_height": 1056,
+                    "source_metadata": {
+                        "ai_paint_prompt_frame_source": "metadataTimelineFrame",
+                        "current_source_frame": 36,
+                        "exported_png_height": 1056,
+                        "exported_png_width": 2496,
+                        "height": 1056,
+                        "original_first_frame": 1,
+                        "original_last_frame": 81,
+                        "reader_label": "Read1",
+                        "render_mode": "external-source-ffmpeg",
+                        "selected_layer_index": 0,
+                        "selected_layer_name": "lightx2v_lora_rank_comparison.mp4",
+                        "source_file_basename": "lightx2v_lora_rank_comparison",
+                        "source_file_suffix": "mp4",
+                        "source_frame": 36,
+                        "source_frame_rate": 16,
+                        "temporary_source_png_basename": "source_lightx2v_lora_rank_comparison.mp4_36_c8b94f6c77a0.png",
+                        "temporary_source_png_note": "Temporary source PNG path is intentionally not persisted.",
+                        "time_offset": 0,
+                        "timeline_frame": 36,
+                        "trim_source_end": 81,
+                        "trim_source_start": 1,
+                        "width": 2496
+                    },
+                    "source_width": 2496,
+                    "source_xy": {
+                        "x": 1405,
+                        "y": 734
+                    },
+                    "type": "point"
+                },
+                "runtime_blocker": null,
+                "status": "succeeded",
+                "unsupported_by_detected_api": false
+            },
+            "4": {
+                "mask_path": "/home/npittas/Videos/For_Test/FluxGenerated/AI/live/sam3_transformers/current/mask_4.png",
+                "mask_size": [
+                    2496,
+                    1056
+                ],
+                "nonzero_pixels": 11359,
+                "prompt": {
+                    "label": 1,
+                    "x": 1572,
+                    "y": 788
+                },
+                "prompt_contract": {
+                    "ai_paint_prompt": {
+                        "backendTag": "",
+                        "coordinateSpace": "canonical",
+                        "enabled": true,
+                        "frameOwnershipSource": "metadataTimelineFrame",
+                        "id": 4,
+                        "label": "",
+                        "metadata": {
+                            "frameOwnership": "timelineFrame",
+                            "timelineFrame": "36",
+                            "timelineTime": "36"
+                        },
+                        "role": "include",
+                        "selected": false,
+                        "sourceFrame": 36,
+                        "time": 36,
+                        "timelineFrame": 36,
+                        "type": "point"
+                    },
+                    "canonical": {
+                        "x": 1572.4254563792233,
+                        "y": 268.37236510337914
+                    },
+                    "id": "4",
+                    "label": 1,
+                    "source_float": {
+                        "x": 1572.4254563792233,
+                        "y": 787.6276348966209
+                    },
+                    "source_height": 1056,
+                    "source_metadata": {
+                        "ai_paint_prompt_frame_source": "metadataTimelineFrame",
+                        "current_source_frame": 36,
+                        "exported_png_height": 1056,
+                        "exported_png_width": 2496,
+                        "height": 1056,
+                        "original_first_frame": 1,
+                        "original_last_frame": 81,
+                        "reader_label": "Read1",
+                        "render_mode": "external-source-ffmpeg",
+                        "selected_layer_index": 0,
+                        "selected_layer_name": "lightx2v_lora_rank_comparison.mp4",
+                        "source_file_basename": "lightx2v_lora_rank_comparison",
+                        "source_file_suffix": "mp4",
+                        "source_frame": 36,
+                        "source_frame_rate": 16,
+                        "temporary_source_png_basename": "source_lightx2v_lora_rank_comparison.mp4_36_c8b94f6c77a0.png",
+                        "temporary_source_png_note": "Temporary source PNG path is intentionally not persisted.",
+                        "time_offset": 0,
+                        "timeline_frame": 36,
+                        "trim_source_end": 81,
+                        "trim_source_start": 1,
+                        "width": 2496
+                    },
+                    "source_width": 2496,
+                    "source_xy": {
+                        "x": 1572,
+                        "y": 788
+                    },
+                    "type": "point"
+                },
+                "runtime_blocker": null,
+                "status": "succeeded",
+                "unsupported_by_detected_api": false
+            }
+        },
+        "schema": "org.flux.ai.sam3-transformers-worker-inference-result.v1",
+        "selected_mask_path": "/home/npittas/Videos/For_Test/FluxGenerated/AI/live/sam3_transformers/current/mask_live_combined.png",
+        "source_image": {
+            "declared_height": 1056,
+            "declared_width": 2496,
+            "height": 1056,
+            "path": "/tmp/Flux/sam3_preview/source_lightx2v_lora_rank_comparison.mp4_36_c8b94f6c77a0.png",
+            "width": 2496
+        },
+        "timestamp": "2026-05-29T15:15:37.456210+00:00"
+    }
+}
+

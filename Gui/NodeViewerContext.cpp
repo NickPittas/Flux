@@ -209,17 +209,27 @@ NodeViewerContext::createGui()
                     std::vector<KnobIPtr> toolButtonChildren = isGroup->getChildren();
                     ViewerToolButton* createdToolButton = 0;
                     QString currentActionForGroup;
+                    int actionsAddedForGroup = 0;
                     for (std::size_t j = 0; j < toolButtonChildren.size(); ++j) {
                         KnobButton* isButton = dynamic_cast<KnobButton*>( toolButtonChildren[j].get() );
                         if (isButton) {
                             QObject::connect( isButton->getSignalSlotHandler().get(), SIGNAL(valueChanged(ViewSpec,int,int)), this, SLOT(onToolActionValueChanged(ViewSpec,int,int)) );
                             const std::string& roleShortcutID = isGroup->getName();
                             QAction* act = _imp->addToolBarTool(isButton->getName(), isGroup->getName(), roleShortcutID, isButton->getLabel(), isButton->getHintToolTip(), isButton->getIconLabel(), &createdToolButton);
-                            if ( act && createdToolButton && isButton->getValue() ) {
-                                createdToolButton->setDefaultAction(act);
-                                currentActionForGroup = QString::fromUtf8( isButton->getName().c_str() );
+                            if (act && createdToolButton) {
+                                ++actionsAddedForGroup;
+                                if (!createdToolButton->defaultAction()) {
+                                    createdToolButton->setDefaultAction(act);
+                                }
+                                if ( isButton->getValue() ) {
+                                    createdToolButton->setDefaultAction(act);
+                                    currentActionForGroup = QString::fromUtf8( isButton->getName().c_str() );
+                                }
                             }
                         }
+                    }
+                    if (createdToolButton && actionsAddedForGroup == 1 && node->getNode()->getPluginID() == PLUGINID_NATRON_AIPAINT) {
+                        createdToolButton->setPopupMode(QToolButton::DelayedPopup);
                     }
                     if ( isGroup->getValue() ) {
                         _imp->currentTool = currentActionForGroup;

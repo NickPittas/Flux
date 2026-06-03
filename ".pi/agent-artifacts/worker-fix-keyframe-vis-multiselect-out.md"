@@ -1,0 +1,31 @@
+# Agent Summary
+
+## Status
+Done
+
+## Task Completed
+Fixed first-keyframe visibility by emitting `s_keyFrameSet` signal in `Knob<T>::setKeyFrame()` when a new keyframe is added. Added multi-select keyframe support with rubber-band drag selection, Ctrl+click toggle, batch move of all selected keys together, batch delete, and ghost rendering during multi-drag. Build passes cleanly.
+
+## Files Inspected
+- `Engine/KnobImpl.h`: Traced `setKeyFrame` vs `setValueAtTime` signal emission paths to confirm no recursion risk
+- `Engine/Knob.h`: Verified `s_keyFrameSet` signal signature
+- `Gui/FluxKeyframeModel.h`/`.cpp`: Understood keyframe query/edit APIs
+- `Gui/FluxTimeline.h`/`.cpp`: Mapped all single-selection state and interaction points
+
+## Files Changed
+- `Engine/KnobImpl.h`: Added `s_keyFrameSet` emission gated on `ret && _signalSlotHandler` in `setKeyFrame()`
+- `Gui/FluxTimeline.h`: Added `SelectedKeyframe` struct, `eModeRubberBandSelect` mode, `_selectedKeys` list, `_rubberBandStart`/`_rubberBandCurrent`, helper method declarations
+- `Gui/FluxTimeline.cpp`: Implemented rubber-band selection, Ctrl+click toggle, multi-keyframe drag with ghost rendering, multi-delete, updated all selection clear points
+
+## Validation
+- `git diff --check`: passed
+- `cmake --build build --target Natron -j$(nproc)`: passed (0 errors)
+
+## Blockers / Decisions Needed
+None.
+
+## Risks / Follow-up
+- Multi-selection cleared on `rebuildVisibleRows()` (external keyframe changes). Acceptable for now.
+- Partial-move on collision not rolled back (matches existing single-key behavior).
+
+Report saved to: `/home/npittas/Flux/.pi/agent-artifacts/worker-fix-keyframe-vis-multiselect-out.md`

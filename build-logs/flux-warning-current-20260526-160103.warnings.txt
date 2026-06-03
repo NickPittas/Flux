@@ -1,0 +1,67 @@
+26:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+27:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+28:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+38:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+40:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+43:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+44:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+45:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+46:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+49:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+50:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+51:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+52:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+53:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+54:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+56:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+57:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+58:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+59:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+60:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+62:/run/host/home/npittas/Flux/libs/libtess/render.c:283:66: warning: parameter ‘size’ set but not used [-Wunused-but-set-parameter=]
+66:/run/host/home/npittas/Flux/libs/libtess/render.c:305:68: warning: parameter ‘size’ set but not used [-Wunused-but-set-parameter=]
+70:/run/host/home/npittas/Flux/libs/hoedown/src/document.c:1194:33: warning: this ‘else’ clause does not guard... [-Wmisleading-indentation]
+76:/run/host/home/npittas/Flux/libs/libtess/tess.c:415:46: warning: argument 2 of type ‘double[3]’ with mismatched bound [-Warray-parameter=]
+85:/run/host/home/npittas/Flux/libs/libtess/tess.c:215:5: warning: this statement may fall through [-Wimplicit-fallthrough=]
+92:/run/host/home/npittas/Flux/libs/hoedown/src/autolink.c:147:1: warning: conflicting types for ‘hoedown_autolink__www’ due to enum/integer mismatch; have ‘size_t(size_t *, hoedown_buffer *, uint8_t *, size_t,  size_t,  unsigned int)’ {aka ‘long unsigned int(long unsigned int *, hoedown_buffer *, unsigned char *, long unsigned int,  long unsigned int,  unsigned int)’} [-Wenum-int-mismatch]
+99:/run/host/home/npittas/Flux/libs/hoedown/src/autolink.c:183:1: warning: conflicting types for ‘hoedown_autolink__email’ due to enum/integer mismatch; have ‘size_t(size_t *, hoedown_buffer *, uint8_t *, size_t,  size_t,  unsigned int)’ {aka ‘long unsigned int(long unsigned int *, hoedown_buffer *, unsigned char *, long unsigned int,  long unsigned int,  unsigned int)’} [-Wenum-int-mismatch]
+107:/run/host/home/npittas/Flux/libs/hoedown/src/autolink.c:239:1: warning: conflicting types for ‘hoedown_autolink__url’ due to enum/integer mismatch; have ‘size_t(size_t *, hoedown_buffer *, uint8_t *, size_t,  size_t,  unsigned int)’ {aka ‘long unsigned int(long unsigned int *, hoedown_buffer *, unsigned char *, long unsigned int,  long unsigned int,  unsigned int)’} [-Wenum-int-mismatch]
+124:/run/host/home/npittas/Flux/libs/OpenFX/HostSupport/src/ofxhParam.cpp:1014:2: warning: #warning "TODO: StrChoiceInstance" [-Wcpp]
+134:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+137:/run/host/home/npittas/Flux/libs/gflags/src/gflags.cc:367:14: warning: cast between incompatible function types from ‘google::{anonymous}::ValidateFnProto’ {aka ‘bool (*)()’} to ‘bool (*)(const char*, bool)’ [-Wcast-function-type]
+142:/run/host/home/npittas/Flux/libs/gflags/src/gflags.cc:370:14: warning: cast between incompatible function types from ‘google::{anonymous}::ValidateFnProto’ {aka ‘bool (*)()’} to ‘bool (*)(const char*, google::int32)’ {aka ‘bool (*)(const char*, int)’} [-Wcast-function-type]
+147:/run/host/home/npittas/Flux/libs/gflags/src/gflags.cc:373:14: warning: cast between incompatible function types from ‘google::{anonymous}::ValidateFnProto’ {aka ‘bool (*)()’} to ‘bool (*)(const char*, google::int64)’ {aka ‘bool (*)(const char*, long int)’} [-Wcast-function-type]
+152:/run/host/home/npittas/Flux/libs/gflags/src/gflags.cc:376:14: warning: cast between incompatible function types from ‘google::{anonymous}::ValidateFnProto’ {aka ‘bool (*)()’} to ‘bool (*)(const char*, google::uint64)’ {aka ‘bool (*)(const char*, long unsigned int)’} [-Wcast-function-type]
+157:/run/host/home/npittas/Flux/libs/gflags/src/gflags.cc:379:14: warning: cast between incompatible function types from ‘google::{anonymous}::ValidateFnProto’ {aka ‘bool (*)()’} to ‘bool (*)(const char*, double)’ [-Wcast-function-type]
+162:/run/host/home/npittas/Flux/libs/gflags/src/gflags.cc:382:14: warning: cast between incompatible function types from ‘google::{anonymous}::ValidateFnProto’ {aka ‘bool (*)()’} to ‘bool (*)(const char*, const std::string&)’ {aka ‘bool (*)(const char*, const std::__cxx11::basic_string<char>&)’} [-Wcast-function-type]
+168:/run/host/home/npittas/Flux/libs/gflags/src/gflags.cc:1852:33: warning: cast between incompatible function types from ‘bool (*)(const char*, bool)’ to ‘google::{anonymous}::ValidateFnProto’ {aka ‘bool (*)()’} [-Wcast-function-type]
+172:/run/host/home/npittas/Flux/libs/gflags/src/gflags.cc:1856:33: warning: cast between incompatible function types from ‘bool (*)(const char*, google::int32)’ {aka ‘bool (*)(const char*, int)’} to ‘google::{anonymous}::ValidateFnProto’ {aka ‘bool (*)()’} [-Wcast-function-type]
+176:/run/host/home/npittas/Flux/libs/gflags/src/gflags.cc:1860:33: warning: cast between incompatible function types from ‘bool (*)(const char*, google::int64)’ {aka ‘bool (*)(const char*, long int)’} to ‘google::{anonymous}::ValidateFnProto’ {aka ‘bool (*)()’} [-Wcast-function-type]
+180:/run/host/home/npittas/Flux/libs/gflags/src/gflags.cc:1864:33: warning: cast between incompatible function types from ‘bool (*)(const char*, google::uint64)’ {aka ‘bool (*)(const char*, long unsigned int)’} to ‘google::{anonymous}::ValidateFnProto’ {aka ‘bool (*)()’} [-Wcast-function-type]
+184:/run/host/home/npittas/Flux/libs/gflags/src/gflags.cc:1868:33: warning: cast between incompatible function types from ‘bool (*)(const char*, double)’ to ‘google::{anonymous}::ValidateFnProto’ {aka ‘bool (*)()’} [-Wcast-function-type]
+188:/run/host/home/npittas/Flux/libs/gflags/src/gflags.cc:1872:33: warning: cast between incompatible function types from ‘bool (*)(const char*, const std::string&)’ {aka ‘bool (*)(const char*, const std::__cxx11::basic_string<char>&)’} to ‘google::{anonymous}::ValidateFnProto’ {aka ‘bool (*)()’} [-Wcast-function-type]
+193:/run/host/home/npittas/Flux/libs/gflags/src/gflags_completions.cc:328:56: warning: this statement may fall through [-Wimplicit-fallthrough=]
+199:/run/host/home/npittas/Flux/libs/gflags/src/gflags_completions.cc:329:53: warning: this statement may fall through [-Wimplicit-fallthrough=]
+209:/run/host/home/npittas/Flux/build/libs/qhttpserver/qhttpserver_autogen/UVLADIE3JM/../../../../../libs/qhttpserver/src/qhttprequest.h:42:23: warning: defining ‘QHttpRequest’, which previously failed to be complete in a SFINAE context [-Wsfinae-incomplete=]
+222:/run/host/home/npittas/Flux/build/libs/qhttpserver/qhttpserver_autogen/UVLADIE3JM/../../../../../libs/qhttpserver/src/qhttpresponse.h:39:23: warning: defining ‘QHttpResponse’, which previously failed to be complete in a SFINAE context [-Wsfinae-incomplete=]
+478:/run/host/home/npittas/Flux/Engine/BezierCP.cpp:685:13: warning: variable ‘index’ set but not used [-Wunused-but-set-variable=]
+498:/run/host/home/npittas/Flux/Engine/AppManagerPrivate.cpp:561:13: warning: variable ‘count’ set but not used [-Wunused-but-set-variable=]
+509:/run/host/home/npittas/Flux/Engine/AppManager.cpp:2945:7: warning: ‘Py_NoUserSiteDirectory’ is deprecated [-Wdeprecated-declarations]
+520:/run/host/home/npittas/Flux/Engine/Lut.cpp:603:25: warning: variable ‘t’ set but not used [-Wunused-but-set-variable=]
+585:/run/host/home/npittas/Flux/Engine/RotoReplaceChannels.cpp:71:48: warning: unused parameter ‘inputNb’ [-Wunused-parameter]
+598:/run/host/home/npittas/Flux/Engine/StandardPaths.cpp:168:1: warning: ‘QString Natron::{anonymous}::resolveUserName(uint)’ defined but not used [-Wunused-function]
+610:/run/host/home/npittas/Flux/Engine/Transform.cpp:517:1: warning: no previous declaration for ‘Natron::Transform::Matrix3x3 Natron::Transform::matTranslation(double, double)’ [-Wmissing-declarations]
+623:/run/host/home/npittas/Flux/libs/openMVG/./openMVG/robust_estimation/robust_estimator_ProsacKernelAdaptator.hpp:998:9: warning: variable ‘nbInliers’ set but not used [-Wunused-but-set-variable=]
+634:/run/host/home/npittas/Flux/libs/openMVG/./openMVG/robust_estimation/robust_estimator_ProsacKernelAdaptator.hpp:998:9: warning: variable ‘nbInliers’ set but not used [-Wunused-but-set-variable=]
+673:cc1: warning: command-line option ‘-Wno-deprecated-copy’ is valid for C++/ObjC++ but not for C
+680:/run/host/home/npittas/Flux/Global/PythonUtils.cpp:75:7: warning: ‘Py_NoUserSiteDirectory’ is deprecated [-Wdeprecated-declarations]
+688:/run/host/home/npittas/Flux/Global/PythonUtils.cpp:153:25: warning: ‘void Py_SetPythonHome(const wchar_t*)’ is deprecated [-Wdeprecated-declarations]
+696:/run/host/home/npittas/Flux/Global/PythonUtils.cpp:260:43: warning: ‘wchar_t* Py_GetPythonHome()’ is deprecated [-Wdeprecated-declarations]
+702:/run/host/home/npittas/Flux/Global/PythonUtils.cpp:410:20: warning: unused variable ‘_save’ [-Wunused-variable]
+706:/run/host/home/npittas/Flux/libs/SequenceParsing/SequenceParsing.cpp:1534:13: warning: variable ‘breakCounter’ set but not used [-Wunused-but-set-variable=]
+831:/run/host/home/npittas/Flux/Gui/Histogram.cpp:285:43: warning: unused parameter ‘shareWidget’ [-Wunused-parameter]
+837:/run/host/home/npittas/Flux/Gui/KnobGuiColor.cpp:110:43: warning: unused parameter ‘e’ [-Wunused-parameter]
+877:/run/host/home/npittas/Flux/Gui/MultiInstancePanel.cpp:2298:1: warning: ‘void Natron::TrackerPanelPrivateV1::createTransformFromSelection(const std::__cxx11::list<Natron::Node*>&, bool, Natron::{anonymous}::ExportTransformTypeEnum)’ defined but not used [-Wunused-function]
+895:/run/host/home/npittas/Flux/Gui/QtEnumConvert.cpp:572:14: warning: ‘Qt::Key_mu’ is deprecated: This key was misnamed, use Key_micro instead [-Wdeprecated-declarations]
+905:/run/host/home/npittas/Flux/Gui/QtEnumConvert.cpp:1254:20: warning: ‘Qt::Key_mu’ is deprecated: This key was misnamed, use Key_micro instead [-Wdeprecated-declarations]
+947:/run/host/home/npittas/Flux/Gui/ViewerGL.cpp:119:41: warning: unused parameter ‘shareWidget’ [-Wunused-parameter]

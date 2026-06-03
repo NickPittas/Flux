@@ -1,0 +1,34 @@
+# Agent Summary
+
+## Status
+Done
+
+## Task Completed
+Diagnosed both keyframe bugs by tracing the actual code paths end-to-end through `FluxTimeline.cpp`, `FluxKeyframeModel.cpp`, `Engine/KnobImpl.h`, `Engine/Knob.cpp`, and `Engine/Curve.h`. Identified exact root causes with file:line evidence and documented fix scopes. Full report saved to artifact file.
+
+## Files Inspected
+- `Gui/FluxTimeline.cpp` — keyframe rendering (`drawLayerBars`), mouse events (`mousePressEvent`, `mouseMoveEvent`, `mouseReleaseEvent`), signal connections (`refreshKeyframeSignalConnections`), and row rebuild logic (`rebuildVisibleRows`)
+- `Gui/FluxTimeline.h` — selection state scalars (`_selectedKeyPropertyIndex`, `_selectedKeyTime`), `InteractionMode` enum
+- `Gui/FluxKeyframeModel.cpp` — property row building (`collectKnobProperties`, `getAnimatedDimensions`) and keyframe queries (`keysForProperty`)
+- `Gui/FluxKeyframeModelOps.cpp` — keyframe add/move/delete helpers (`addKeyAtTime`, `moveKeysAtTime`)
+- `Engine/KnobImpl.h` — `setValueAtTime` (emits `s_keyFrameSet`) vs `setKeyFrame` / `onKeyFrameSet` (does NOT emit it)
+- `Engine/Knob.cpp` — `KnobHolder::endChanges`, `checkAnimationLevel`, `deleteValueAtTime`, signal emission paths
+- `Engine/Curve.h` — `isAnimated()` returns `keyFrames.size() > 0`
+- `Gui/KnobGui10.cpp` — properties panel keyframe addition path (`KnobGui::setKeyframe` → `onKeyFrameSet`)
+
+## Files Changed
+None (read-only diagnosis task)
+
+## Validation
+- command: `grep -rn "s_keyFrameSet" /home/npittas/Flux/Engine /home/npittas/Flux/Gui`
+- result: passed
+- evidence: Confirmed `s_keyFrameSet` is emitted only once in the entire codebase, from `Engine/KnobImpl.h:1582` inside `setValueAtTime`. `setKeyFrame` (called by `onKeyFrameSet`) does not emit it.
+
+## Blockers / Decisions Needed
+None
+
+## Risks / Follow-up
+- **Bug 1 fix**: Prefer adding `_signalSlotHandler->s_keyFrameSet(...)` inside `Knob<T>::setKeyFrame` (`Engine/KnobImpl.h:2223`) so the timeline's existing connection works universally. A timeline-only workaround (connecting to `animationLevelChanged`) only fixes the first-keyframe case.
+- **Bug 2 fix**: Requires new multi-select data structure, new interaction mode, and batch move logic — medium feature scope.
+
+**Full report:** `/home/npittas/Flux/.pi/agent-artifacts/review-keyframe-vis-multiselect-out.md`

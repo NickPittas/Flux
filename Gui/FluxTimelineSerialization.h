@@ -38,12 +38,25 @@ struct FluxEffectSerialization
     std::string label;
     std::string nodeScriptName;
     bool enabled;
+    bool isAIMaskCopy;
+    std::string aiMaskUsage;
+    std::string aiMaskTargetPlane;
+    std::string aiMaskSourceChannel;
+    std::string aiMaskOperation;
+    std::string aiMaskSourceRelativePath;
+    std::string aiMaskManifestRelativePath;
+    std::string aiMaskReadNodeScriptName;
+    std::string aiMaskShuffleNodeScriptName;
+    std::string aiMaskChannelMergeNodeScriptName;
 
     FluxEffectSerialization()
         : pluginId()
         , label()
         , nodeScriptName()
         , enabled(true)
+        , isAIMaskCopy(false)
+        , aiMaskSourceChannel("red")
+        , aiMaskOperation("max")
     {}
 
     friend class ::boost::serialization::access;
@@ -57,6 +70,47 @@ struct FluxEffectSerialization
     }
 };
 
+struct FluxEffectAIMaskSerialization
+{
+    int effectIndex;
+    bool isAIMaskCopy;
+    std::string aiMaskUsage;
+    std::string aiMaskTargetPlane;
+    std::string aiMaskSourceChannel;
+    std::string aiMaskOperation;
+    std::string aiMaskSourceRelativePath;
+    std::string aiMaskManifestRelativePath;
+    std::string aiMaskReadNodeScriptName;
+    std::string aiMaskShuffleNodeScriptName;
+    std::string aiMaskChannelMergeNodeScriptName;
+
+    FluxEffectAIMaskSerialization()
+        : effectIndex(-1)
+        , isAIMaskCopy(false)
+        , aiMaskSourceChannel("red")
+        , aiMaskOperation("max")
+    {}
+
+    friend class ::boost::serialization::access;
+    template<class Archive>
+    void serialize(Archive & ar, const unsigned int version)
+    {
+        ar & ::boost::serialization::make_nvp("EffectIndex", effectIndex);
+        ar & ::boost::serialization::make_nvp("IsAIMaskCopy", isAIMaskCopy);
+        ar & ::boost::serialization::make_nvp("AIMaskTargetPlane", aiMaskTargetPlane);
+        ar & ::boost::serialization::make_nvp("AIMaskSourceRelativePath", aiMaskSourceRelativePath);
+        ar & ::boost::serialization::make_nvp("AIMaskManifestRelativePath", aiMaskManifestRelativePath);
+        ar & ::boost::serialization::make_nvp("AIMaskReadNode", aiMaskReadNodeScriptName);
+        if (version >= 1) {
+            ar & ::boost::serialization::make_nvp("AIMaskUsage", aiMaskUsage);
+            ar & ::boost::serialization::make_nvp("AIMaskSourceChannel", aiMaskSourceChannel);
+            ar & ::boost::serialization::make_nvp("AIMaskOperation", aiMaskOperation);
+            ar & ::boost::serialization::make_nvp("AIMaskShuffleNode", aiMaskShuffleNodeScriptName);
+            ar & ::boost::serialization::make_nvp("AIMaskChannelMergeNode", aiMaskChannelMergeNodeScriptName);
+        }
+    }
+};
+
 struct FluxMaskSerialization
 {
     std::string name;
@@ -67,17 +121,25 @@ struct FluxMaskSerialization
     int effectIndex;
     std::string maskNodeScriptName;
     std::string reformatNodeScriptName;
+    // Legacy T083 external-AI-mask fields. Kept only so projects saved during
+    // the removed layer-mask Apply experiment can be consumed without
+    // resurrecting that graph path.
+    std::string legacyExternalMaskPathProjectRelative;
+    std::string legacyExternalReadNodeScriptName;
+    std::string legacyExternalShuffleNodeScriptName;
+    bool legacyPremultiplyAlpha;
 
     FluxMaskSerialization()
         : type("layer")
         , enabled(true)
         , inverted(false)
         , effectIndex(-1)
+        , legacyPremultiplyAlpha(true)
     {}
 
     friend class ::boost::serialization::access;
     template<class Archive>
-    void serialize(Archive & ar, const unsigned int /*version*/)
+    void serialize(Archive & ar, const unsigned int version)
     {
         ar & ::boost::serialization::make_nvp("Name", name);
         ar & ::boost::serialization::make_nvp("Type", type);
@@ -87,6 +149,14 @@ struct FluxMaskSerialization
         ar & ::boost::serialization::make_nvp("EffectIndex", effectIndex);
         ar & ::boost::serialization::make_nvp("MaskNode", maskNodeScriptName);
         ar & ::boost::serialization::make_nvp("ReformatNode", reformatNodeScriptName);
+        if (version >= 2) {
+            ar & ::boost::serialization::make_nvp("ExternalMaskPathProjectRelative", legacyExternalMaskPathProjectRelative);
+            ar & ::boost::serialization::make_nvp("ExternalReadNode", legacyExternalReadNodeScriptName);
+            ar & ::boost::serialization::make_nvp("ExternalShuffleNode", legacyExternalShuffleNodeScriptName);
+        }
+        if (version >= 3) {
+            ar & ::boost::serialization::make_nvp("PremultiplyAlpha", legacyPremultiplyAlpha);
+        }
     }
 };
 
@@ -235,6 +305,7 @@ struct FluxLayerSerialization
     int trimStart;
     int trimEnd;
     bool nodeInitialized;
+    double sourceFrameRate;
 
     // Solid color (int 0-255)
     int solidColorR, solidColorG, solidColorB;
@@ -281,6 +352,7 @@ struct FluxLayerSerialization
         , trimStart(0)
         , trimEnd(0)
         , nodeInitialized(true)
+        , sourceFrameRate(0.0)
         , solidColorR(128)
         , solidColorG(128)
         , solidColorB(128)
@@ -336,6 +408,50 @@ struct FluxLayerSerialization
         }
         for (int i = 0; i < numEffects; ++i) {
             ar & ::boost::serialization::make_nvp("Effect", effects[i]);
+        }
+
+        if (version >= 4) {
+            int numAIMaskMetadata = (int)effects.size();
+            ar & ::boost::serialization::make_nvp("NumEffectAIMaskMetadata", numAIMaskMetadata);
+            if (Archive::is_loading::value) {
+                for (int i = 0; i < numAIMaskMetadata; ++i) {
+                    FluxEffectAIMaskSerialization aiMeta;
+                    ar & ::boost::serialization::make_nvp("EffectAIMask", aiMeta);
+                    if (aiMeta.effectIndex >= 0 && aiMeta.effectIndex < (int)effects.size()) {
+                        FluxEffectSerialization& effect = effects[aiMeta.effectIndex];
+                        effect.isAIMaskCopy = aiMeta.isAIMaskCopy;
+                        effect.aiMaskUsage = aiMeta.aiMaskUsage;
+                        effect.aiMaskTargetPlane = aiMeta.aiMaskTargetPlane;
+                        effect.aiMaskSourceChannel = aiMeta.aiMaskSourceChannel;
+                        effect.aiMaskOperation = aiMeta.aiMaskOperation;
+                        effect.aiMaskSourceRelativePath = aiMeta.aiMaskSourceRelativePath;
+                        effect.aiMaskManifestRelativePath = aiMeta.aiMaskManifestRelativePath;
+                        effect.aiMaskReadNodeScriptName = aiMeta.aiMaskReadNodeScriptName;
+                        effect.aiMaskShuffleNodeScriptName = aiMeta.aiMaskShuffleNodeScriptName;
+                        effect.aiMaskChannelMergeNodeScriptName = aiMeta.aiMaskChannelMergeNodeScriptName;
+                    }
+                }
+            } else {
+                for (int i = 0; i < numAIMaskMetadata; ++i) {
+                    FluxEffectAIMaskSerialization aiMeta;
+                    aiMeta.effectIndex = i;
+                    aiMeta.isAIMaskCopy = effects[i].isAIMaskCopy;
+                    aiMeta.aiMaskUsage = effects[i].aiMaskUsage;
+                    aiMeta.aiMaskTargetPlane = effects[i].aiMaskTargetPlane;
+                    aiMeta.aiMaskSourceChannel = effects[i].aiMaskSourceChannel;
+                    aiMeta.aiMaskOperation = effects[i].aiMaskOperation;
+                    aiMeta.aiMaskSourceRelativePath = effects[i].aiMaskSourceRelativePath;
+                    aiMeta.aiMaskManifestRelativePath = effects[i].aiMaskManifestRelativePath;
+                    aiMeta.aiMaskReadNodeScriptName = effects[i].aiMaskReadNodeScriptName;
+                    aiMeta.aiMaskShuffleNodeScriptName = effects[i].aiMaskShuffleNodeScriptName;
+                    aiMeta.aiMaskChannelMergeNodeScriptName = effects[i].aiMaskChannelMergeNodeScriptName;
+                    ar & ::boost::serialization::make_nvp("EffectAIMask", aiMeta);
+                }
+            }
+        }
+
+        if (version >= 5) {
+            ar & ::boost::serialization::make_nvp("SourceFrameRate", sourceFrameRate);
         }
 
         if (version >= 1) {
@@ -415,7 +531,8 @@ struct FluxTimelineSerialization
 NATRON_NAMESPACE_EXIT
 
 BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxTimelineSerialization, 2)
-BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxLayerSerialization, 3)
-BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxMaskSerialization, 1)
+BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxLayerSerialization, 5)
+BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxMaskSerialization, 3)
+BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxEffectAIMaskSerialization, 1)
 
 #endif // FLUXTIMELINESERIALIZATION_H

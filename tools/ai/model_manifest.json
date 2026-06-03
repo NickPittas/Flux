@@ -1,0 +1,356 @@
+{
+  "manifest_version": 1,
+  "schema": "org.flux.ai.model-manifest.v1",
+  "models": [
+    {
+      "id": "sam3_transformers",
+      "display_name": "SAM3 Transformers baseline",
+      "category": "segmentation",
+      "role": "promptable still-image segmentation baseline proof for text/box/point prompts",
+      "priority": 11,
+      "provider": "Meta SAM / Hugging Face Transformers",
+      "runtime_type": "python_cuda_huggingface",
+      "install_policy": "gated_user_download",
+      "bundling_policy": "not_bundled_by_default_user_download_only",
+      "license_summary": "Meta SAM License; upstream access/license terms require user acceptance before download.",
+      "warning_text": "GATED/ACCESS NOTICE: facebook/sam3 must be downloaded by the user after accepting upstream license/access terms when required. Flux must not persist plaintext tokens.",
+      "gated_token_requirement": "not_required_expected",
+      "default_enabled": false,
+      "default_installable": true,
+      "output_use_notes": "Immediate still-image Transformers baseline for text/box/point proof only; SAM3.1 Meta/multiplex remains a later video propagation target.",
+      "source": {
+        "type": "huggingface",
+        "repo": "facebook/sam3",
+        "revision": "3c879f39826c281e95690f02c7821c4de09afae7",
+        "allow_patterns": [
+          "*.json",
+          "*.txt",
+          "*.md",
+          "*.py",
+          "*.safetensors",
+          "*.yaml",
+          "*.yml"
+        ]
+      }
+    },
+    {
+      "id": "sam31_sam3plus",
+      "display_name": "SAM3.1 / SAM3+ line",
+      "category": "segmentation",
+      "role": "viewer prompt segmentation, base matte, video object masks/tracks",
+      "priority": 10,
+      "provider": "Meta SAM",
+      "runtime_type": "python_cuda_huggingface",
+      "install_policy": "gated_user_download",
+      "bundling_policy": "not_bundled_by_default_user_download_only",
+      "license_summary": "Meta SAM License; non-OSI/gated terms require user acceptance before download.",
+      "warning_text": "GATED: SAM3.1/SAM3+ must be downloaded by the user after accepting upstream license/access terms. Flux must not persist plaintext tokens.",
+      "gated_token_requirement": "required_for_download",
+      "default_enabled": false,
+      "default_installable": true,
+      "output_use_notes": "Primary promptable segmentation path for point/box/text/mask prompts and base matte generation.",
+      "source": {
+        "type": "huggingface",
+        "repo": "facebook/sam3.1",
+        "revision": "daa63191845a41281374e725f4c9e51c7a824460",
+        "allow_patterns": [
+          "*.json",
+          "*.txt",
+          "*.md",
+          "*.py",
+          "*.safetensors",
+          "*.pth",
+          "*.pt",
+          "*.yaml",
+          "*.yml"
+        ]
+      }
+    },
+    {
+      "id": "matanyone2",
+      "display_name": "MatAnyone2",
+      "category": "matte_refinement",
+      "role": "video human matte refinement from base or first-frame mask",
+      "priority": 9,
+      "provider": "NTU S-Lab",
+      "runtime_type": "python_cuda_external_repo",
+      "install_policy": "user_download_noncommercial_warning",
+      "bundling_policy": "not_bundled_noncommercial_user_download_only",
+      "license_summary": "Non-commercial/research license; commercial production use is not cleared.",
+      "warning_text": "NON-COMMERCIAL: MatAnyone2 is visible as an option only with explicit license warning and user-managed/downloaded weights.",
+      "gated_token_requirement": "possible_upstream_gate_unknown",
+      "default_enabled": false,
+      "default_installable": true,
+      "output_use_notes": "Refines human video alpha/foreground sequences from a base matte; not a default commercial bundle.",
+      "source": {
+        "type": "huggingface",
+        "repo": "PeiqingYang/MatAnyone2",
+        "revision": "40c894a6f68d1f55c86ab0de838d89dc61587930",
+        "allow_patterns": [
+          "*.json",
+          "*.txt",
+          "*.md",
+          "*.py",
+          "*.pth",
+          "*.safetensors",
+          "*.yaml",
+          "*.yml"
+        ],
+        "fallback": {
+          "type": "github_release",
+          "repo": "pq-yang/MatAnyone2",
+          "url": "https://github.com/pq-yang/MatAnyone2/releases"
+        }
+      }
+    },
+    {
+      "id": "birefnet",
+      "display_name": "BiRefNet",
+      "category": "base_matte",
+      "role": "base matte/background removal",
+      "priority": 8,
+      "provider": "BiRefNet",
+      "runtime_type": "python_cuda_huggingface",
+      "install_policy": "default_candidate",
+      "bundling_policy": "candidate_for_default_bundle_after_testing",
+      "license_summary": "MIT reported; final source/revision/hash verification required.",
+      "warning_text": "Permissive default candidate pending pinned manifest validation.",
+      "gated_token_requirement": "not_required_expected",
+      "default_enabled": true,
+      "default_installable": true,
+      "output_use_notes": "First permissive base matte worker target for images and image sequences.",
+      "source": {
+        "type": "huggingface",
+        "repo": "ZhengPeng7/BiRefNet",
+        "revision": "e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4",
+        "allow_patterns": [
+          "*.json",
+          "*.txt",
+          "*.md",
+          "*.py",
+          "*.safetensors",
+          "*.pth",
+          "*.pt",
+          "*.yaml",
+          "*.yml"
+        ]
+      }
+    },
+    {
+      "id": "vitmatte",
+      "display_name": "ViTMatte",
+      "category": "matte_refinement",
+      "role": "edge refinement from base mask or trimap",
+      "priority": 7,
+      "provider": "ViTMatte",
+      "runtime_type": "python_cuda_huggingface",
+      "install_policy": "default_candidate",
+      "bundling_policy": "candidate_for_default_bundle_after_testing",
+      "license_summary": "MIT reported; final source/revision/hash verification required.",
+      "warning_text": "Permissive default candidate pending pinned manifest validation.",
+      "gated_token_requirement": "not_required_expected",
+      "default_enabled": true,
+      "default_installable": true,
+      "output_use_notes": "Refines SAM/BiRefNet base mattes using generated trimaps.",
+      "source": {
+        "type": "huggingface",
+        "repo": "hustvl/vitmatte-base-composition-1k",
+        "revision": "bf486d01a7d9e3dbcc8400f7942835caf0eaf76e",
+        "allow_patterns": [
+          "*.json",
+          "*.txt",
+          "*.md",
+          "*.py",
+          "*.safetensors",
+          "*.bin",
+          "*.pth",
+          "*.yaml",
+          "*.yml"
+        ]
+      }
+    },
+    {
+      "id": "video_depth_anything",
+      "display_name": "Video Depth Anything",
+      "category": "depth",
+      "role": "baseline video depth generation",
+      "priority": 7,
+      "provider": "Depth Anything",
+      "runtime_type": "python_cuda_huggingface",
+      "install_policy": "default_candidate_warning",
+      "bundling_policy": "candidate_after_testing",
+      "license_summary": "Pending final license/weights review before default install or bundling.",
+      "warning_text": "LICENSE NOTICE: install is allowed after user confirmation; review upstream terms before production use.",
+      "gated_token_requirement": "unknown_pending_review",
+      "default_enabled": false,
+      "default_installable": true,
+      "output_use_notes": "Baseline depth provider for EXR depth/disparity sequences.",
+      "source": {
+        "type": "huggingface",
+        "repo": "depth-anything/Video-Depth-Anything-Base",
+        "revision": "7231d0c6e260f54f103eba5005d01f6efa4f43db",
+        "allow_patterns": [
+          "*.json",
+          "*.txt",
+          "*.md",
+          "*.py",
+          "*.safetensors",
+          "*.pth",
+          "*.pt",
+          "*.yaml",
+          "*.yml"
+        ]
+      }
+    },
+    {
+      "id": "depthcrafter",
+      "display_name": "DepthCrafter",
+      "category": "depth",
+      "role": "video-stable depth generation",
+      "priority": 6,
+      "provider": "DepthCrafter",
+      "runtime_type": "python_cuda_external_repo",
+      "install_policy": "user_download_noncommercial_warning",
+      "bundling_policy": "not_bundled_restrictive_user_download_only",
+      "license_summary": "Restrictive academic/research/education terms; commercial/production use not cleared.",
+      "warning_text": "NON-COMMERCIAL/RESTRICTIVE: DepthCrafter requires visible warning and user-managed/downloaded weights.",
+      "gated_token_requirement": "possible_upstream_gate_unknown",
+      "default_enabled": false,
+      "default_installable": true,
+      "output_use_notes": "Optional video-stable depth provider; expose VRAM/resolution/stride controls later.",
+      "source": {
+        "type": "huggingface",
+        "repo": "tencent/DepthCrafter",
+        "revision": "f2207fa67e799d3cac41b0a051bb051401137a5b",
+        "allow_patterns": [
+          "*.json",
+          "*.txt",
+          "*.md",
+          "*.py",
+          "*.safetensors",
+          "*.pth",
+          "*.pt",
+          "*.yaml",
+          "*.yml"
+        ]
+      }
+    },
+    {
+      "id": "videomama",
+      "display_name": "VideoMaMa",
+      "category": "matte_refinement",
+      "role": "video matte generation using Stable Video Diffusion with mask conditioning",
+      "priority": 8,
+      "provider": "VideoMaMa (SVD-based video matting)",
+      "runtime_type": "python_cuda_external_repo",
+      "install_policy": "user_download_noncommercial_warning",
+      "bundling_policy": "not_bundled_noncommercial_user_download_only",
+      "license_summary": "CC BY-NC 4.0; non-commercial use only. Commercial production use is not cleared. Both model weights and pipeline code are user-managed.",
+      "warning_text": "NON-COMMERCIAL: VideoMaMa is CC BY-NC 4.0 licensed. Visible warning required. Commercial production use is not cleared. Pipeline code and model weights are user-managed manual downloads — NOT bundled by default.",
+      "gated_token_requirement": "not_required_expected",
+      "default_enabled": false,
+      "default_installable": false,
+      "output_use_notes": "Generates video alpha matte sequences from source frames and a first-frame mask (or per-frame mask sequence) using SVD-based diffusion. Supports per-frame tracked masks via mask_sequence_pattern. Non-commercial license applies. Pipeline code and model weights must be manually downloaded and configured by the user.",
+      "multi_source_payload": {
+        "description": "VideoMaMa requires TWO model sources merged into a single directory AND user-downloaded pipeline code. The model manager cannot auto-install multi-source; manual setup is required.",
+        "sources": [
+          {
+            "role": "SVD base model",
+            "repo": "stabilityai/stable-video-diffusion-img2vid-xt",
+            "provides": ["model_index.json", "vae/", "scheduler/", "feature_extractor/", "image_encoder/"],
+            "url": "https://huggingface.co/stabilityai/stable-video-diffusion-img2vid-xt"
+          },
+          {
+            "role": "VideoMaMa fine-tuned UNet",
+            "repo": "SammyLim/VideoMaMa",
+            "provides": ["unet/"],
+            "url": "https://github.com/SammyLim/VideoMaMa"
+          },
+          {
+            "role": "Pipeline code (NOT bundled)",
+            "repo": "SammyLim/VideoMaMa",
+            "provides": ["pipeline_svd_mask_numpy.py"],
+            "url": "https://github.com/SammyLim/VideoMaMa",
+            "instructions": "User must download pipeline_svd_mask_numpy.py from the VideoMaMa repo and either place it next to model weights, set FLUX_VIDEOMAMA_CODE_ROOT, or add to PYTHONPATH."
+          }
+        ],
+        "target_directory": "~/.local/share/Flux/models/videomama/<model_dir>/",
+        "required_files": ["model_index.json", "unet/config.json", "vae/config.json"]
+      },
+      "source": {
+        "type": "multi_source_manual",
+        "revision": "unversioned",
+        "notes": "VideoMaMa cannot be installed by a single-source download. It requires merging SVD base model from stabilityai/stable-video-diffusion-img2vid-xt (provides vae/, scheduler/, feature_extractor/, image_encoder/, model_index.json) with the VideoMaMa fine-tuned UNet from SammyLim/VideoMaMa (provides unet/). Both must be placed under ~/.local/share/Flux/models/videomama/<dir>/ with model_index.json, unet/config.json, and vae/config.json present. Pipeline code (pipeline_svd_mask_numpy.py) is NOT bundled — user must download from https://github.com/SammyLim/VideoMaMa and place it next to model weights, set FLUX_VIDEOMAMA_CODE_ROOT, or add to PYTHONPATH.",
+        "fallback": {
+          "type": "github_release",
+          "repo": "SammyLim/VideoMaMa",
+          "url": "https://github.com/SammyLim/VideoMaMa",
+          "notes": "Download the VideoMaMa UNet weights and pipeline_svd_mask_numpy.py from the SammyLim/VideoMaMa repo and the SVD base model from stabilityai/stable-video-diffusion-img2vid-xt. Merge unet/ from VideoMaMa into the SVD base model directory. Place pipeline_svd_mask_numpy.py next to the merged model or set FLUX_VIDEOMAMA_CODE_ROOT."
+        }
+      }
+    },
+    {
+      "id": "rvm",
+      "display_name": "RVM",
+      "category": "external_helper",
+      "role": "fast recurrent human video matting helper",
+      "priority": 4,
+      "provider": "Robust Video Matting",
+      "runtime_type": "external_subprocess_helper",
+      "install_policy": "external_helper",
+      "bundling_policy": "do_not_bundle_gpl3_external_only",
+      "license_summary": "GPL3; keep as external subprocess helper and do not link/bundle into GPL2 Flux app.",
+      "warning_text": "EXTERNAL GPL3 HELPER: user supplies an external RVM install; Flux must not bundle or link it into the GPL2 app.",
+      "gated_token_requirement": "not_required_expected",
+      "default_enabled": false,
+      "default_installable": true,
+      "output_use_notes": "Optional helper path only; future manager should record user-configured command path.",
+      "source": {
+        "type": "url",
+        "revision": "unversioned",
+        "urls": [
+          {
+            "filename": "rvm_mobilenetv3.pth",
+            "url": "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3.pth"
+          },
+          {
+            "filename": "rvm_resnet50.pth",
+            "url": "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_resnet50.pth",
+            "optional": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "xmem2",
+      "display_name": "XMem2",
+      "category": "external_helper",
+      "role": "semi-supervised video mask propagation helper",
+      "priority": 4,
+      "provider": "XMem2",
+      "runtime_type": "external_subprocess_helper",
+      "install_policy": "external_helper",
+      "bundling_policy": "do_not_bundle_gpl3_external_only",
+      "license_summary": "GPL3; keep as external subprocess helper and do not link/bundle into GPL2 Flux app.",
+      "warning_text": "EXTERNAL GPL3 HELPER: XMem2 helper currently installs hkchengrex/XMem v1.0 checkpoint assets for the helper workflow; user supplies an external helper install. Flux must not bundle or link it into the GPL2 app.",
+      "gated_token_requirement": "not_required_expected",
+      "default_enabled": false,
+      "default_installable": true,
+      "output_use_notes": "Optional mask propagation helper when configured externally; current direct URL assets are hkchengrex/XMem v1.0 checkpoints used by the helper workflow.",
+      "source": {
+        "type": "url",
+        "revision": "unversioned",
+        "urls": [
+          {
+            "filename": "XMem.pth",
+            "url": "https://github.com/hkchengrex/XMem/releases/download/v1.0/XMem.pth"
+          },
+          {
+            "filename": "XMem-s012.pth",
+            "url": "https://github.com/hkchengrex/XMem/releases/download/v1.0/XMem-s012.pth"
+          }
+        ]
+      }
+    }
+  ]
+}

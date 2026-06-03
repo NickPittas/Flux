@@ -1,0 +1,34 @@
+# Agent Summary
+
+## Status
+Done
+
+## Task Completed
+Implemented viewer input switching from the Flux timeline. Number keys 1-9 (normalized via `Gui::handleNativeKeys` for cross-keyboard-layout support) connect the main compositing viewer to the resolved node: key 1 → full comp output, keys 2-9 → selected effect/layer/adjustment node. Small blue badge chips render on the connected row. Badges clear on structural mutations. All connections use raw `disconnectInput`/`connectInput` with `canConnectInput` validation and restore-on-failure.
+
+## Files Inspected
+- `plans/plan-viewer-input-switching.md`: Full implementation plan (the authority)
+- `Gui/FluxTimeline.h`: Class structure, data members, signal/slot layout
+- `Gui/FluxTimeline.cpp`: keyPressEvent, drawLayerBars, removeLayer, duplicateLayer, removeEffectFromLayer
+- `Gui/Gui05.cpp`: Existing viewer wiring patterns, getFluxMainCompositingViewerTab, showFluxViewerTab, _fluxFinalOutputNode, signal wiring area
+- `Engine/Node.h`: connectInput, disconnectInput, canConnectInput API
+- `Engine/ViewerInstance.h`: getNInputs
+- `Gui/Gui.h`: handleNativeKeys, redrawAllViewers
+
+## Files Changed
+- `Gui/FluxTimeline.h`: +26 lines (viewerInputBadges fields, signal, 4 public methods)
+- `Gui/FluxTimeline.cpp`: +256 lines (keyPressEvent number-key handling, selectedViewerSwitchTargetNode, badge management, badge painting, structural mutation cleanup)
+- `Gui/Gui05.cpp`: +90 lines (viewerInputSwitchRequested signal connection lambda)
+
+## Validation
+- command: `git diff --check`
+- result: passed
+- command: `cmake --build build --target Natron --parallel $(nproc)`
+- result: passed — build succeeded with zero compile errors
+
+## Blockers / Decisions Needed
+None.
+
+## Risks / Follow-up
+- Manual GUI testing needed to verify viewer switching with a real comp containing layers, effects, and adjustment rows
+- Report saved to: `/home/npittas/Flux/.pi/agent-artifacts/worker-viewer-switching-out.md`

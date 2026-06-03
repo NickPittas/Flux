@@ -1,0 +1,1331 @@
+{
+  "alpha_dir": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha",
+  "alpha_output_count": 81,
+  "critical_failure": null,
+  "frame_extraction": {
+    "elapsed_seconds": 1.22,
+    "extracted": 81,
+    "frames_dir": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/frames",
+    "max_frames": 0
+  },
+  "inputs": {
+    "mask": {
+      "height": 1056,
+      "mode": "L",
+      "path": "/home/npittas/Videos/For_Test/mask_1.png",
+      "width": 2496
+    },
+    "video": {
+      "height": 1056,
+      "path": "/home/npittas/Videos/For_Test/lightx2v_lora_rank_comparison.mp4",
+      "r_frame_rate": "16/1",
+      "total_frames": 81,
+      "width": 2496
+    }
+  },
+  "overall_status": "ok",
+  "runtime_id": "sam3",
+  "runtime_python": "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python",
+  "schema": "flux.ai_native_spikes.matanyone2_baseline.v1",
+  "timestamp": "2026-06-01T10:24:49.020258+00:00",
+  "worker_command": [
+    "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python",
+    "/home/npittas/Flux/tools/ai/matanyone2_worker.py"
+  ],
+  "worker_elapsed_seconds": 22.847,
+  "worker_responses": [
+    {
+      "event": "ready",
+      "schema": "org.flux.ai.matanyone2-worker.v1",
+      "warning_text": "NON-COMMERCIAL: MatAnyone2 is non-commercial/research licensed. Visible warning required. Commercial production use is not cleared."
+    },
+    {
+      "command": "load",
+      "event": "progress",
+      "id": "bl-load",
+      "message": "Loading MatAnyone2 model weights",
+      "percent": 10
+    },
+    {
+      "parse_error": true,
+      "raw": "Loading weights from local directory"
+    },
+    {
+      "command": "load",
+      "event": "progress",
+      "id": "bl-load",
+      "message": "MatAnyone2 model loaded",
+      "percent": 30
+    },
+    {
+      "command": "load",
+      "id": "bl-load",
+      "ok": true,
+      "payload": {
+        "device": "cuda",
+        "loaded": true,
+        "model_dir": "/home/npittas/.local/share/Flux/models/matanyone2/40c894a6f68d1f55c86ab0de838d89dc61587930",
+        "status": "ok",
+        "warning_text": "NON-COMMERCIAL: MatAnyone2 is non-commercial/research licensed. Visible warning required. Commercial production use is not cleared."
+      },
+      "schema": "org.flux.ai.matanyone2-worker.v1"
+    },
+    {
+      "command": "infer_video",
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 starting inference",
+      "percent": 5
+    },
+    {
+      "command": "infer_video",
+      "completed": 1,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 1/81",
+      "percent": 11,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 2,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 2/81",
+      "percent": 12,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 3,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 3/81",
+      "percent": 13,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 4,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 4/81",
+      "percent": 14,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 5,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 5/81",
+      "percent": 15,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 6,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 6/81",
+      "percent": 16,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 7,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 7/81",
+      "percent": 17,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 8,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 8/81",
+      "percent": 18,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 9,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 9/81",
+      "percent": 19,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 10,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 10/81",
+      "percent": 20,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 11,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 11/81",
+      "percent": 21,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 12,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 12/81",
+      "percent": 22,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 13,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 13/81",
+      "percent": 23,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 14,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 14/81",
+      "percent": 24,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 15,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 15/81",
+      "percent": 25,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 16,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 16/81",
+      "percent": 26,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 17,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 17/81",
+      "percent": 27,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 18,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 18/81",
+      "percent": 28,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 19,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 19/81",
+      "percent": 29,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 20,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 20/81",
+      "percent": 30,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 21,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 21/81",
+      "percent": 32,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 22,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 22/81",
+      "percent": 33,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 23,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 23/81",
+      "percent": 34,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 24,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 24/81",
+      "percent": 35,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 25,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 25/81",
+      "percent": 36,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 26,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 26/81",
+      "percent": 37,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 27,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 27/81",
+      "percent": 38,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 28,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 28/81",
+      "percent": 39,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 29,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 29/81",
+      "percent": 40,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 30,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 30/81",
+      "percent": 41,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 31,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 31/81",
+      "percent": 42,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 32,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 32/81",
+      "percent": 43,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 33,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 33/81",
+      "percent": 44,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 34,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 34/81",
+      "percent": 45,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 35,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 35/81",
+      "percent": 46,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 36,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 36/81",
+      "percent": 47,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 37,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 37/81",
+      "percent": 48,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 38,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 38/81",
+      "percent": 49,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 39,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 39/81",
+      "percent": 50,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 40,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 40/81",
+      "percent": 51,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 41,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 41/81",
+      "percent": 53,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 42,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 42/81",
+      "percent": 54,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 43,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 43/81",
+      "percent": 55,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 44,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 44/81",
+      "percent": 56,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 45,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 45/81",
+      "percent": 57,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 46,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 46/81",
+      "percent": 58,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 47,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 47/81",
+      "percent": 59,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 48,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 48/81",
+      "percent": 60,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 49,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 49/81",
+      "percent": 61,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 50,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 50/81",
+      "percent": 62,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 51,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 51/81",
+      "percent": 63,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 52,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 52/81",
+      "percent": 64,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 53,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 53/81",
+      "percent": 65,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 54,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 54/81",
+      "percent": 66,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 55,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 55/81",
+      "percent": 67,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 56,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 56/81",
+      "percent": 68,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 57,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 57/81",
+      "percent": 69,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 58,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 58/81",
+      "percent": 70,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 59,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 59/81",
+      "percent": 71,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 60,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 60/81",
+      "percent": 72,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 61,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 61/81",
+      "percent": 74,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 62,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 62/81",
+      "percent": 75,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 63,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 63/81",
+      "percent": 76,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 64,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 64/81",
+      "percent": 77,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 65,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 65/81",
+      "percent": 78,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 66,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 66/81",
+      "percent": 79,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 67,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 67/81",
+      "percent": 80,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 68,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 68/81",
+      "percent": 81,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 69,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 69/81",
+      "percent": 82,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 70,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 70/81",
+      "percent": 83,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 71,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 71/81",
+      "percent": 84,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 72,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 72/81",
+      "percent": 85,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 73,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 73/81",
+      "percent": 86,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 74,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 74/81",
+      "percent": 87,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 75,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 75/81",
+      "percent": 88,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 76,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 76/81",
+      "percent": 89,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 77,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 77/81",
+      "percent": 90,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 78,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 78/81",
+      "percent": 91,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 79,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 79/81",
+      "percent": 92,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 80,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 80/81",
+      "percent": 93,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "completed": 81,
+      "event": "progress",
+      "id": "bl-infer",
+      "message": "MatAnyone2 frame 81/81",
+      "percent": 95,
+      "total": 81
+    },
+    {
+      "command": "infer_video",
+      "id": "bl-infer",
+      "ok": true,
+      "payload": {
+        "frames": [
+          {
+            "nonzero_pixels": 93414,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000001.png",
+            "source_frame": 1,
+            "timeline_frame": 1
+          },
+          {
+            "nonzero_pixels": 98516,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000002.png",
+            "source_frame": 2,
+            "timeline_frame": 2
+          },
+          {
+            "nonzero_pixels": 108067,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000003.png",
+            "source_frame": 3,
+            "timeline_frame": 3
+          },
+          {
+            "nonzero_pixels": 115657,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000004.png",
+            "source_frame": 4,
+            "timeline_frame": 4
+          },
+          {
+            "nonzero_pixels": 123116,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000005.png",
+            "source_frame": 5,
+            "timeline_frame": 5
+          },
+          {
+            "nonzero_pixels": 126912,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000006.png",
+            "source_frame": 6,
+            "timeline_frame": 6
+          },
+          {
+            "nonzero_pixels": 135370,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000007.png",
+            "source_frame": 7,
+            "timeline_frame": 7
+          },
+          {
+            "nonzero_pixels": 131858,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000008.png",
+            "source_frame": 8,
+            "timeline_frame": 8
+          },
+          {
+            "nonzero_pixels": 136872,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000009.png",
+            "source_frame": 9,
+            "timeline_frame": 9
+          },
+          {
+            "nonzero_pixels": 135750,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000010.png",
+            "source_frame": 10,
+            "timeline_frame": 10
+          },
+          {
+            "nonzero_pixels": 134339,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000011.png",
+            "source_frame": 11,
+            "timeline_frame": 11
+          },
+          {
+            "nonzero_pixels": 136523,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000012.png",
+            "source_frame": 12,
+            "timeline_frame": 12
+          },
+          {
+            "nonzero_pixels": 137011,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000013.png",
+            "source_frame": 13,
+            "timeline_frame": 13
+          },
+          {
+            "nonzero_pixels": 137199,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000014.png",
+            "source_frame": 14,
+            "timeline_frame": 14
+          },
+          {
+            "nonzero_pixels": 136394,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000015.png",
+            "source_frame": 15,
+            "timeline_frame": 15
+          },
+          {
+            "nonzero_pixels": 133813,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000016.png",
+            "source_frame": 16,
+            "timeline_frame": 16
+          },
+          {
+            "nonzero_pixels": 142205,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000017.png",
+            "source_frame": 17,
+            "timeline_frame": 17
+          },
+          {
+            "nonzero_pixels": 136000,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000018.png",
+            "source_frame": 18,
+            "timeline_frame": 18
+          },
+          {
+            "nonzero_pixels": 136232,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000019.png",
+            "source_frame": 19,
+            "timeline_frame": 19
+          },
+          {
+            "nonzero_pixels": 138004,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000020.png",
+            "source_frame": 20,
+            "timeline_frame": 20
+          },
+          {
+            "nonzero_pixels": 143007,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000021.png",
+            "source_frame": 21,
+            "timeline_frame": 21
+          },
+          {
+            "nonzero_pixels": 153428,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000022.png",
+            "source_frame": 22,
+            "timeline_frame": 22
+          },
+          {
+            "nonzero_pixels": 157116,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000023.png",
+            "source_frame": 23,
+            "timeline_frame": 23
+          },
+          {
+            "nonzero_pixels": 160086,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000024.png",
+            "source_frame": 24,
+            "timeline_frame": 24
+          },
+          {
+            "nonzero_pixels": 158656,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000025.png",
+            "source_frame": 25,
+            "timeline_frame": 25
+          },
+          {
+            "nonzero_pixels": 161687,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000026.png",
+            "source_frame": 26,
+            "timeline_frame": 26
+          },
+          {
+            "nonzero_pixels": 165049,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000027.png",
+            "source_frame": 27,
+            "timeline_frame": 27
+          },
+          {
+            "nonzero_pixels": 161802,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000028.png",
+            "source_frame": 28,
+            "timeline_frame": 28
+          },
+          {
+            "nonzero_pixels": 161441,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000029.png",
+            "source_frame": 29,
+            "timeline_frame": 29
+          },
+          {
+            "nonzero_pixels": 154994,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000030.png",
+            "source_frame": 30,
+            "timeline_frame": 30
+          },
+          {
+            "nonzero_pixels": 157452,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000031.png",
+            "source_frame": 31,
+            "timeline_frame": 31
+          },
+          {
+            "nonzero_pixels": 166650,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000032.png",
+            "source_frame": 32,
+            "timeline_frame": 32
+          },
+          {
+            "nonzero_pixels": 168595,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000033.png",
+            "source_frame": 33,
+            "timeline_frame": 33
+          },
+          {
+            "nonzero_pixels": 167961,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000034.png",
+            "source_frame": 34,
+            "timeline_frame": 34
+          },
+          {
+            "nonzero_pixels": 167867,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000035.png",
+            "source_frame": 35,
+            "timeline_frame": 35
+          },
+          {
+            "nonzero_pixels": 170848,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000036.png",
+            "source_frame": 36,
+            "timeline_frame": 36
+          },
+          {
+            "nonzero_pixels": 190761,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000037.png",
+            "source_frame": 37,
+            "timeline_frame": 37
+          },
+          {
+            "nonzero_pixels": 180128,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000038.png",
+            "source_frame": 38,
+            "timeline_frame": 38
+          },
+          {
+            "nonzero_pixels": 176211,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000039.png",
+            "source_frame": 39,
+            "timeline_frame": 39
+          },
+          {
+            "nonzero_pixels": 170313,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000040.png",
+            "source_frame": 40,
+            "timeline_frame": 40
+          },
+          {
+            "nonzero_pixels": 168034,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000041.png",
+            "source_frame": 41,
+            "timeline_frame": 41
+          },
+          {
+            "nonzero_pixels": 170419,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000042.png",
+            "source_frame": 42,
+            "timeline_frame": 42
+          },
+          {
+            "nonzero_pixels": 165057,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000043.png",
+            "source_frame": 43,
+            "timeline_frame": 43
+          },
+          {
+            "nonzero_pixels": 162104,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000044.png",
+            "source_frame": 44,
+            "timeline_frame": 44
+          },
+          {
+            "nonzero_pixels": 162125,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000045.png",
+            "source_frame": 45,
+            "timeline_frame": 45
+          },
+          {
+            "nonzero_pixels": 155430,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000046.png",
+            "source_frame": 46,
+            "timeline_frame": 46
+          },
+          {
+            "nonzero_pixels": 164826,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000047.png",
+            "source_frame": 47,
+            "timeline_frame": 47
+          },
+          {
+            "nonzero_pixels": 157096,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000048.png",
+            "source_frame": 48,
+            "timeline_frame": 48
+          },
+          {
+            "nonzero_pixels": 154828,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000049.png",
+            "source_frame": 49,
+            "timeline_frame": 49
+          },
+          {
+            "nonzero_pixels": 149545,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000050.png",
+            "source_frame": 50,
+            "timeline_frame": 50
+          },
+          {
+            "nonzero_pixels": 150644,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000051.png",
+            "source_frame": 51,
+            "timeline_frame": 51
+          },
+          {
+            "nonzero_pixels": 157506,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000052.png",
+            "source_frame": 52,
+            "timeline_frame": 52
+          },
+          {
+            "nonzero_pixels": 156588,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000053.png",
+            "source_frame": 53,
+            "timeline_frame": 53
+          },
+          {
+            "nonzero_pixels": 150370,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000054.png",
+            "source_frame": 54,
+            "timeline_frame": 54
+          },
+          {
+            "nonzero_pixels": 153382,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000055.png",
+            "source_frame": 55,
+            "timeline_frame": 55
+          },
+          {
+            "nonzero_pixels": 154259,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000056.png",
+            "source_frame": 56,
+            "timeline_frame": 56
+          },
+          {
+            "nonzero_pixels": 166192,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000057.png",
+            "source_frame": 57,
+            "timeline_frame": 57
+          },
+          {
+            "nonzero_pixels": 161325,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000058.png",
+            "source_frame": 58,
+            "timeline_frame": 58
+          },
+          {
+            "nonzero_pixels": 159477,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000059.png",
+            "source_frame": 59,
+            "timeline_frame": 59
+          },
+          {
+            "nonzero_pixels": 156942,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000060.png",
+            "source_frame": 60,
+            "timeline_frame": 60
+          },
+          {
+            "nonzero_pixels": 159982,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000061.png",
+            "source_frame": 61,
+            "timeline_frame": 61
+          },
+          {
+            "nonzero_pixels": 165828,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000062.png",
+            "source_frame": 62,
+            "timeline_frame": 62
+          },
+          {
+            "nonzero_pixels": 165945,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000063.png",
+            "source_frame": 63,
+            "timeline_frame": 63
+          },
+          {
+            "nonzero_pixels": 166896,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000064.png",
+            "source_frame": 64,
+            "timeline_frame": 64
+          },
+          {
+            "nonzero_pixels": 170660,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000065.png",
+            "source_frame": 65,
+            "timeline_frame": 65
+          },
+          {
+            "nonzero_pixels": 166897,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000066.png",
+            "source_frame": 66,
+            "timeline_frame": 66
+          },
+          {
+            "nonzero_pixels": 180074,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000067.png",
+            "source_frame": 67,
+            "timeline_frame": 67
+          },
+          {
+            "nonzero_pixels": 174812,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000068.png",
+            "source_frame": 68,
+            "timeline_frame": 68
+          },
+          {
+            "nonzero_pixels": 175666,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000069.png",
+            "source_frame": 69,
+            "timeline_frame": 69
+          },
+          {
+            "nonzero_pixels": 170608,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000070.png",
+            "source_frame": 70,
+            "timeline_frame": 70
+          },
+          {
+            "nonzero_pixels": 173305,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000071.png",
+            "source_frame": 71,
+            "timeline_frame": 71
+          },
+          {
+            "nonzero_pixels": 188248,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000072.png",
+            "source_frame": 72,
+            "timeline_frame": 72
+          },
+          {
+            "nonzero_pixels": 186878,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000073.png",
+            "source_frame": 73,
+            "timeline_frame": 73
+          },
+          {
+            "nonzero_pixels": 186090,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000074.png",
+            "source_frame": 74,
+            "timeline_frame": 74
+          },
+          {
+            "nonzero_pixels": 179634,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000075.png",
+            "source_frame": 75,
+            "timeline_frame": 75
+          },
+          {
+            "nonzero_pixels": 179314,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000076.png",
+            "source_frame": 76,
+            "timeline_frame": 76
+          },
+          {
+            "nonzero_pixels": 193637,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000077.png",
+            "source_frame": 77,
+            "timeline_frame": 77
+          },
+          {
+            "nonzero_pixels": 189259,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000078.png",
+            "source_frame": 78,
+            "timeline_frame": 78
+          },
+          {
+            "nonzero_pixels": 179329,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000079.png",
+            "source_frame": 79,
+            "timeline_frame": 79
+          },
+          {
+            "nonzero_pixels": 177945,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000080.png",
+            "source_frame": 80,
+            "timeline_frame": 80
+          },
+          {
+            "nonzero_pixels": 181966,
+            "path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000081.png",
+            "source_frame": 81,
+            "timeline_frame": 81
+          }
+        ],
+        "proofs": {
+          "video": {
+            "nonzero_pixels": 12756426,
+            "nonzero_unverified": false,
+            "status": "succeeded",
+            "successful_frame_count": 81
+          }
+        },
+        "schema": "org.flux.ai.matanyone2-worker.v1",
+        "selected_mask_path": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_000001.png",
+        "selected_mask_sequence_pattern": "/home/npittas/Flux/tools/ai_native_spikes/results/matanyone2/baseline/alpha/alpha_######.png",
+        "status": "ok",
+        "successful_frame_count": 81,
+        "warning_text": "NON-COMMERCIAL: MatAnyone2 is non-commercial/research licensed. Visible warning required. Commercial production use is not cleared."
+      },
+      "schema": "org.flux.ai.matanyone2-worker.v1"
+    },
+    {
+      "command": "shutdown",
+      "id": "bl-shutdown",
+      "ok": true,
+      "payload": {
+        "action": "shutdown",
+        "status": "ok"
+      }
+    }
+  ],
+  "worker_returncode": 0,
+  "worker_stderr_path": null
+}

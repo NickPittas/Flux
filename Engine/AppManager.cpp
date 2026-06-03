@@ -106,6 +106,7 @@
 #include "Global/PythonUtils.h"
 
 #include "Engine/AppInstance.h"
+#include "Engine/AIPaint.h"
 #include "Engine/Backdrop.h"
 #include "Engine/CLArgs.h"
 #include "Engine/DiskCacheNode.h"
@@ -131,6 +132,8 @@
 #include "Engine/RotoPaint.h"
 #include "Engine/RotoSmear.h"
 #include "Engine/RotoReplaceChannels.h"
+#include "Engine/FluxAIMaskCopy.h"
+#include "Engine/FluxChannelMerge.h"
 #include "Engine/StandardPaths.h"
 #include "Engine/TrackerNode.h"
 #include "Engine/ThreadPool.h"
@@ -1544,9 +1547,12 @@ AppManager::loadBuiltinNodePlugins(IOPluginsMap* /*readersMap*/,
     registerBuiltInPlugin<Dot>(QString::fromUtf8(NATRON_IMAGES_PATH "dot_icon.png"), false, false);
     registerBuiltInPlugin<DiskCacheNode>(QString::fromUtf8(NATRON_IMAGES_PATH "diskcache_icon.png"), false, false);
     registerBuiltInPlugin<RotoPaint>(QString::fromUtf8(NATRON_IMAGES_PATH "GroupingIcons/Set2/paint_grouping_2.png"), false, false);
+    registerBuiltInPlugin<AIPaint>(QString::fromUtf8(NATRON_IMAGES_PATH "GroupingIcons/Set2/paint_grouping_2.png"), false, false);
     registerBuiltInPlugin<RotoNode>(QString::fromUtf8(NATRON_IMAGES_PATH "rotoNodeIcon.png"), false, false);
     registerBuiltInPlugin<RotoSmear>(QString::fromUtf8(""), false, true);
     registerBuiltInPlugin<RotoReplaceChannels>(QString::fromUtf8(""), false, true);
+    registerBuiltInPlugin<FluxAIMaskCopy>(QString::fromUtf8(""), false, false);
+    registerBuiltInPlugin<FluxChannelMerge>(QString::fromUtf8(""), false, false);
     registerBuiltInPlugin<PrecompNode>(QString::fromUtf8(NATRON_IMAGES_PATH "precompNodeIcon.png"), false, false);
     registerBuiltInPlugin<TrackerNode>(QString::fromUtf8(NATRON_IMAGES_PATH "trackerNodeIcon.png"), false, false);
     registerBuiltInPlugin<JoinViewsNode>(QString::fromUtf8(NATRON_IMAGES_PATH "joinViewsNode.png"), false, false);

@@ -67,6 +67,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/NodeGraph.h"
 #include "Gui/NodeGui.h"
 #include "Gui/ProjectGuiSerialization.h"
+#include "Gui/FluxAiPanel.h"
 #include "Gui/FluxTimeline.h"
 #include "Gui/PythonPanels.h"
 #include "Gui/RegisteredTabs.h"
@@ -593,6 +594,13 @@ ProjectGui::load<boost::archive::xml_iarchive>(bool isAutosave,  boost::archive:
             if (timeline->getSelectedLayerIndex() >= 0) {
                 Q_EMIT timeline->layerSelected(timeline->getSelectedLayerIndex());
             }
+        }
+    }
+
+    if (obj.getVersion() >= PROJECT_GUI_SERIALIZATION_INTRODUCES_FLUX_AI_PANEL) {
+        FluxAiPanel* aiPanel = _gui->getFluxAiPanel();
+        if (aiPanel) {
+            aiPanel->restoreFromProjectSerialization(obj.getFluxAiPanel());
         }
     }
 

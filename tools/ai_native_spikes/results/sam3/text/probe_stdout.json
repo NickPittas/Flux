@@ -1,0 +1,116 @@
+{
+  "backend": {
+    "blockers": {
+      "video_propagation_or_later_frame_correction": "official temporal API setup failed: RuntimeError: --video is required for real temporal API proof"
+    },
+    "capabilities": {
+      "box_prompt": true,
+      "concept_box_prompt": true,
+      "concept_text_prompt": true,
+      "mask_paint_prompt": true,
+      "point_prompt": true,
+      "text_prompt": true,
+      "tracker_box_prompt": true,
+      "tracker_point_prompt": true,
+      "video_propagation_or_later_frame_correction": false,
+      "video_tracker_api": true
+    },
+    "kind": "sam3_concept_and_tracker",
+    "name": "transformers"
+  },
+  "dependencies": {
+    "PIL": {
+      "available": true,
+      "error": null,
+      "module": "PIL",
+      "version": "unknown"
+    },
+    "cv2": {
+      "available": true,
+      "error": null,
+      "module": "cv2",
+      "version": "unknown"
+    },
+    "huggingface_hub": {
+      "available": true,
+      "error": null,
+      "module": "huggingface_hub",
+      "version": "1.16.4"
+    },
+    "numpy": {
+      "available": true,
+      "error": null,
+      "module": "numpy",
+      "version": "2.4.4"
+    },
+    "torch": {
+      "available": true,
+      "error": null,
+      "module": "torch",
+      "version": "2.11.0+cu128"
+    },
+    "transformers": {
+      "available": true,
+      "error": null,
+      "module": "transformers",
+      "version": "5.9.0"
+    }
+  },
+  "device": {
+    "cuda": {
+      "available": true,
+      "device_count": 1,
+      "devices": [
+        "NVIDIA GeForce RTX 4090"
+      ],
+      "error": null
+    },
+    "requested": "cuda",
+    "selected": "cuda"
+  },
+  "errors": [],
+  "model": {
+    "id": "sam3_transformers",
+    "local_path": "/home/npittas/.local/share/Flux/models/sam3_transformers/3c879f39826c281e95690f02c7821c4de09afae7",
+    "repo": "facebook/sam3",
+    "revision": "3c879f39826c281e95690f02c7821c4de09afae7"
+  },
+  "prompt_contract": {
+    "kind": "text",
+    "source_height": 480,
+    "source_width": 640,
+    "text": "object"
+  },
+  "prompts": {
+    "mask_prompt_path": null,
+    "text": "object",
+    "video_path": null
+  },
+  "proofs": {
+    "text": {
+      "prompt": "object",
+      "runtime_blocker": "IndexError: index 0 is out of bounds for axis 0 with size 0",
+      "status": "blocked",
+      "unsupported_by_detected_api": false
+    }
+  },
+  "python": {
+    "executable": "/home/npittas/.local/share/Flux/ai-envs/sam3/venv/bin/python",
+    "version": "3.11.15"
+  },
+  "schema": "org.flux.ai.sam3-transformers-real-inference-result.v1",
+  "selected_mask_path": null,
+  "selected_prompt_kind": "text",
+  "source_image": {
+    "declared_height": 480,
+    "declared_width": 640,
+    "height": 480,
+    "path": "/home/npittas/Flux/tools/ai/proof_assets/sam31_probe_source.ppm",
+    "width": 640
+  },
+  "timestamp": "2026-06-01T10:24:08.664777+00:00",
+  "unsupported": {
+    "mask_paint_prompt": "not_requested",
+    "video_propagation_or_later_frame_correction": "not_requested"
+  }
+}

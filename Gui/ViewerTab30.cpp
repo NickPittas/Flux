@@ -622,26 +622,27 @@ ViewerTab::setPluginViewerInterface(const NodeGuiPtr& n)
             index = _imp->mainLayout->indexOf(_imp->viewerContainer);
         } else {
             QWidget* container = _imp->currentNodeContext.back().currentContext->getContainerWidget();
-            index = _imp->mainLayout->indexOf(container);
+            index = container ? _imp->mainLayout->indexOf(container) : -1;
 #           ifdef DEBUG_VIEWERCONTAINER
             qDebug() << "container" << container << "index" << index;
 #           endif
-            assert(index != -1);
             if (index >= 0) {
                 ++index;
+            } else {
+                // Some Flux overlay tools expose a viewer toolbar but no top
+                // container widget. Fall back to inserting before the viewer
+                // container instead of asserting on toolbar-only contexts.
+                index = _imp->mainLayout->indexOf(_imp->viewerContainer);
             }
         }
     }
     assert(index >= 0);
-    if (index >= 0) {
-        assert(newContainer);
-        if (newContainer) {
-            _imp->mainLayout->insertWidget(index, newContainer);
-            {
-                QMutexLocker l(&_imp->visibleToolbarsMutex);
-                if (_imp->topToolbarVisible) {
-                    newContainer->show();
-                }
+    if (index >= 0 && newContainer) {
+        _imp->mainLayout->insertWidget(index, newContainer);
+        {
+            QMutexLocker l(&_imp->visibleToolbarsMutex);
+            if (_imp->topToolbarVisible) {
+                newContainer->show();
             }
         }
     }

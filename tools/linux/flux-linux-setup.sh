@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Flux Linux workstation setup/check helper.
+# Flux Linux workstation interactive installer.
 #
-# Default mode is non-destructive: it checks the current machine and prints
-# missing pieces. Mutating actions require explicit flags.
+# Run with no arguments. All installation choices are made through prompts.
 
 set -euo pipefail
 
@@ -216,278 +215,34 @@ die() {
 
 usage() {
   cat <<EOF
-Usage: ${0##*/} [options]
+Run: tools/linux/flux-linux-setup.sh
 
-Checks and prepares a Linux workstation for Flux.
-
-Default:
-  --check                    Check packages, build output, PyPlugs, OFX bundles.
-  --print-commands           Print exact Fedora setup commands and helper options.
-  --tui                      Show the interactive guided setup menu.
-
-Bootstrap setup:
-  --bootstrap                Fedora path after required OFX payloads are staged:
-                             update submodules, verify RPM Fusion free, verify
-                             package availability, install deps, configure,
-                             build, deploy plugins, clear OFX cache, install
-                             launcher, ldd-validate OFX bundles, and validate
-                             Flux OFX discovery.
-
-Mutating actions:
-  --update-submodules        Run git submodule update --init --recursive.
-  --enable-rpmfusion         Install Fedora RPM Fusion free release package.
-  --verify-fedora-repos      Verify all Fedora package names are available.
-  --install-deps             Install Fedora build/runtime packages with sudo dnf.
-  --configure                Configure CMake for Flux Qt6 build.
-  --build                    Build Natron/Flux GUI, Renderer, and Flux OFX bundle.
-  --deploy-extras            Install Flux PyPlugs and OFX bundles into install prefix.
-  --install-app, --deploy-app Copy built app binaries into ${FLUX_INSTALL_PREFIX}/bin.
-  --install-launcher         Write ${LAUNCHER_PATH}.
-  --uninstall                Remove files listed in ${INSTALL_MANIFEST} and matching launcher.
-  --clear-ofx-cache          Remove only ${OFX_CACHE_DIR}.
-  --bootstrap-python         Install qtpy/packaging for embedded Python into
-                             ${PYTHON_RUNTIME_DIR}.
-  --stage-extras DIR         Copy validated OFX bundles into DIR for transfer.
-
-Validation:
-  --validate-ldd             Run ldd checks on installed OFX binaries.
-  --validate-ofx-discovery   Cold-cache validate Flux OFX discovery via Renderer.
-
-Options:
-  --install-prefix DIR       Install prefix. Default: ${FLUX_INSTALL_PREFIX}
-  --bin-dir DIR              Launcher directory. Default: ${FLUX_BIN_DIR}
-  --extras-source DIR        Source directory for extra OFX bundles.
-                             Default: ${EXTRAS_SOURCE}
-                             Fallback during deploy: ${USER_OFX_DIR}
-  --symlink                  Symlink PyPlugs/OFX bundles instead of copying.
-  --copy                     Copy PyPlugs/OFX bundles. Default.
-  --build-dir DIR            CMake build directory. Default: ${BUILD_DIR}
-  --plugin-prefix DIR        Runtime plugin prefix. Default: ${PLUGIN_PREFIX}
-  --python-runtime-dir DIR   Embedded Python dependency dir. Default: ${PYTHON_RUNTIME_DIR}
-  --build-type TYPE          CMake build type. Default: ${BUILD_TYPE}
-  --jobs N                   Parallel build jobs. Default: nproc.
-  --force                    Replace Flux-managed target files/bundles.
-  --no-check                 Skip default check stage.
-  -h, --help                 Show this help.
-
-Examples:
-  ${0##*/} --bootstrap
-  ${0##*/} --check
-  ${0##*/} --print-commands
-  ${0##*/} --install-deps
-  ${0##*/} --configure --build
-  ${0##*/} --deploy-extras --install-app --install-launcher --validate-ldd --validate-ofx-discovery
-  ${0##*/} --stage-extras dist/flux-linux-ofx-extras
+Flux Linux setup is interactive-only. Run with no arguments; the installer
+will show current status and ask before installing dependencies, building,
+deploying runtime payloads, setting up AI models, clearing cache, launching,
+or uninstalling.
 EOF
 }
 
-parse_args() {
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --check)
-        DO_CHECK=1
-        CHECK_EXPLICIT=1
-        shift
-        ;;
-      --no-check)
-        DO_CHECK=0
-        shift
-        ;;
-      --print-commands)
-        DO_PRINT_COMMANDS=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --tui)
-        DO_TUI=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --bootstrap)
-        DO_BOOTSTRAP=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --update-submodules)
-        DO_UPDATE_SUBMODULES=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --enable-rpmfusion)
-        DO_ENABLE_RPMFUSION=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --verify-fedora-repos)
-        DO_VERIFY_FEDORA_REPOS=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --install-deps)
-        DO_INSTALL_DEPS=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --configure)
-        DO_CONFIGURE=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --build)
-        DO_BUILD=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --deploy-extras)
-        DO_DEPLOY_EXTRAS=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --install-launcher)
-        DO_INSTALL_LAUNCHER=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --install-app|--deploy-app)
-        DO_INSTALL_APP=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --uninstall)
-        DO_UNINSTALL=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --clear-ofx-cache)
-        DO_CLEAR_OFX_CACHE=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --validate-ldd)
-        DO_VALIDATE_LDD=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --validate-ofx-discovery)
-        DO_VALIDATE_OFX_DISCOVERY=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --bootstrap-python)
-        DO_BOOTSTRAP_PYTHON=1
-        ACTION_REQUESTED=1
-        shift
-        ;;
-      --install-prefix)
-        [[ $# -ge 2 ]] || die '--install-prefix requires a directory'
-        FLUX_INSTALL_PREFIX="$2"
-        FLUX_APP_BIN="${FLUX_INSTALL_PREFIX}/bin/flux"
-        FLUX_RENDERER_BIN="${FLUX_INSTALL_PREFIX}/bin/FluxRenderer"
-        INSTALL_MANIFEST="${FLUX_INSTALL_PREFIX}/install-manifest.txt"
-        USER_PYPLUG_DIR="${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs"
-        OFX_USER_PLUGIN_DIR="${FLUX_INSTALL_PREFIX}/Plugins/OFX"
-        USER_OFX_DIR="${OFX_USER_PLUGIN_DIR}"
-        if [[ "$PYTHON_RUNTIME_DIR_SET" -eq 0 ]]; then
-          PYTHON_RUNTIME_DIR="${FLUX_INSTALL_PREFIX}/Plugins/python"
-        fi
-        shift 2
-        ;;
-      --bin-dir)
-        [[ $# -ge 2 ]] || die '--bin-dir requires a directory'
-        FLUX_BIN_DIR="$2"
-        LAUNCHER_PATH="${FLUX_BIN_DIR}/flux"
-        shift 2
-        ;;
-      --extras-source)
-        [[ $# -ge 2 ]] || die '--extras-source requires a directory'
-        EXTRAS_SOURCE="$2"
-        shift 2
-        ;;
-      --stage-extras)
-        [[ $# -ge 2 ]] || die '--stage-extras requires a directory'
-        STAGE_EXTRAS_DIR="$2"
-        ACTION_REQUESTED=1
-        shift 2
-        ;;
-      --symlink)
-        COPY_MODE="symlink"
-        shift
-        ;;
-      --copy)
-        COPY_MODE="copy"
-        shift
-        ;;
-      --build-dir)
-        [[ $# -ge 2 ]] || die '--build-dir requires a directory'
-        BUILD_DIR="$2"
-        if [[ "$PYTHON_RUNTIME_DIR_SET" -eq 0 ]]; then
-          PYTHON_RUNTIME_DIR="${BUILD_DIR}/Plugins"
-        fi
-        shift 2
-        ;;
-      --plugin-prefix)
-        [[ $# -ge 2 ]] || die '--plugin-prefix requires a directory'
-        PLUGIN_PREFIX="$2"
-        if [[ -z "${FLUX_OFX_EXTRAS:-}" ]]; then
-          EXTRAS_SOURCE="${PLUGIN_PREFIX}/ofx-extras"
-        fi
-        shift 2
-        ;;
-      --python-runtime-dir)
-        [[ $# -ge 2 ]] || die '--python-runtime-dir requires a directory'
-        PYTHON_RUNTIME_DIR="$2"
-        PYTHON_RUNTIME_DIR_SET=1
-        shift 2
-        ;;
-      --build-type)
-        [[ $# -ge 2 ]] || die '--build-type requires a value'
-        BUILD_TYPE="$2"
-        shift 2
-        ;;
-      --jobs)
-        [[ $# -ge 2 ]] || die '--jobs requires a number'
-        BUILD_JOBS="$2"
-        shift 2
-        ;;
-      --force)
-        FORCE=1
-        shift
-        ;;
-      -h|--help)
-        usage
-        exit 0
-        ;;
-      *)
-        die "Unknown option: $1"
-        ;;
-    esac
-  done
-
-  if [[ "$DO_BOOTSTRAP" -eq 1 ]]; then
-    DO_UPDATE_SUBMODULES=1
-    DO_ENABLE_RPMFUSION=1
-    DO_VERIFY_FEDORA_REPOS=1
-    DO_INSTALL_DEPS=1
-    DO_CONFIGURE=1
-    DO_BUILD=1
-    DO_DEPLOY_EXTRAS=1
-    DO_CLEAR_OFX_CACHE=1
-    DO_INSTALL_APP=1
-    DO_INSTALL_LAUNCHER=1
-    DO_VALIDATE_LDD=1
-    DO_VALIDATE_OFX_DISCOVERY=1
-    DO_BOOTSTRAP_PYTHON=1
-  fi
-
-  if [[ "$ACTION_REQUESTED" -eq 0 && "$CHECK_EXPLICIT" -eq 0 ]]; then
-    if [[ -t 0 && -t 1 ]]; then
-      DO_TUI=1
-    else
-      DO_CHECK=1
-    fi
-  fi
+is_private_dispatch() {
+  [[ "${FLUX_SETUP_INTERNAL_DISPATCH:-}" == "1" && "${1:-}" == "__flux_setup_action" ]]
 }
 
+parse_args() {
+  if is_private_dispatch "$@"; then
+    return 0
+  fi
+
+  if [[ $# -gt 0 ]]; then
+    die "Flux installer is interactive-only; run tools/linux/flux-linux-setup.sh with no arguments."
+  fi
+
+  if [[ -t 0 && -t 1 ]]; then
+    DO_TUI=1
+  else
+    die "Flux installer is interactive-only and requires a terminal; run tools/linux/flux-linux-setup.sh with no arguments from an interactive shell."
+  fi
+}
 fedora_version_for_commands() {
   if command -v rpm >/dev/null 2>&1; then
     rpm -E %fedora 2>/dev/null || printf '<fedora-version>\n'
@@ -503,21 +258,14 @@ print_fedora_guidance() {
 
   cat <<EOF
 
-Flux Fedora setup commands/options:
-  Enable RPM Fusion free:
+Flux Fedora setup guidance:
+  Enable RPM Fusion free manually if the installer prompts you to:
     sudo dnf install -y ${rpmfusion_url}
 
   Install Fedora dependencies:
     sudo dnf install -y --allowerasing ${FEDORA_PACKAGES[*]}
 
-  Helper alternatives:
-    ${0} --enable-rpmfusion
-    ${0} --install-deps
-    ${0} --bootstrap
-
-  Non-mutating probes:
-    ${0} --check
-    ${0} --verify-fedora-repos --print-commands
+  Or rerun the interactive installer and choose the matching menu action.
 
 Notes:
   - This helper is Fedora-first; package guidance is not validated for other distros.
@@ -620,7 +368,7 @@ enable_rpmfusion_free() {
   os_id="$(detect_os)"
   [[ "$os_id" == "fedora" ]] || die "RPM Fusion setup only supports Fedora; detected '${os_id}'."
   command -v rpm >/dev/null 2>&1 || die 'rpm is required to check RPM Fusion.'
-  require_sudo_or_guidance '--enable-rpmfusion' || die 'sudo is required to enable RPM Fusion.'
+  require_sudo_or_guidance 'RPM Fusion setup' || die 'sudo is required to enable RPM Fusion.'
   command -v dnf >/dev/null 2>&1 || die 'dnf is required to enable RPM Fusion.'
 
   if rpm -q rpmfusion-free-release >/dev/null 2>&1; then
@@ -637,9 +385,9 @@ enable_rpmfusion_free() {
 install_fedora_packages() {
   local os_id
   os_id="$(detect_os)"
-  [[ "$os_id" == "fedora" ]] || die "--install-deps currently supports Fedora only; detected '${os_id}'."
-  require_sudo_or_guidance '--install-deps' || die 'sudo is required for --install-deps.'
-  command -v dnf >/dev/null 2>&1 || die 'dnf is required for --install-deps.'
+  [[ "$os_id" == "fedora" ]] || die "Dependency installation currently supports Fedora only; detected '${os_id}'."
+  require_sudo_or_guidance 'dependency installation' || die 'sudo is required to install dependencies.'
+  command -v dnf >/dev/null 2>&1 || die 'dnf is required for dependency installation.'
 
   log 'Installing Fedora packages. RPM Fusion free must be enabled for ffmpeg-devel.'
   sudo dnf install -y --allowerasing "${FEDORA_PACKAGES[@]}"
@@ -689,7 +437,7 @@ build_ofx_flux() {
   local ofx_flux_build_dir="${BUILD_DIR}/openfx-flux"
   command -v cmake >/dev/null 2>&1 || die 'cmake is required to build openfx-flux.'
   [[ -d "${FLUX_ROOT}/openfx-flux" ]] || die "Missing Flux OFX source path: ${FLUX_ROOT}/openfx-flux"
-  [[ -d "${FLUX_ROOT}/openfx-misc/openfx/include" ]] || die 'Missing OpenFX support headers. Run: git submodule update --init --recursive'
+  [[ -d "${FLUX_ROOT}/openfx-misc/openfx/include" ]] || die 'Missing OpenFX support headers. Use the installer submodule update action or run git submodule update --init --recursive from a developer shell.'
 
   ensure_build_jobs
   log "Building Flux OFX bundle FluxTextRender.ofx.bundle with ${BUILD_JOBS} jobs."
@@ -701,10 +449,10 @@ build_ofx_flux() {
 }
 
 bootstrap_python_runtime() {
-  command -v python3 >/dev/null 2>&1 || die 'python3 is required for --bootstrap-python.'
+  command -v python3 >/dev/null 2>&1 || die 'python3 is required to install embedded Python dependencies.'
   mkdir -p "$PYTHON_RUNTIME_DIR"
   log "Installing embedded Python runtime deps into ${PYTHON_RUNTIME_DIR}."
-  python3 -m pip install --upgrade --target "$PYTHON_RUNTIME_DIR" qtpy packaging
+  python3 -m pip install --upgrade --target "$PYTHON_RUNTIME_DIR" qtpy packaging huggingface_hub keyring
   manifest_add_tree "$PYTHON_RUNTIME_DIR"
 }
 
@@ -783,7 +531,7 @@ replace_target() {
   local target="$1"
   if [[ -e "$target" || -L "$target" ]]; then
     if [[ "$FORCE" -ne 1 ]]; then
-      warn "Target exists, leaving unchanged: ${target} (use --force to replace)"
+      warn "Target exists, leaving unchanged: ${target} (choose refresh/repair in the interactive installer to replace)"
       return 1
     fi
     rm -rf "$target"
@@ -849,7 +597,7 @@ copy_dir_contents_filtered() {
 install_app() {
   local source_app="${BUILD_DIR}/App/Natron"
   local source_renderer="${BUILD_DIR}/Renderer/NatronRenderer"
-  [[ -x "$source_app" ]] || die "Flux build binary missing: ${source_app}. Run --build first or omit --install-app."
+  [[ -x "$source_app" ]] || die "Flux build binary missing: ${source_app}. Build Flux first from the interactive installer, or skip app installation."
   copy_payload "$source_app" "$FLUX_APP_BIN"
   chmod 0755 "$FLUX_APP_BIN"
   if [[ -x "$source_renderer" ]]; then
@@ -867,6 +615,100 @@ install_runtime_payloads() {
   copy_dir_contents_filtered "${FLUX_ROOT}/Gui/Resources/PyPlugs" "$USER_PYPLUG_DIR"
   copy_dir_contents_filtered "${PLUGIN_PREFIX}/natron-plugins" "${USER_PYPLUG_DIR}/natron-plugins"
   deploy_ofx_bundles
+  install_ai_payloads
+}
+
+install_ai_payloads() {
+  local ai_source="${FLUX_ROOT}/tools/ai"
+  local ai_target="${FLUX_INSTALL_PREFIX}/tools/ai"
+  [[ -d "$ai_source" ]] || die "Missing Flux AI tools source: ${ai_source}"
+  mkdir -p "$ai_target"
+  copy_payload "${ai_source}/flux_model_manager.py" "${ai_target}/flux_model_manager.py"
+  copy_payload "${ai_source}/flux_provider_runtime.py" "${ai_target}/flux_provider_runtime.py"
+  copy_payload "${ai_source}/flux_ai_worker.py" "${ai_target}/flux_ai_worker.py"
+  copy_payload "${ai_source}/matanyone2_worker.py" "${ai_target}/matanyone2_worker.py"
+  copy_payload "${ai_source}/videomama_worker.py" "${ai_target}/videomama_worker.py"
+  copy_payload "${ai_source}/model_manifest.json" "${ai_target}/model_manifest.json"
+  copy_payload "${ai_source}/provider_runtime_manifest.json" "${ai_target}/provider_runtime_manifest.json"
+  copy_payload "${ai_source}/sam31_real_inference_probe.py" "${ai_target}/sam31_real_inference_probe.py"
+}
+
+ensure_ai_tools() {
+  local old_force="$FORCE"
+  if [[ ! -d "$PYTHON_RUNTIME_DIR" ]]; then
+    confirm_default_yes "Flux AI Python dependencies are missing. Install them now without rebuilding Flux?" || die 'AI Python dependencies are required for this action.'
+    validate_install_prefix || return
+    mkdir -p "$FLUX_INSTALL_PREFIX"
+    touch "$INSTALL_MANIFEST"
+    bootstrap_python_runtime || return
+  fi
+  validate_install_prefix || return
+  mkdir -p "$FLUX_INSTALL_PREFIX"
+  touch "$INSTALL_MANIFEST"
+  FORCE=1
+  install_ai_payloads || return
+  FORCE="$old_force"
+}
+
+run_ai_manager() {
+  local manager="${FLUX_INSTALL_PREFIX}/tools/ai/flux_model_manager.py"
+  ensure_ai_tools || return
+  [[ -f "$manager" ]] || die "Missing installed Flux model manager: ${manager}"
+  PYTHONPATH="${PYTHON_RUNTIME_DIR}${PYTHONPATH:+:${PYTHONPATH}}" python3 "$manager" "$@"
+}
+
+setup_default_ai_models() {
+  confirm_default_yes "Install default Flux AI models now?" || { log "AI model setup skipped by user."; return 0; }
+  log "Installing default Flux AI models; gated models prompt securely for Hugging Face tokens when needed."
+  run_ai_manager install --all-default || die "Flux AI model setup failed."
+}
+
+run_ai_model_install() {
+  local model_id="${1:-}"
+  [[ -n "$model_id" ]] || die 'AI model install requires a model id.'
+  run_ai_manager install "$model_id"
+}
+
+run_ai_token_entry() {
+  log 'Opening secure Hugging Face token prompt. Token persistence uses only the desktop secure keyring.'
+  run_ai_manager login --remember
+}
+
+run_ai_model_status() {
+  if [[ -f "${FLUX_INSTALL_PREFIX}/tools/ai/flux_model_manager.py" ]]; then
+    PYTHONPATH="${PYTHON_RUNTIME_DIR}${PYTHONPATH:+:${PYTHONPATH}}" python3 "${FLUX_INSTALL_PREFIX}/tools/ai/flux_model_manager.py" status
+  else
+    python3 "${FLUX_ROOT}/tools/ai/flux_model_manager.py" --manifest "${FLUX_ROOT}/tools/ai/model_manifest.json" status
+  fi
+}
+
+run_ai_model_remove() {
+  local model_id="${1:-}"
+  [[ -n "$model_id" ]] || die 'AI model remove requires a model id.'
+  run_ai_manager remove "$model_id"
+}
+
+run_ai_model_list() {
+  python3 "${FLUX_ROOT}/tools/ai/flux_model_manager.py" --manifest "${FLUX_ROOT}/tools/ai/model_manifest.json" list --json
+}
+
+run_ai_runtime_manager() {
+  local manager="${FLUX_ROOT}/tools/ai/flux_provider_runtime.py"
+  [[ -f "$manager" ]] || die "Missing Flux provider runtime manager: ${manager}"
+  python3 "$manager" "$@"
+}
+
+run_ai_runtime_status() {
+  run_ai_runtime_manager status sam31
+}
+
+run_ai_runtime_install() {
+  log 'Installing SAM3.1 provider runtime into its isolated Flux/ai-envs/sam31 environment. This never uses Flux/Plugins/python.'
+  run_ai_runtime_manager install sam31 --cuda "${FLUX_AI_RUNTIME_CUDA:-cu128}"
+}
+
+run_ai_runtime_self_check() {
+  run_ai_runtime_manager self-check sam31 --json
 }
 
 deploy_pyplugs() {
@@ -936,7 +778,7 @@ preflight_ofx_bundle_sources() {
         log "FluxTextRender.ofx.bundle will be built from ${FLUX_ROOT}/openfx-flux."
         continue
       fi
-      warn "Missing OFX bundle source for ${bundle}. Provide --extras-source DIR or stage extras first."
+      warn "Missing OFX bundle source for ${bundle}. Provide extras in the configured extras source directory or stage extras first from a developer shell."
       missing=1
     fi
   done
@@ -1100,7 +942,7 @@ validate_ofx_discovery() {
   local temp_dir script output status=0 source_bundle
 
   if [[ ! -x "$renderer" ]]; then
-    die "NatronRenderer not found; cannot validate OFX discovery: ${renderer}. Run --build first."
+    die "NatronRenderer not found; cannot validate OFX discovery: ${renderer}. Choose the build action first."
   fi
 
   temp_dir="$(mktemp -d /tmp/flux-ofx-discovery.XXXXXX)"
@@ -1111,7 +953,7 @@ validate_ofx_discovery() {
     source_bundle="${PLUGIN_PREFIX}/FluxTextRender.ofx.bundle"
   else
     rm -rf "$temp_dir"
-    die 'FluxTextRender.ofx.bundle is not built/deployed. Run --build, then --deploy-extras.'
+    die 'FluxTextRender.ofx.bundle is not built/deployed. Build Flux, then deploy runtime payloads from the interactive installer.'
   fi
   ln -s "$source_bundle" "${temp_dir}/plugins/FluxTextRender.ofx.bundle"
 
@@ -1167,7 +1009,7 @@ check_pyplugs() {
   fi
   if [[ ! -d "${PLUGIN_PREFIX}/natron-plugins" || ! -f "${PLUGIN_PREFIX}/natron-plugins/README.md" ]]; then
     warn "Missing community PyPlug submodule content: ${PLUGIN_PREFIX}/natron-plugins"
-    warn 'Run: git submodule update --init --recursive'
+    warn 'Use the installer submodule update action or run git submodule update --init --recursive from a developer shell.'
     missing=1
   fi
   return "$missing"
@@ -1211,7 +1053,7 @@ check_cache_ids() {
 check_build_output() {
   if [[ ! -x "${BUILD_DIR}/App/Natron" ]]; then
     warn "Flux binary missing: ${BUILD_DIR}/App/Natron"
-    warn "Build with: ${0} --configure --build"
+    warn "Build from the interactive installer menu."
     return 1
   fi
   log 'Flux binary exists.'
@@ -1321,6 +1163,7 @@ Flux Linux setup summary
   PyPlugs: $(pyplug_status) (${USER_PYPLUG_DIR})
   OFX bundles: $(ofx_bundle_status) (${USER_OFX_DIR})
   OFX cache: $(ofx_cache_status) (${OFX_CACHE_DIR})
+  AI model manager: $(status_word test -f "${FLUX_INSTALL_PREFIX}/tools/ai/flux_model_manager.py") (${FLUX_INSTALL_PREFIX}/tools/ai/flux_model_manager.py)
   NVIDIA: ${nvidia_hint}
   OpenGL: ${gl_hint}
   Container: ${container_hint}
@@ -1334,8 +1177,16 @@ confirm_mutation() {
   [[ "$answer" == "y" || "$answer" == "Y" || "$answer" == "yes" || "$answer" == "YES" ]]
 }
 
+confirm_default_yes() {
+  local prompt="$1" answer
+  printf '%s [Y/n]: ' "$prompt"
+  read -r answer || return 1
+  [[ -z "$answer" || "$answer" == "y" || "$answer" == "Y" || "$answer" == "yes" || "$answer" == "YES" ]]
+}
+
 run_full_bootstrap() {
   DO_BUILD=1
+  confirm_default_yes "Refresh/replace existing Flux-managed install files if present?" && FORCE=1 || FORCE=0
   validate_install_prefix || return
   update_submodules || return
   preflight_ofx_bundle_sources || return
@@ -1349,6 +1200,7 @@ run_full_bootstrap() {
   install_app || return
   bootstrap_python_runtime || return
   install_runtime_payloads || return
+  setup_default_ai_models || return
   clear_ofx_cache || return
   write_launcher || return
   validate_ldd || return
@@ -1356,11 +1208,13 @@ run_full_bootstrap() {
 }
 
 run_deploy_runtime() {
+  confirm_default_yes "Refresh/replace existing Flux-managed install files if present?" && FORCE=1 || FORCE=0
   validate_install_prefix || return
   manifest_reset || return
   install_app || return
   bootstrap_python_runtime || return
   install_runtime_payloads || return
+  setup_default_ai_models || return
   clear_ofx_cache || return
   write_launcher || return
   validate_ldd || return
@@ -1391,134 +1245,81 @@ launch_flux() {
   fi
 }
 
-run_tui() {
-  local choice
-  while true; do
-    print_tui_summary
-    cat <<EOF
+print_status_summary() {
+  local os_id container_hint nvidia_hint gl_hint
+  os_id="$(detect_os)"
+  if [[ -f /.dockerenv || -n "${container:-}" ]]; then container_hint='container detected'; else container_hint='no container marker detected'; fi
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    nvidia_hint="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n 1 || true)"
+    [[ -n "$nvidia_hint" ]] || nvidia_hint='nvidia-smi present, no GPU reported'
+  elif [[ -e /dev/nvidia0 ]]; then nvidia_hint='/dev/nvidia0 present, nvidia-smi missing'; else nvidia_hint='not detected'; fi
+  if command -v glxinfo >/dev/null 2>&1; then
+    gl_hint="$(glxinfo -B 2>/dev/null | awk -F: '/OpenGL renderer string/ {sub(/^ /,"",$2); print $2; exit}')"
+    [[ -n "$gl_hint" ]] || gl_hint='glxinfo present, renderer unavailable'
+  else gl_hint='glxinfo not installed'; fi
+  printf 'os=%s\n' "$os_id"
+  printf 'rpmfusion=%s\n' "$(rpmfusion_status)"
+  printf 'fedora_deps=%s\n' "$(fedora_deps_status)"
+  printf 'build_binary=%s\n' "$(status_word test -x "${BUILD_DIR}/App/Natron")"
+  printf 'build_binary_path=%s\n' "${BUILD_DIR}/App/Natron"
+  printf 'install_prefix=%s\n' "${FLUX_INSTALL_PREFIX}"
+  printf 'launcher=%s\n' "$(status_word test -x "${LAUNCHER_PATH}")"
+  printf 'launcher_path=%s\n' "${LAUNCHER_PATH}"
+  printf 'installed_app=%s\n' "$(status_word test -x "${FLUX_APP_BIN}")"
+  printf 'installed_app_path=%s\n' "${FLUX_APP_BIN}"
+  printf 'pyplugs=%s\n' "$(pyplug_status)"
+  printf 'pyplugs_path=%s\n' "${USER_PYPLUG_DIR}"
+  printf 'ofx_bundles=%s\n' "$(ofx_bundle_status)"
+  printf 'ofx_path=%s\n' "${USER_OFX_DIR}"
+  printf 'ofx_cache=%s\n' "$(ofx_cache_status)"
+  printf 'ofx_cache_path=%s\n' "${OFX_CACHE_DIR}"
+  printf 'ai_model_manager=%s\n' "$(status_word test -f "${FLUX_INSTALL_PREFIX}/tools/ai/flux_model_manager.py")"
+  printf 'nvidia=%s\n' "$nvidia_hint"
+  printf 'opengl=%s\n' "$gl_hint"
+  printf 'container=%s\n' "$container_hint"
+}
 
-Choose an action:
-  1) Run full bootstrap
-  2) Enable RPM Fusion
-  3) Install dependencies
-  4) Configure build
-  5) Build Flux
-  6) Install/repair app, Python runtime, plugins, launcher, cache, ldd
-  7) Launch Flux
-  8) Run validation checks
-  9) Print commands
-  u) Uninstall Flux install prefix
-  q) Quit
-EOF
-    printf 'Selection: '
-    read -r choice || return 0
-    case "$choice" in
-      1) confirm_mutation 'Run full bootstrap (sudo/build/deploy/cache changes)?' && run_tui_action 'Full bootstrap' run_full_bootstrap ;;
-      2) confirm_mutation 'Enable RPM Fusion with sudo dnf?' && run_tui_action 'RPM Fusion setup' enable_rpmfusion_free ;;
-      3) confirm_mutation 'Install Fedora dependencies with sudo dnf?' && run_tui_action 'Dependency install' install_fedora_packages ;;
-      4) confirm_mutation 'Configure CMake build directory?' && run_tui_action 'Configure' configure_flux ;;
-      5) confirm_mutation 'Build Flux targets?' && run_tui_action 'Build' run_build_all ;;
-      6) confirm_mutation 'Install/repair app, Python runtime, plugins, launcher, clear OFX cache, run ldd?' && run_tui_action 'Runtime install/repair' run_deploy_runtime ;;
-      7) confirm_mutation 'Launch Flux now?' && run_tui_action 'Launch Flux' launch_flux ;;
-      8) run_tui_action 'Validation checks' run_checks ;;
-      9) print_fedora_guidance ;;
-      u|U) run_tui_action 'Uninstall' uninstall_flux ;;
-      q|Q) return 0 ;;
-      *) warn "Unknown menu choice: ${choice}" ;;
-    esac
-  done
+run_private_action() {
+  shift
+  local action="${1:-}"; shift || true
+  case "$action" in
+    full-bootstrap) run_full_bootstrap ;;
+    deploy-runtime) run_deploy_runtime ;;
+    build-all) run_build_all ;;
+    configure) configure_flux ;;
+    fedora-deps) install_fedora_packages ;;
+    rpmfusion) enable_rpmfusion_free ;;
+    checks) run_checks ;;
+    launch) launch_flux ;;
+    uninstall) uninstall_flux ;;
+    status-summary) print_status_summary ;;
+    ai-list) run_ai_model_list ;;
+    ai-status) run_ai_model_status ;;
+    ai-install) run_ai_model_install "$@" ;;
+    ai-remove) run_ai_model_remove "$@" ;;
+    ai-token) run_ai_token_entry ;;
+    ai-runtime-status) run_ai_runtime_status ;;
+    ai-runtime-install) run_ai_runtime_install ;;
+    ai-runtime-self-check) run_ai_runtime_self_check ;;
+    *) die "Unknown private Flux setup action: ${action}" ;;
+  esac
+}
+
+launch_curses_tui() {
+  command -v python3 >/dev/null 2>&1 || die 'python3 is required for the Flux installer TUI.'
+  python3 - <<'PY' >/dev/null 2>&1 || die 'Python stdlib curses is required for the Flux installer TUI.'
+import curses
+PY
+  exec python3 "${SCRIPT_DIR}/flux_linux_setup_tui.py"
 }
 
 main() {
   parse_args "$@"
   refresh_derived_paths
-
-  if [[ "$DO_UNINSTALL" -eq 1 ]]; then
-    uninstall_flux
-    return 0
-  fi
-
-  if [[ "$DO_TUI" -eq 1 ]]; then
-    run_tui
-    return 0
-  fi
-
-  if [[ "$DO_PRINT_COMMANDS" -eq 1 ]]; then
-    print_fedora_guidance
-  fi
-
-  if [[ "$DO_UPDATE_SUBMODULES" -eq 1 ]]; then
-    update_submodules
-  fi
-
-  if [[ "$DO_BOOTSTRAP" -eq 1 ]]; then
-    preflight_ofx_bundle_sources
-  fi
-
-  if [[ "$DO_ENABLE_RPMFUSION" -eq 1 ]]; then
-    enable_rpmfusion_free
-  fi
-
-  if [[ "$DO_VERIFY_FEDORA_REPOS" -eq 1 ]]; then
-    verify_fedora_repos
-  fi
-
-  if [[ "$DO_INSTALL_DEPS" -eq 1 ]]; then
-    install_fedora_packages
-  fi
-
-  if [[ "$DO_CONFIGURE" -eq 1 ]]; then
-    configure_flux
-  fi
-
-  if [[ "$DO_BUILD" -eq 1 ]]; then
-    build_flux
-    build_ofx_flux
-  fi
-
-  if [[ "$DO_INSTALL_APP" -eq 1 || "$DO_BOOTSTRAP_PYTHON" -eq 1 || "$DO_DEPLOY_EXTRAS" -eq 1 || "$DO_INSTALL_LAUNCHER" -eq 1 ]]; then
-    manifest_reset
-  fi
-
-  if [[ "$DO_INSTALL_APP" -eq 1 ]]; then
-    install_app
-  fi
-
-  if [[ "$DO_BOOTSTRAP_PYTHON" -eq 1 ]]; then
-    bootstrap_python_runtime
-  fi
-
-  if [[ "$DO_DEPLOY_EXTRAS" -eq 1 ]]; then
-    install_runtime_payloads
-  fi
-
-  if [[ -n "$STAGE_EXTRAS_DIR" ]]; then
-    stage_extras "$STAGE_EXTRAS_DIR"
-  fi
-
-  if [[ "$DO_CLEAR_OFX_CACHE" -eq 1 ]]; then
-    clear_ofx_cache
-  fi
-
-  if [[ "$DO_INSTALL_LAUNCHER" -eq 1 ]]; then
-    write_launcher
-  fi
-
-  if [[ "$DO_VALIDATE_LDD" -eq 1 ]]; then
-    validate_ldd
-  fi
-
-  if [[ "$DO_VALIDATE_OFX_DISCOVERY" -eq 1 ]]; then
-    validate_ofx_discovery
-  fi
-
-  if [[ "$DO_CHECK" -eq 1 ]]; then
-    run_checks
-  fi
-
-  if [[ "$DO_BOOTSTRAP" -eq 1 ]]; then
-    log "Bootstrap complete. Launch Flux with: ${LAUNCHER_PATH}"
-    log "After the first launch rebuilds the OFX cache, run: ${0} --check --validate-ldd --validate-ofx-discovery"
+  if is_private_dispatch "$@"; then
+    run_private_action "$@"
+  else
+    launch_curses_tui
   fi
 }
 

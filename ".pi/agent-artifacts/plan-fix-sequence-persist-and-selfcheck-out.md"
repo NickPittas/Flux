@@ -1,0 +1,28 @@
+# Agent Summary
+
+## Status
+Done
+
+## Task Completed
+Created the narrow parallel-ready implementation plan for the two MatAnyone2/SAM3 workflow fixes. Plan requires `codemap-reviewer` approval before worker handoff.
+
+## Files Inspected
+- `Gui/Gui05.cpp`: source sequence export temp-dir root and metadata anchors.
+- `Gui/FluxAiPanel.cpp`: SAM3 export caller and MatAnyone2 manifest reuse logic.
+- `tools/ai/provider_runtime_manifest.json`: confirmed single `self_check.script`, not an array.
+- `tools/ai/flux_provider_runtime.py`: provider runtime self-check flow and package import helper.
+- `tools/ai/matanyone2_worker.py`: existing MatAnyone2 self-check behavior.
+
+## Files Changed
+- `.pi/agent-artifacts/plan-fix-sequence-persist-and-selfcheck.md`: wrote the planner report/task packets.
+
+## Validation
+- command: `read /home/npittas/Flux/.pi/agent-artifacts/plan-fix-sequence-persist-and-selfcheck.md`
+- result: passed
+- evidence: plan file exists and begins with `# Planner Report`, status `parallel-ready`.
+
+## Blockers / Decisions Needed
+- None.
+
+## Risks / Follow-up
+- Reviewer gate required before implementation.

@@ -57,6 +57,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/TabWidget.h"
 #include "Gui/ViewerGL.h"
 #include "Gui/ViewerTab.h"
+#include "Gui/FluxAiPanel.h"
 #include "Gui/FluxTimeline.h"
 
 NATRON_NAMESPACE_ENTER
@@ -193,6 +194,14 @@ ProjectGuiSerialization::initialize(const ProjectGui* projectGui)
         NodePtr bgNode = projectGui->getGui()->getFluxBgReformatNode();
         if (bgNode) {
             _fluxTimeline.bgReformatNodeScriptName = bgNode->getFullyQualifiedName();
+        }
+    }
+
+    // Serialize compact Flux AI panel state
+    {
+        FluxAiPanel* aiPanel = projectGui->getGui()->getFluxAiPanel();
+        if (aiPanel) {
+            _fluxAiPanel = aiPanel->serializeForProject();
         }
     }
 } // initialize
