@@ -103,6 +103,18 @@ sandboxed distrobox pod for end-to-end installer validation.
 
 ---
 
+## AI Matte Worker Architecture
+
+The current AI matte path is external-worker based, not native ONNX-in-process. Flux launches CUDA/PyTorch Python workers out-of-process from the Qt/Natron GUI so model runtime state stays isolated from the compositor process. The productized workers are:
+
+- `tools/ai/sam3_transformers_worker.py` — SAM3 AI Paint prompt/live/range segmentation.
+- `tools/ai/matanyone2_worker.py` — MatAnyone2 matte refinement with visible non-commercial warning and user-managed weights.
+- `tools/ai/videomama_worker.py` — VideoMaMa refinement from existing SAM3 processed source/mask sequences, with visible non-commercial warning.
+
+`Engine/AIPaint` owns AI Paint canvas/RoD semantics so AI exports use the full project/input canvas. Model/runtime policy is declared in `tools/ai/model_manifest.json` and `tools/ai/provider_runtime_manifest.json`. ONNX proof exports are not product dependencies and must not be committed.
+
+---
+
 ## Core Features
 
 1. **Layer-based timeline** — Motion graphics timeline with drag-reorder, solo/mute/lock, trim, split

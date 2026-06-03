@@ -11,15 +11,15 @@ tracking systems.
   Qt UI are implemented in the Flux branch.
 - Text v1 and the Flux-owned `FluxMotionText` Text Animator baseline are in
   place. Nick accepted the core UI Text Animator task as working; remaining
-  polish is tracked separately in `tasks/TASKS.md` as T081.
-- Adobe Illustrator/PDF-vector import and AI matte/depth workflows are planned
-  research/implementation tasks, not shipped features yet.
-- Canonical Linux setup lives in `INSTALL_FLUX_LINUX.md` and uses path-agnostic
-  variables such as `$FLUX_ROOT`, `$BUILD_DIR`, `$PLUGIN_PREFIX`, and
-  `$OFX_USER_PLUGIN_DIR`. Do not copy developer-specific absolute paths into
-  user-facing install instructions.
+  polish is tracked separately in `tasks/TASKS.md`.
+- Adobe Illustrator/PDF-vector import and future AI/depth provider hardening are
+  tracked in `tasks/TASKS.md`.
 
-## Flux Linux setup
+## Flux workstation installation
+
+Flux is currently Linux-first with Fedora Workstation as the supported installer
+target. Clone with submodules, then run the path-agnostic interactive installer
+from the repository root:
 
 ```bash
 git clone --recursive <flux-repo-url> Flux
@@ -27,8 +27,59 @@ cd Flux
 tools/linux/flux-linux-setup.sh
 ```
 
-See `INSTALL_FLUX_LINUX.md` for the Fedora-first interactive setup flow. The installer takes no arguments; all choices are made inside the guided menu. The inherited Natron
-README below remains upstream reference material.
+The installer opens an arrow-key guided menu. Use Up/Down to review actions,
+press Enter to run the selected action, and press `q` to quit. It asks before
+mutating steps such as dependency installation, submodule update, CMake
+configure, build, runtime install, plugin deployment, AI runtime/model setup,
+launcher installation, cache clearing, validation, launch, or uninstall.
+
+### System requirements
+
+- **Operating system**: Fedora Workstation is first-class and uses `dnf`.
+  Other distributions require manual equivalent packages.
+- **Hardware**: NVIDIA GPU; RTX 30-series or newer is recommended for AI
+  features.
+- **Toolchain**: GCC/G++ with C++17 support, CMake 3.16+, Ninja, and Git.
+- **Python**: System Python for the application plus Python 3.10-3.13 for AI
+  runtimes. Fedora 44's Python 3.14 is not supported by PyTorch, so the
+  installer searches for a compatible Python when bootstrapping AI providers.
+
+### Installer actions
+
+The menu exposes app, plugin, and AI actions:
+
+- **Full Bootstrap**: Runs the workstation setup flow end-to-end: dependencies,
+  configure, build, runtime deployment, plugin deployment, launcher installation,
+  and checks.
+- **Install/Repair Runtime**: Deploys compiled `flux`/`FluxRenderer` binaries to
+  the install prefix, installs launchers, copies required Python libraries, and
+  deploys plugins.
+- **Configure CMake**: Configures the Flux build directory.
+- **Build Flux**: Builds the `Natron` and `NatronRenderer` targets.
+- **Run Installer Checks**: Validates packages, binaries, runtime paths, plugin
+  payloads, cache directories, and linked libraries.
+- **Launch Flux**: Starts the installed launcher.
+- **PyPlugs / OFX Bundles**: Deploys Flux PyPlugs and OpenFX bundles, then clears
+  the scoped OpenFX cache so the host rediscovers them.
+- **AI Models and Runtimes**: Creates isolated provider virtual environments,
+  downloads user-approved model weights, checks CUDA/Torch/provider imports, and
+  manages Hugging Face tokens through hidden prompts and the desktop keyring.
+
+### Useful installed commands
+
+- `flux` launches Flux quietly and writes startup logs to
+  `~/.local/state/Flux/flux-launch.log`.
+- `natron` is an alias launcher for the same wrapper.
+- `FLUX_VERBOSE_CONSOLE=1 flux` runs Flux with console output attached to the
+  terminal.
+
+Use environment variables for non-default paths before starting the installer:
+`FLUX_INSTALL_PREFIX`, `FLUX_BIN_DIR`, `FLUX_BUILD_DIR`, `PLUGIN_PREFIX`,
+`OFX_USER_PLUGIN_DIR`, `XDG_CACHE_HOME`, and `HOME`. Do not pass installer
+arguments.
+
+See `INSTALL_FLUX_LINUX.md` for the concise installer runbook. The inherited
+Natron README below remains upstream reference material.
 
 ---
 
