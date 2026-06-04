@@ -8,6 +8,8 @@ Started: 2026-05-26
 
 Reduce build warnings by prioritizing warnings most likely to hide correctness bugs or crash sources. Separate Flux-owned source warnings from generated bindings and inherited third-party code.
 
+
+Note: the `build-logs/` files named below were transient capture artifacts. They were removed from the tracked tree during repository cleanup; the final counts and decisions in this document are the retained source of truth, and the raw captures remain recoverable from git history.
 ## Warning Capture
 
 A clean rebuild was captured with visible output and a timeout:

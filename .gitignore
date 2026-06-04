@@ -291,6 +291,24 @@ Gui/Resources/etc/fonts/fonts.conf
 # Pi local agent/codemap state
 .pi/
 
+# Local agent/tool state and generated knowledge graphs
+.opencode/
+graphify-out/
+.graphify_*.json
+.graphify_python
+t083-research/
+
+# Local build/package caches
+.flatpak-builder/
+.fallow/
+.local/
+build-logs/
+
+# One-off local reports/screenshots
+errors.md
+flux-installer-screenshot.png
+result_manifest.json
+
 # VS Code
 .vscode/
 

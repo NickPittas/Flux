@@ -167,7 +167,7 @@
 
 1. Read `tasks/TASKS.md` T083 row and this file first.
 2. Read `plans/PHASES.md` P7 T083 entry for phase-level status.
-3. Read research sources in this order: `t083-research/revised-synthesized-plan.md`, `deep-required-models.md`, `secure-token-install-strategy.md`, `revised-local-surface.md`.
+3. Use this file plus `tasks/T083-orchestrator-recovery-source-of-truth.md`, `tasks/T083-sam3-authoritative-drift-audit.md`, and `tasks/T083-subagent-source-of-truth-protocol.md` as the compact source of truth. Removed research packets remain available in git history if forensic detail is needed.
 4. Pick the first milestone whose status is `PENDING` after any `IN_PROGRESS` milestone is either completed or explicitly blocked.
 5. Before coding, create a narrow task packet for that milestone with allowed edit files and validation commands.
 6. Do not implement code from this planning file without an approved coding packet.
