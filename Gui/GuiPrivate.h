@@ -307,6 +307,9 @@ public:
     class FluxAiPanel* _fluxAiPanel;
     class FluxTextPanel* _fluxTextPanel;
     class FluxTextAnimatorPanel* _fluxTextAnimatorPanel;
+    TabWidget* _fluxTopLeftPane;
+    TabWidget* _fluxTopRightPane;
+    TabWidget* _fluxWorkshopPane;
     TabWidget* _fluxViewerPane;
 
     // Flux compositing graph - Merge nodes for layer compositing

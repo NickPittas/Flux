@@ -56,6 +56,9 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/GuiPrivate.h"
 #include "Gui/FluxProjectBin.h"
 #include "Gui/FluxExportPanel.h"
+#include "Gui/FluxAiPanel.h"
+#include "Gui/FluxTextAnimatorPanel.h"
+#include "Gui/FluxTextPanel.h"
 #include "Gui/FluxTimeline.h"
 #include "Gui/Menu.h"
 #include "Gui/NodeGraph.h"
@@ -752,11 +755,17 @@ Gui::createMenuActions()
             }
         });
 
-        const auto raisePanel = [this](PanelWidget* panel) {
+        const auto raisePanel = [this](PanelWidget* panel, TabWidget* preferredPane) {
             if (!panel) {
                 return;
             }
             TabWidget* pane = panel->getParentPane();
+            if (!pane) {
+                pane = preferredPane ? preferredPane : getAnchor();
+                if (pane) {
+                    TabWidget::moveTab(panel, panel, pane);
+                }
+            }
             if (pane) {
                 pane->setCurrentWidget(panel);
             }
@@ -764,37 +773,52 @@ Gui::createMenuActions()
 
         QAction* actionShowProjectBin = new QAction(tr("Project Bin"), this);
         QObject::connect(actionShowProjectBin, &QAction::triggered, this, [this, raisePanel]() {
-            raisePanel(_imp->_fluxProjectBin);
+            raisePanel(_imp->_fluxProjectBin, _imp->_fluxTopLeftPane);
         });
 
         QAction* actionShowNodeGraph = new QAction(tr("Node Graph"), this);
         QObject::connect(actionShowNodeGraph, &QAction::triggered, this, [this, raisePanel]() {
-            raisePanel(_imp->_nodeGraphArea);
+            raisePanel(_imp->_nodeGraphArea, _imp->_fluxTopLeftPane);
         });
 
         QAction* actionShowTimeline = new QAction(tr("Timeline"), this);
         QObject::connect(actionShowTimeline, &QAction::triggered, this, [this, raisePanel]() {
-            raisePanel(_imp->_fluxTimeline);
+            raisePanel(_imp->_fluxTimeline, _imp->_fluxWorkshopPane);
         });
 
         QAction* actionShowProperties = new QAction(tr("Properties"), this);
         QObject::connect(actionShowProperties, &QAction::triggered, this, [this, raisePanel]() {
-            raisePanel(_imp->_propertiesBin);
+            raisePanel(_imp->_propertiesBin, _imp->_fluxTopRightPane);
         });
 
         QAction* actionShowExport = new QAction(tr("Export"), this);
         QObject::connect(actionShowExport, &QAction::triggered, this, [this, raisePanel]() {
-            raisePanel(_imp->_fluxExportPanel);
+            raisePanel(_imp->_fluxExportPanel, _imp->_fluxTopRightPane);
+        });
+
+        QAction* actionShowAi = new QAction(tr("AI"), this);
+        QObject::connect(actionShowAi, &QAction::triggered, this, [this, raisePanel]() {
+            raisePanel(_imp->_fluxAiPanel, _imp->_fluxTopRightPane);
+        });
+
+        QAction* actionShowText = new QAction(tr("Text"), this);
+        QObject::connect(actionShowText, &QAction::triggered, this, [this, raisePanel]() {
+            raisePanel(_imp->_fluxTextPanel, _imp->_fluxTopRightPane);
+        });
+
+        QAction* actionShowTextAnimators = new QAction(tr("Text Animators"), this);
+        QObject::connect(actionShowTextAnimators, &QAction::triggered, this, [this, raisePanel]() {
+            raisePanel(_imp->_fluxTextAnimatorPanel, _imp->_fluxTopRightPane);
         });
 
         QAction* actionShowDopeSheet = new QAction(tr("Dope Sheet"), this);
         QObject::connect(actionShowDopeSheet, &QAction::triggered, this, [this, raisePanel]() {
-            raisePanel(_imp->_dopeSheetEditor);
+            raisePanel(_imp->_dopeSheetEditor, _imp->_fluxWorkshopPane);
         });
 
         QAction* actionShowCurveEditor = new QAction(tr("Curve Editor"), this);
         QObject::connect(actionShowCurveEditor, &QAction::triggered, this, [this, raisePanel]() {
-            raisePanel(_imp->_curveEditor);
+            raisePanel(_imp->_curveEditor, _imp->_fluxWorkshopPane);
         });
 
         QAction* actionGraphCopy = new ActionWithShortcut(kShortcutGroupNodegraph, kShortcutIDActionGraphCopy,
@@ -1042,6 +1066,9 @@ Gui::createMenuActions()
         menuWindow->addAction(actionShowNodeGraph);
         menuWindow->addAction(actionShowProperties);
         menuWindow->addAction(actionShowExport);
+        menuWindow->addAction(actionShowAi);
+        menuWindow->addAction(actionShowText);
+        menuWindow->addAction(actionShowTextAnimators);
         menuWindow->addAction(actionShowDopeSheet);
         menuWindow->addAction(actionShowCurveEditor);
         menuWindow->addSeparator();

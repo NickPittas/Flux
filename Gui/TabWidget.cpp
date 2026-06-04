@@ -62,6 +62,13 @@ CLANG_DIAG_ON(deprecated)
 #include "Gui/CurveEditor.h"
 #include "Gui/DopeSheetEditor.h"
 #include "Gui/FloatingWidget.h"
+#include "Gui/FluxAiPanel.h"
+#include "Gui/FluxEffectsPanel.h"
+#include "Gui/FluxExportPanel.h"
+#include "Gui/FluxProjectBin.h"
+#include "Gui/FluxTextAnimatorPanel.h"
+#include "Gui/FluxTextPanel.h"
+#include "Gui/FluxTimeline.h"
 #include "Gui/Gui.h"
 #include "Gui/GuiAppInstance.h"
 #include "Gui/GuiApplicationManager.h"
@@ -439,6 +446,58 @@ TabWidget::createMenu()
     menu.addAction( tr("Properties bin here"), this, SLOT(movePropertiesBinHere()) );
     menu.addAction( tr("Script editor here"), this, SLOT(moveScriptEditorHere()) );
     menu.addAction( tr("Progress Panel here"), this, SLOT(moveProgressPanelHere()) );
+
+    if (_imp->gui->getFluxProjectBin() ||
+        _imp->gui->getFluxTimeline() ||
+        _imp->gui->getFluxEffectsPanel() ||
+        _imp->gui->getFluxExportPanel() ||
+        _imp->gui->getFluxAiPanel() ||
+        _imp->gui->getFluxTextPanel() ||
+        _imp->gui->getFluxTextAnimatorPanel()) {
+        menu.addSeparator();
+        if (_imp->gui->getFluxProjectBin()) {
+            QAction* action = menu.addAction( tr("Project Bin here") );
+            QObject::connect(action, &QAction::triggered, this, [this]() {
+                TabWidget::moveTab(_imp->gui->getFluxProjectBin(), _imp->gui->getFluxProjectBin(), this);
+            });
+        }
+        if (_imp->gui->getFluxTimeline()) {
+            QAction* action = menu.addAction( tr("Timeline here") );
+            QObject::connect(action, &QAction::triggered, this, [this]() {
+                TabWidget::moveTab(_imp->gui->getFluxTimeline(), _imp->gui->getFluxTimeline(), this);
+            });
+        }
+        if (_imp->gui->getFluxEffectsPanel()) {
+            QAction* action = menu.addAction( tr("Effects here") );
+            QObject::connect(action, &QAction::triggered, this, [this]() {
+                TabWidget::moveTab(_imp->gui->getFluxEffectsPanel(), _imp->gui->getFluxEffectsPanel(), this);
+            });
+        }
+        if (_imp->gui->getFluxExportPanel()) {
+            QAction* action = menu.addAction( tr("Export here") );
+            QObject::connect(action, &QAction::triggered, this, [this]() {
+                TabWidget::moveTab(_imp->gui->getFluxExportPanel(), _imp->gui->getFluxExportPanel(), this);
+            });
+        }
+        if (_imp->gui->getFluxAiPanel()) {
+            QAction* action = menu.addAction( tr("AI here") );
+            QObject::connect(action, &QAction::triggered, this, [this]() {
+                TabWidget::moveTab(_imp->gui->getFluxAiPanel(), _imp->gui->getFluxAiPanel(), this);
+            });
+        }
+        if (_imp->gui->getFluxTextPanel()) {
+            QAction* action = menu.addAction( tr("Text here") );
+            QObject::connect(action, &QAction::triggered, this, [this]() {
+                TabWidget::moveTab(_imp->gui->getFluxTextPanel(), _imp->gui->getFluxTextPanel(), this);
+            });
+        }
+        if (_imp->gui->getFluxTextAnimatorPanel()) {
+            QAction* action = menu.addAction( tr("Text Animators here") );
+            QObject::connect(action, &QAction::triggered, this, [this]() {
+                TabWidget::moveTab(_imp->gui->getFluxTextAnimatorPanel(), _imp->gui->getFluxTextAnimatorPanel(), this);
+            });
+        }
+    }
 
 
     std::map<NATRON_PYTHON_NAMESPACE::PyPanel*, std::string> userPanels = _imp->gui->getPythonPanels();

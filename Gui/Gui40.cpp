@@ -536,6 +536,15 @@ Gui::getNodeGraph() const
     return _imp->_nodeGraphArea;
 }
 
+FluxProjectBin*
+Gui::getFluxProjectBin() const
+{
+    if (!_imp) {
+        return nullptr;
+    }
+    return _imp->_fluxProjectBin;
+}
+
 FluxEffectsPanel*
 Gui::getFluxEffectsPanel() const
 {
@@ -561,6 +570,24 @@ Gui::getFluxAiPanel() const
         return nullptr;
     }
     return _imp->_fluxAiPanel;
+}
+
+FluxTextPanel*
+Gui::getFluxTextPanel() const
+{
+    if (!_imp) {
+        return nullptr;
+    }
+    return _imp->_fluxTextPanel;
+}
+
+FluxTextAnimatorPanel*
+Gui::getFluxTextAnimatorPanel() const
+{
+    if (!_imp) {
+        return nullptr;
+    }
+    return _imp->_fluxTextAnimatorPanel;
 }
 
 FluxTimeline*

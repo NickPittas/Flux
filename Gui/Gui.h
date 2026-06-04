@@ -370,9 +370,12 @@ public:
     ProgressPanel* getProgressPanel() const;
 
     /** @brief Returns the Flux effects stack panel (may be null if not in Flux mode). */
+    class FluxProjectBin* getFluxProjectBin() const;
     class FluxEffectsPanel* getFluxEffectsPanel() const;
     class FluxExportPanel* getFluxExportPanel() const;
     class FluxAiPanel* getFluxAiPanel() const;
+    class FluxTextPanel* getFluxTextPanel() const;
+    class FluxTextAnimatorPanel* getFluxTextAnimatorPanel() const;
     class FluxTimeline* getFluxTimeline() const;
     NodePtr getFluxBgReformatNode() const;
     void setFluxBgReformatNode(const NodePtr& node);

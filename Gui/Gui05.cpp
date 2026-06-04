@@ -1237,6 +1237,9 @@ Gui::setupFluxUi()
     // ====================================================================
     TabWidget* topRightPane = topCenterPane->splitHorizontally(false);
     topRightPane->setObjectName_mt_safe( QString::fromUtf8("fluxTopRightPane") );
+    _imp->_fluxTopLeftPane = topLeftPane;
+    _imp->_fluxTopRightPane = topRightPane;
+    _imp->_fluxWorkshopPane = workshopPane;
 
     // ====================================================================
     // Populate top-left pane: Project Bin + Node Graph (tabs)
