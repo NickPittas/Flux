@@ -1,3 +1,0 @@
-Saved to `/home/npittas/Flux/.pi/agent-artifacts/review-matanyone2-frozen-and-apply-out.md`
-
-**Brief:** Diagnosis complete. Bug 1 root cause is that `processMatAnyone2WorkerLine()` never stops the MatAnyone2 worker after `infer_video` completes, so `updateUiState()` sees the process as still running and keeps buttons disabled (SAM3 avoids this because its `_sam3Process` is never started). Bug 2 root cause is that the apply-mask path is already model-agnostic, but `verifyMatAnyone2ResultAndWriteManifest()` lacks SAM3's fallback mask-resolution logic when `selected_mask_path` is empty, so a sequence-only result fails verification and never enters history.

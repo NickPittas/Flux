@@ -61,6 +61,7 @@ FORCE=0
 COPY_MODE="copy"
 
 FEDORA_PACKAGES=(
+  curl
   cmake
   pkgconf-pkg-config
   extra-cmake-modules
@@ -329,7 +330,7 @@ detect_os() {
 check_commands() {
   local missing=0
   local cmd
-  for cmd in cmake c++ python3 ldd; do
+  for cmd in cmake c++ python3 ldd curl tar; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
       warn "Missing command: ${cmd}"
       missing=1
@@ -415,6 +416,42 @@ install_fedora_packages() {
 
   log 'Installing Fedora packages. RPM Fusion free must be enabled for ffmpeg-devel.'
   run_privileged dnf install -y --setopt=install_weak_deps=False --allowerasing "${FEDORA_PACKAGES[@]}"
+}
+
+ensure_ocio_configs() {
+  local configs_dir="${FLUX_ROOT}/OpenColorIO-Configs"
+  local extracted_dir="${FLUX_ROOT}/OpenColorIO-Configs-Natron-v2.4"
+  local config_url="https://github.com/NatronGitHub/OpenColorIO-Configs/archive/Natron-v2.4.tar.gz"
+
+  if [[ -f "${configs_dir}/blender/config.ocio" &&
+        -f "${configs_dir}/natron/config.ocio" &&
+        -f "${configs_dir}/nuke-default/config.ocio" ]]; then
+    log "OpenColorIO configs already present: ${configs_dir}"
+    return 0
+  fi
+
+  command -v curl >/dev/null 2>&1 || die 'curl is required to download OpenColorIO configs.'
+  command -v tar >/dev/null 2>&1 || die 'tar is required to unpack OpenColorIO configs.'
+
+  log "Downloading Natron OpenColorIO configs into ${FLUX_ROOT}."
+  rm -rf "$extracted_dir"
+  (
+    cd "$FLUX_ROOT"
+    curl -k -L "$config_url" | tar zxf -
+    rm -rf OpenColorIO-Configs
+    mv OpenColorIO-Configs-Natron-v2.4 OpenColorIO-Configs
+  )
+
+  if [[ ! -f "${configs_dir}/blender/config.ocio" ||
+        ! -f "${configs_dir}/natron/config.ocio" ||
+        ! -f "${configs_dir}/nuke-default/config.ocio" ]]; then
+    die 'OpenColorIO config download did not produce the required Natron config files.'
+  fi
+}
+
+install_ocio_configs() {
+  ensure_ocio_configs || return
+  copy_payload "${FLUX_ROOT}/OpenColorIO-Configs" "${FLUX_INSTALL_PREFIX}/share/OpenColorIO-Configs"
 }
 
 update_openfx_submodule_fallback() {
@@ -537,6 +574,7 @@ configure_flux() {
   command -v cmake >/dev/null 2>&1 || die 'cmake is required to configure Flux.'
   ensure_required_submodules || return
   update_openfx_submodule_fallback || return
+  ensure_ocio_configs || return
   log "Configuring Flux: build_dir=${BUILD_DIR}, build_type=${BUILD_TYPE}"
   cmake -S "$FLUX_ROOT" -B "$BUILD_DIR" \
     -DNATRON_QT6=ON \
@@ -771,6 +809,7 @@ install_runtime_payloads() {
   manifest_add_path "${FLUX_INSTALL_PREFIX}/Plugins"
   manifest_add_path "$USER_PYPLUG_DIR"
   manifest_add_path "$USER_OFX_DIR"
+  install_ocio_configs
   deploy_pyplugs
   copy_dir_contents_filtered "${FLUX_ROOT}/Gui/Resources/PyPlugs" "$USER_PYPLUG_DIR"
   copy_dir_contents_filtered "${PLUGIN_PREFIX}/natron-plugins" "${USER_PYPLUG_DIR}/natron-plugins"
@@ -1206,6 +1245,18 @@ check_ofx_bundles() {
     fi
   done
   return "$missing"
+
+}
+check_ocio_configs() {
+  local configs_dir="${FLUX_INSTALL_PREFIX}/share/OpenColorIO-Configs"
+  local missing=0
+  for config in blender natron nuke-default; do
+    if [[ ! -f "${configs_dir}/${config}/config.ocio" ]]; then
+      warn "Missing installed OpenColorIO config: ${configs_dir}/${config}/config.ocio"
+      missing=1
+    fi
+  done
+  return "$missing"
 }
 
 check_cache_ids() {
@@ -1251,6 +1302,7 @@ run_checks() {
   check_build_output || status=1
   check_pyplugs || status=1
   check_ofx_bundles || status=1
+  check_ocio_configs || status=1
   check_cache_ids || status=1
   return "$status"
 }
@@ -1340,6 +1392,17 @@ pyplug_status() {
   printf 'present'
 }
 
+ocio_config_status() {
+  local configs_dir="${FLUX_INSTALL_PREFIX}/share/OpenColorIO-Configs"
+  if [[ -f "${configs_dir}/blender/config.ocio" &&
+        -f "${configs_dir}/natron/config.ocio" &&
+        -f "${configs_dir}/nuke-default/config.ocio" ]]; then
+    printf 'present'
+  else
+    printf 'missing'
+  fi
+}
+
 ofx_cache_status() {
   local cache_file="${OFX_CACHE_DIR}/OFXCache_2.6_Devel_0.xml"
   [[ -f "$cache_file" ]] && printf 'present' || printf 'not generated yet'
@@ -1382,6 +1445,7 @@ Flux Linux setup summary
   PyPlugs: $(pyplug_status) (${USER_PYPLUG_DIR})
   OFX bundles: $(ofx_bundle_status) (${USER_OFX_DIR})
   OFX cache: $(ofx_cache_status) (${OFX_CACHE_DIR})
+  OCIO configs: $(ocio_config_status) (${FLUX_INSTALL_PREFIX}/share/OpenColorIO-Configs)
   AI model manager: $(status_word test -f "${FLUX_INSTALL_PREFIX}/tools/ai/flux_model_manager.py") (${FLUX_INSTALL_PREFIX}/tools/ai/flux_model_manager.py)
   NVIDIA: ${nvidia_hint}
   OpenGL: ${gl_hint}
@@ -1519,6 +1583,8 @@ print_status_summary() {
   printf 'ofx_bundles=%s\n' "$(ofx_bundle_status)"
   printf 'ofx_path=%s\n' "${USER_OFX_DIR}"
   printf 'ofx_cache=%s\n' "$(ofx_cache_status)"
+  printf 'ocio_configs=%s\n' "$(ocio_config_status)"
+  printf 'ocio_configs_path=%s\n' "${FLUX_INSTALL_PREFIX}/share/OpenColorIO-Configs"
   printf 'ofx_cache_path=%s\n' "${OFX_CACHE_DIR}"
   printf 'ai_model_manager=%s\n' "$(status_word test -f "${FLUX_INSTALL_PREFIX}/tools/ai/flux_model_manager.py")"
   printf 'nvidia=%s\n' "$nvidia_hint"
@@ -1583,6 +1649,10 @@ payload = {
         "required_pyplugs": [{"name": name, "installed": (pyplug_dir / name).is_file()} for name in required_pyplugs],
         "ofx_dir": exists_dir(str(ofx_dir)),
         "required_ofx": [{"name": name, "installed": (ofx_dir / name).is_dir()} for name in required_ofx],
+        "ocio_configs": {
+            "root": str(prefix / "share" / "OpenColorIO-Configs"),
+            "required": [{"name": name, "installed": (prefix / "share" / "OpenColorIO-Configs" / name / "config.ocio").is_file()} for name in ("blender", "natron", "nuke-default")],
+        },
     },
     "ai": {
         "tools": {

@@ -22,11 +22,12 @@ choices are prompts inside that menu with inline help text.
   AI payload/model setup, OFX cache clearing, launcher installation, validation,
   launch, and uninstall.
 - Keep installed Flux payloads under the Flux install prefix.
-- Deploy PyPlugs, OpenFX bundles, AI tools, and the user launcher.
+- Deploy PyPlugs, OpenFX bundles, Natron OpenColorIO configs, AI tools, and the user launcher.
 - Preserve secure-token policy: no plaintext Hugging Face token storage.
 
 ## Validation evidence
 - Bash syntax validation passed.
+- Natron OpenColorIO config archive download/extract command validated against the upstream GitHub tarball.
 - Argument rejection was verified.
 - Documentation was scrubbed so the installer is presented only as an
   interactive no-argument command.
