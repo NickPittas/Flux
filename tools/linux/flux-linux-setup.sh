@@ -401,10 +401,32 @@ install_fedora_packages() {
   sudo dnf install -y --allowerasing "${FEDORA_PACKAGES[@]}"
 }
 
+update_openfx_submodule_fallback() {
+  local openfx_dir="${FLUX_ROOT}/libs/OpenFX"
+  local openfx_url="https://github.com/NatronGitHub/openfx.git"
+  local openfx_ref="a5d9ca88512692b0a872044cfde90e3181ff5ad6"
+
+  warn "OpenFX submodule checkout failed; falling back to reachable Natron-2.5.0 OpenFX ref ${openfx_ref}."
+  if git -C "$FLUX_ROOT" ls-files --error-unmatch .gitmodules &>/dev/null &&
+     git -C "$FLUX_ROOT" config --file .gitmodules --get submodule.libs/OpenFX.path >/dev/null; then
+    git -C "$FLUX_ROOT" submodule init libs/OpenFX || true
+  fi
+  if [[ ! -d "${openfx_dir}/.git" && ! -f "${openfx_dir}/.git" ]]; then
+    git clone "$openfx_url" "$openfx_dir"
+  fi
+  git -C "$openfx_dir" fetch origin "$openfx_ref"
+  git -C "$openfx_dir" checkout --detach "$openfx_ref"
+}
+
 update_submodules() {
   command -v git >/dev/null 2>&1 || die 'git is required to update submodules.'
   log 'Updating git submodules.'
-  git -C "$FLUX_ROOT" submodule update --init --recursive
+  if git -C "$FLUX_ROOT" submodule update --init --recursive; then
+    return 0
+  fi
+
+  update_openfx_submodule_fallback || return
+  git -C "$FLUX_ROOT" submodule update --init --recursive -- ':!libs/OpenFX'
 }
 
 configure_flux() {
