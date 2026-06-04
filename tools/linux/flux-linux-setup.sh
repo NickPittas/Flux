@@ -444,15 +444,36 @@ update_openfx_submodule_fallback() {
   git -C "$openfx_dir" checkout --detach "$openfx_ref"
 }
 
+
+ensure_required_submodule_file() {
+  local path="$1"
+  local required_file="$2"
+
+  git -C "$FLUX_ROOT" submodule update --init --recursive "$path" || return
+  if [[ ! -f "${FLUX_ROOT}/${required_file}" ]]; then
+    die "Required submodule content is missing after update: ${required_file}"
+  fi
+}
+
+ensure_required_submodules() {
+  ensure_required_submodule_file libs/SequenceParsing libs/SequenceParsing/SequenceParsing.cpp || return
+  ensure_required_submodule_file Tests/google-test Tests/google-test/README || return
+  ensure_required_submodule_file Tests/google-mock Tests/google-mock/README || return
+  ensure_required_submodule_file libs/google-breakpad libs/google-breakpad/src/tools/linux/symupload/sym_upload.cc || return
+  ensure_required_submodule_file plugins/natron-plugins plugins/natron-plugins/README.md || return
+}
+
 update_submodules() {
   command -v git >/dev/null 2>&1 || die 'git is required to update submodules.'
   log 'Updating git submodules.'
   git -C "$FLUX_ROOT" submodule update --init --recursive -- ':!libs/OpenFX' || return
+  ensure_required_submodules || return
   update_openfx_submodule_fallback
 }
 
 configure_flux() {
   command -v cmake >/dev/null 2>&1 || die 'cmake is required to configure Flux.'
+  ensure_required_submodules || return
   log "Configuring Flux: build_dir=${BUILD_DIR}, build_type=${BUILD_TYPE}"
   cmake -S "$FLUX_ROOT" -B "$BUILD_DIR" \
     -DNATRON_QT6=ON \
