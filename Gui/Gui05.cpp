@@ -1423,7 +1423,7 @@ Gui::setupFluxUi()
         const int sourceFrame = qBound(layer.originalFirstFrame, timelineFrame - layer.timeOffset, layer.originalLastFrame);
         const int rangeFirstFrame = qBound(layer.originalFirstFrame, layer.inPoint, layer.originalLastFrame);
         const int rangeLastFrame = qBound(layer.originalFirstFrame, layer.outPoint, layer.originalLastFrame);
-        aiPanel->setSourceCaptureContext(viewerTab->getViewer(), viewerNode, layerIndex, layer.name, layer.filePath, layer.readerNode, layer.readerNode ? QString::fromStdString(layer.readerNode->getLabel()) : QString(), aiPaintNode, timelineFrame, sourceFrame, rangeFirstFrame, rangeLastFrame);
+        aiPanel->setSourceCaptureContext(viewerTab->getViewer(), viewerNode, layerIndex, layer.name, layer.filePath, layer.readerNode, layer.readerNode ? QString::fromStdString(layer.readerNode->getLabel()) : QString(), aiPaintNode, timelineFrame, sourceFrame, layer.timeOffset, rangeFirstFrame, rangeLastFrame);
         connectAIPaintPromptStoreRefresh(aiPaintNode, aiPanel);
 
         if (foregroundAiPane) {
@@ -1612,7 +1612,7 @@ Gui::setupFluxUi()
                                  const int sourceFrame = qBound(layer.originalFirstFrame, timelineFrame - layer.timeOffset, layer.originalLastFrame);
                                  const int rangeFirstFrame = qBound(layer.originalFirstFrame, layer.inPoint, layer.originalLastFrame);
                                  const int rangeLastFrame = qBound(layer.originalFirstFrame, layer.outPoint, layer.originalLastFrame);
-                                 aiPanel->setSourceCaptureContext(viewerTab->getViewer(), viewerNode, layerIndex, layer.name, layer.filePath, layer.readerNode, layer.readerNode ? QString::fromStdString(layer.readerNode->getLabel()) : QString(), aiPaintNode, timelineFrame, sourceFrame, rangeFirstFrame, rangeLastFrame);
+                                 aiPanel->setSourceCaptureContext(viewerTab->getViewer(), viewerNode, layerIndex, layer.name, layer.filePath, layer.readerNode, layer.readerNode ? QString::fromStdString(layer.readerNode->getLabel()) : QString(), aiPaintNode, timelineFrame, sourceFrame, layer.timeOffset, rangeFirstFrame, rangeLastFrame);
                                  connectAIPaintPromptStoreRefresh(aiPaintNode, aiPanel);
                              } else {
                                  aiPanel->setViewerForCapture(nullptr);
@@ -1695,7 +1695,7 @@ Gui::setupFluxUi()
                                      const int sourceFrame = qBound(layer.originalFirstFrame, timelineFrame - layer.timeOffset, layer.originalLastFrame);
                                      const int rangeFirstFrame = qBound(layer.originalFirstFrame, layer.inPoint, layer.originalLastFrame);
                                      const int rangeLastFrame = qBound(layer.originalFirstFrame, layer.outPoint, layer.originalLastFrame);
-                                     aiPanel->setSourceCaptureContext(viewerTab->getViewer(), viewerNode, layerIndex, layer.name, layer.filePath, layer.readerNode, layer.readerNode ? QString::fromStdString(layer.readerNode->getLabel()) : QString(), node, timelineFrame, sourceFrame, rangeFirstFrame, rangeLastFrame);
+                                     aiPanel->setSourceCaptureContext(viewerTab->getViewer(), viewerNode, layerIndex, layer.name, layer.filePath, layer.readerNode, layer.readerNode ? QString::fromStdString(layer.readerNode->getLabel()) : QString(), node, timelineFrame, sourceFrame, layer.timeOffset, rangeFirstFrame, rangeLastFrame);
                                      connectAIPaintPromptStoreRefresh(node, aiPanel);
                                  }
                              }
@@ -1788,7 +1788,7 @@ Gui::setupFluxUi()
                                      const int sourceFrame = qBound(layer.originalFirstFrame, timelineFrame - layer.timeOffset, layer.originalLastFrame);
                                      const int rangeFirstFrame = qBound(layer.originalFirstFrame, layer.inPoint, layer.originalLastFrame);
                                      const int rangeLastFrame = qBound(layer.originalFirstFrame, layer.outPoint, layer.originalLastFrame);
-                                     aiPanel->setSourceCaptureContext(viewerTab->getViewer(), viewerNode, layerIndex, layer.name, layer.filePath, layer.readerNode, layer.readerNode ? QString::fromStdString(layer.readerNode->getLabel()) : QString(), node, timelineFrame, sourceFrame, rangeFirstFrame, rangeLastFrame);
+                                     aiPanel->setSourceCaptureContext(viewerTab->getViewer(), viewerNode, layerIndex, layer.name, layer.filePath, layer.readerNode, layer.readerNode ? QString::fromStdString(layer.readerNode->getLabel()) : QString(), node, timelineFrame, sourceFrame, layer.timeOffset, rangeFirstFrame, rangeLastFrame);
                                      connectAIPaintPromptStoreRefresh(node, aiPanel);
                                  }
                              }
@@ -2651,6 +2651,48 @@ fluxCleanupAIMaskOwnedNodes(FluxEffect& effect,
     }
 }
 
+static void
+fluxConfigureAIMaskReadTiming(const NodePtr& readNode,
+                              double sourceFrameRate)
+{
+    if (!readNode) {
+        return;
+    }
+
+    if (std::isfinite(sourceFrameRate) && sourceFrameRate > 0.0) {
+        KnobIPtr customFpsKnobI = readNode->getKnobByName("customFps");
+        if (customFpsKnobI) {
+            KnobBoolPtr customFpsKnob = std::dynamic_pointer_cast<KnobBool>(customFpsKnobI);
+            if (customFpsKnob) {
+                customFpsKnob->setValue(true, ViewSpec::all(), 0);
+            }
+        }
+        KnobIPtr frameRateKnobI = readNode->getKnobByName("frameRate");
+        if (frameRateKnobI) {
+            KnobDoublePtr frameRateKnob = std::dynamic_pointer_cast<KnobDouble>(frameRateKnobI);
+            if (frameRateKnob) {
+                frameRateKnob->setValue(sourceFrameRate, ViewSpec::all(), 0);
+            }
+        }
+    }
+}
+
+static void
+fluxConfigureAIMaskTimeOffsetTiming(const NodePtr& timeOffsetNode,
+                                    int timeOffset)
+{
+    if (!timeOffsetNode) {
+        return;
+    }
+
+    KnobIPtr timeOffsetKnobI = timeOffsetNode->getKnobByName("timeOffset");
+    if (timeOffsetKnobI) {
+        KnobIntBasePtr timeOffsetKnob = std::dynamic_pointer_cast<KnobIntBase>(timeOffsetKnobI);
+        if (timeOffsetKnob) {
+            timeOffsetKnob->setValue(timeOffset, ViewSpec::all(), 0);
+        }
+    }
+}
 void
 Gui::rebuildCompositingGraph(FluxTimeline* timeline)
 {
@@ -3261,15 +3303,31 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                         readArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
                         effect.aiMaskReadNode = getApp()->createReader(maskPath, readArgs);
                     }
+                    if (effect.aiMaskReadNode) {
+                        fluxConfigureAIMaskReadTiming(effect.aiMaskReadNode, layer.sourceFrameRate);
+                        effect.aiMaskReadNode->setPosition(kCenterX + kGizmoOffsetX - 260.0, plannedEffectY);
+                    }
+                    if ((!effect.aiMaskTimeOffsetNode || !effect.aiMaskTimeOffsetNode->isActivated()) && effect.aiMaskReadNode) {
+                        CreateNodeArgs timeOffsetArgs(PLUGINID_OFX_TIMEOFFSET, collection);
+                        timeOffsetArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+                        timeOffsetArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+                        timeOffsetArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+                        effect.aiMaskTimeOffsetNode = getApp()->createNode(timeOffsetArgs);
+                    }
+                    if (effect.aiMaskTimeOffsetNode) {
+                        fluxConfigureAIMaskTimeOffsetTiming(effect.aiMaskTimeOffsetNode, layer.timeOffset - effect.aiMaskBaseTimeOffset);
+                        effect.aiMaskTimeOffsetNode->setPosition(kCenterX + kGizmoOffsetX - 195.0, plannedEffectY);
+                        effect.aiMaskTimeOffsetNode->disconnectInput(0);
+                        if (effect.aiMaskReadNode && !effect.aiMaskTimeOffsetNode->connectInput(effect.aiMaskReadNode, 0)) {
+                            fprintf(stderr, "FLUX ERROR: AI mask TimeOffset input connect failed for layer %d effect %d\n", i, e);
+                        }
+                    }
                     if (effect.isAIMaskCopy && !effect.aiMaskTargetPlane.isEmpty()) {
                         std::vector<std::string> channels;
                         channels.push_back("r"); channels.push_back("g"); channels.push_back("b"); channels.push_back("a");
                         effect.node->addUserComponents(ImagePlaneDesc(effect.aiMaskTargetPlane.toStdString(), effect.aiMaskTargetPlane.toStdString(), "RGBA", channels));
                         KnobStringPtr targetString = std::dynamic_pointer_cast<KnobString>(effect.node->getKnobByName("targetPlane"));
                         if (targetString) targetString->setValue(effect.aiMaskTargetPlane.toStdString(), ViewSpec::all(), 0, true);
-                    }
-                    if (effect.aiMaskReadNode) {
-                        effect.aiMaskReadNode->setPosition(kCenterX + kGizmoOffsetX - 260.0, plannedEffectY);
                     }
                     if (isAILayerAlpha) {
                         if (effect.aiMaskOperation.isEmpty()) {
@@ -3292,7 +3350,8 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                             fluxConfigureAIShuffleAlphaNode(effect.aiMaskShuffleNode, effect.aiMaskSourceChannel);
                             effect.aiMaskShuffleNode->setPosition(kCenterX + kGizmoOffsetX - 130.0, plannedEffectY);
                             effect.aiMaskShuffleNode->disconnectInput(0);
-                            if (effect.aiMaskReadNode && !effect.aiMaskShuffleNode->connectInput(effect.aiMaskReadNode, 0)) {
+                            NodePtr maskSource = effect.aiMaskTimeOffsetNode ? effect.aiMaskTimeOffsetNode : effect.aiMaskReadNode;
+                            if (maskSource && !effect.aiMaskShuffleNode->connectInput(maskSource, 0)) {
                                 fprintf(stderr, "FLUX ERROR: AI effect mask Shuffle input connect failed for layer %d effect %d\n", i, e);
                             }
                         }
@@ -3309,13 +3368,15 @@ Gui::rebuildCompositingGraph(FluxTimeline* timeline)
                     }
                     if (effect.isAIMaskCopy && effect.node->getNInputs() > 1) {
                         effect.node->disconnectInput(1);
-                        if (effect.aiMaskReadNode && !effect.node->connectInput(effect.aiMaskReadNode, 1)) {
+                        NodePtr maskSource = effect.aiMaskTimeOffsetNode ? effect.aiMaskTimeOffsetNode : effect.aiMaskReadNode;
+                        if (maskSource && !effect.node->connectInput(maskSource, 1)) {
                             fprintf(stderr, "FLUX ERROR: AI mask input connect failed for layer %d effect %d\n", i, e);
                         }
                     }
                     if (isAILayerAlpha && effect.node->getNInputs() > 1) {
                         effect.node->disconnectInput(1);
-                        if (effect.aiMaskReadNode && !effect.node->connectInput(effect.aiMaskReadNode, 1)) {
+                        NodePtr maskSource = effect.aiMaskTimeOffsetNode ? effect.aiMaskTimeOffsetNode : effect.aiMaskReadNode;
+                        if (maskSource && !effect.node->connectInput(maskSource, 1)) {
                             fprintf(stderr, "FLUX ERROR: AI ChannelMerge mask input connect failed for layer %d effect %d\n", i, e);
                         }
                     }

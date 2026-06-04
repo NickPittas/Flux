@@ -45,7 +45,9 @@ struct FluxEffectSerialization
     std::string aiMaskOperation;
     std::string aiMaskSourceRelativePath;
     std::string aiMaskManifestRelativePath;
+    int aiMaskBaseTimeOffset;
     std::string aiMaskReadNodeScriptName;
+    std::string aiMaskTimeOffsetNodeScriptName;
     std::string aiMaskShuffleNodeScriptName;
     std::string aiMaskChannelMergeNodeScriptName;
 
@@ -57,6 +59,7 @@ struct FluxEffectSerialization
         , isAIMaskCopy(false)
         , aiMaskSourceChannel("red")
         , aiMaskOperation("max")
+        , aiMaskBaseTimeOffset(0)
     {}
 
     friend class ::boost::serialization::access;
@@ -80,7 +83,9 @@ struct FluxEffectAIMaskSerialization
     std::string aiMaskOperation;
     std::string aiMaskSourceRelativePath;
     std::string aiMaskManifestRelativePath;
+    int aiMaskBaseTimeOffset;
     std::string aiMaskReadNodeScriptName;
+    std::string aiMaskTimeOffsetNodeScriptName;
     std::string aiMaskShuffleNodeScriptName;
     std::string aiMaskChannelMergeNodeScriptName;
 
@@ -89,6 +94,7 @@ struct FluxEffectAIMaskSerialization
         , isAIMaskCopy(false)
         , aiMaskSourceChannel("red")
         , aiMaskOperation("max")
+        , aiMaskBaseTimeOffset(0)
     {}
 
     friend class ::boost::serialization::access;
@@ -107,6 +113,12 @@ struct FluxEffectAIMaskSerialization
             ar & ::boost::serialization::make_nvp("AIMaskOperation", aiMaskOperation);
             ar & ::boost::serialization::make_nvp("AIMaskShuffleNode", aiMaskShuffleNodeScriptName);
             ar & ::boost::serialization::make_nvp("AIMaskChannelMergeNode", aiMaskChannelMergeNodeScriptName);
+        }
+        if (version >= 2) {
+            ar & ::boost::serialization::make_nvp("AIMaskBaseTimeOffset", aiMaskBaseTimeOffset);
+        }
+        if (version >= 3) {
+            ar & ::boost::serialization::make_nvp("AIMaskTimeOffsetNode", aiMaskTimeOffsetNodeScriptName);
         }
     }
 };
@@ -426,7 +438,9 @@ struct FluxLayerSerialization
                         effect.aiMaskOperation = aiMeta.aiMaskOperation;
                         effect.aiMaskSourceRelativePath = aiMeta.aiMaskSourceRelativePath;
                         effect.aiMaskManifestRelativePath = aiMeta.aiMaskManifestRelativePath;
+                        effect.aiMaskBaseTimeOffset = aiMeta.aiMaskBaseTimeOffset;
                         effect.aiMaskReadNodeScriptName = aiMeta.aiMaskReadNodeScriptName;
+                        effect.aiMaskTimeOffsetNodeScriptName = aiMeta.aiMaskTimeOffsetNodeScriptName;
                         effect.aiMaskShuffleNodeScriptName = aiMeta.aiMaskShuffleNodeScriptName;
                         effect.aiMaskChannelMergeNodeScriptName = aiMeta.aiMaskChannelMergeNodeScriptName;
                     }
@@ -442,7 +456,9 @@ struct FluxLayerSerialization
                     aiMeta.aiMaskOperation = effects[i].aiMaskOperation;
                     aiMeta.aiMaskSourceRelativePath = effects[i].aiMaskSourceRelativePath;
                     aiMeta.aiMaskManifestRelativePath = effects[i].aiMaskManifestRelativePath;
+                    aiMeta.aiMaskBaseTimeOffset = effects[i].aiMaskBaseTimeOffset;
                     aiMeta.aiMaskReadNodeScriptName = effects[i].aiMaskReadNodeScriptName;
+                    aiMeta.aiMaskTimeOffsetNodeScriptName = effects[i].aiMaskTimeOffsetNodeScriptName;
                     aiMeta.aiMaskShuffleNodeScriptName = effects[i].aiMaskShuffleNodeScriptName;
                     aiMeta.aiMaskChannelMergeNodeScriptName = effects[i].aiMaskChannelMergeNodeScriptName;
                     ar & ::boost::serialization::make_nvp("EffectAIMask", aiMeta);
@@ -533,6 +549,6 @@ NATRON_NAMESPACE_EXIT
 BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxTimelineSerialization, 2)
 BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxLayerSerialization, 5)
 BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxMaskSerialization, 3)
-BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxEffectAIMaskSerialization, 1)
+BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxEffectAIMaskSerialization, 3)
 
 #endif // FLUXTIMELINESERIALIZATION_H

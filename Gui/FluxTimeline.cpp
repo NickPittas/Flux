@@ -15,6 +15,9 @@
 #include <QDir>
 #include <QMimeData>
 #include <QUrl>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMenu>
 #include <QDrag>
 #include <QKeyEvent>
@@ -73,6 +76,10 @@ void deactivateFluxOwnedNode(const NodePtr& node)
 
 void deactivateFluxEffectOwnedNodes(FluxEffect& effect)
 {
+    if (effect.aiMaskTimeOffsetNode && effect.aiMaskTimeOffsetNode != effect.node) {
+        deactivateFluxOwnedNode(effect.aiMaskTimeOffsetNode);
+        effect.aiMaskTimeOffsetNode.reset();
+    }
     if (effect.aiMaskShuffleNode && effect.aiMaskShuffleNode != effect.node) {
         deactivateFluxOwnedNode(effect.aiMaskShuffleNode);
         effect.aiMaskShuffleNode.reset();
@@ -1415,9 +1422,85 @@ static void fluxSetShuffleChannelKnob(const NodePtr& node,
 
     KnobChoicePtr choiceKnob = std::dynamic_pointer_cast<KnobChoice>(node->getKnobByName(knobName));
     if (choiceKnob) {
-        choiceKnob->setValueFromID(expression.toStdString(), 0, true);
         choiceKnob->setValueFromID(choiceId.toStdString(), 0, true);
     }
+}
+
+static void fluxConfigureAIReadNodeTiming(const NodePtr& readNode,
+                                          double sourceFrameRate)
+{
+    if (!readNode) {
+        return;
+    }
+
+    if (std::isfinite(sourceFrameRate) && sourceFrameRate > 0.0) {
+        KnobIPtr customFpsKnobI = readNode->getKnobByName("customFps");
+        if (customFpsKnobI) {
+            KnobBoolPtr customFpsKnob = std::dynamic_pointer_cast<KnobBool>(customFpsKnobI);
+            if (customFpsKnob) {
+                customFpsKnob->setValue(true, ViewSpec::all(), 0);
+            }
+        }
+        KnobIPtr frameRateKnobI = readNode->getKnobByName("frameRate");
+        if (frameRateKnobI) {
+            KnobDoublePtr frameRateKnob = std::dynamic_pointer_cast<KnobDouble>(frameRateKnobI);
+            if (frameRateKnob) {
+                frameRateKnob->setValue(sourceFrameRate, ViewSpec::all(), 0);
+            }
+        }
+    }
+}
+
+static void fluxConfigureAIMaskTimeOffsetNode(const NodePtr& timeOffsetNode,
+                                              int timeOffset)
+{
+    if (!timeOffsetNode) {
+        return;
+    }
+    KnobIPtr timeOffsetKnobI = timeOffsetNode->getKnobByName("timeOffset");
+    if (timeOffsetKnobI) {
+        KnobIntBasePtr timeOffsetKnob = std::dynamic_pointer_cast<KnobIntBase>(timeOffsetKnobI);
+        if (timeOffsetKnob) {
+            timeOffsetKnob->setValue(timeOffset, ViewSpec::all(), 0);
+        }
+    }
+}
+
+static int fluxAIMaskGenerationTimeOffset(Gui* gui,
+                                          const QString& manifestRelative,
+                                          int fallbackTimeOffset)
+{
+    if (!gui || !gui->getApp() || !gui->getApp()->getProject() || manifestRelative.isEmpty()) {
+        return fallbackTimeOffset;
+    }
+
+    QFile file(QDir(gui->getApp()->getProject()->getProjectPath()).filePath(manifestRelative));
+    if (!file.open(QIODevice::ReadOnly)) {
+        return fallbackTimeOffset;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        return fallbackTimeOffset;
+    }
+
+    const QJsonObject sourceMetadata = doc.object().value(QString::fromUtf8("source_metadata")).toObject();
+    const char* frameRangeKeys[] = {
+        "sam3_frame_range",
+        "matanyone2_frame_range",
+        "videomama_frame_range"
+    };
+    for (const char* key : frameRangeKeys) {
+        const QJsonObject frameRange = sourceMetadata.value(QString::fromUtf8(key)).toObject();
+        if (frameRange.contains(QString::fromUtf8("time_offset"))) {
+            return frameRange.value(QString::fromUtf8("time_offset")).toInt(fallbackTimeOffset);
+        }
+    }
+    if (sourceMetadata.contains(QString::fromUtf8("time_offset"))) {
+        return sourceMetadata.value(QString::fromUtf8("time_offset")).toInt(fallbackTimeOffset);
+    }
+    return fallbackTimeOffset;
 }
 
 static NodePtr fluxCreateAIReadNode(Gui* gui,
@@ -1439,26 +1522,7 @@ static NodePtr fluxCreateAIReadNode(Gui* gui,
     readArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
     readArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
     NodePtr readNode = gui->getApp()->createReader(absMask, readArgs);
-
-    // Apply source FPS to the generated Read node so the imported mask sequence
-    // is interpreted at the source media rate (e.g. 16fps) instead of project default.
-    if (readNode && std::isfinite(sourceFrameRate) && sourceFrameRate > 0.0) {
-        KnobIPtr customFpsKnobI = readNode->getKnobByName("customFps");
-        if (customFpsKnobI) {
-            KnobBoolPtr customFpsKnob = std::dynamic_pointer_cast<KnobBool>(customFpsKnobI);
-            if (customFpsKnob) {
-                customFpsKnob->setValue(true, ViewSpec::all(), 0);
-            }
-        }
-        KnobIPtr frameRateKnobI = readNode->getKnobByName("frameRate");
-        if (frameRateKnobI) {
-            KnobDoublePtr frameRateKnob = std::dynamic_pointer_cast<KnobDouble>(frameRateKnobI);
-            if (frameRateKnob) {
-                frameRateKnob->setValue(sourceFrameRate, ViewSpec::all(), 0);
-            }
-        }
-    }
-
+    fluxConfigureAIReadNodeTiming(readNode, sourceFrameRate);
     return readNode;
 }
 
@@ -1564,17 +1628,23 @@ FluxTimeline::addAIMaskCopyToSelectedLayer(const QString& relativeMask, const QS
         if (!shuffleNode || !shuffleNode->isActivated()) {
             shuffleNode = fluxCreateNode(gui, PLUGINID_OFX_SHUFFLE);
         }
-        if (!readNode || !shuffleNode) {
+        NodePtr timeOffsetNode = fluxCreateNode(gui, PLUGINID_OFX_TIMEOFFSET);
+        if (!readNode || !timeOffsetNode || !shuffleNode) {
             if (readNode) readNode->deactivate(std::list<NodePtr>(), false, true);
+            if (timeOffsetNode) timeOffsetNode->deactivate(std::list<NodePtr>(), false, true);
             if (shuffleNode && shuffleNode != effect.aiMaskShuffleNode) shuffleNode->deactivate(std::list<NodePtr>(), false, true);
-            if (message) *message = QString::fromUtf8("Add Mask failed: could not create AI Read or Shuffle node.");
+            if (message) *message = QString::fromUtf8("Add Mask failed: could not create AI Read, TimeOffset, or Shuffle node.");
             return false;
         }
 
         if (effect.aiMaskReadNode) {
             effect.aiMaskReadNode->deactivate(std::list<NodePtr>(), false, true);
         }
+        if (effect.aiMaskTimeOffsetNode) {
+            effect.aiMaskTimeOffsetNode->deactivate(std::list<NodePtr>(), false, true);
+        }
         effect.aiMaskReadNode = readNode;
+        effect.aiMaskTimeOffsetNode = timeOffsetNode;
         effect.aiMaskShuffleNode = shuffleNode;
         effect.aiMaskUsage = QString::fromUtf8("effect-mask");
         effect.aiMaskSourceChannel = sourceChannel;
@@ -1584,6 +1654,8 @@ FluxTimeline::addAIMaskCopyToSelectedLayer(const QString& relativeMask, const QS
         // frame makes rebuild/reopen recreate a one-frame Read.
         effect.aiMaskSourceRelativePath = readMask;
         effect.aiMaskManifestRelativePath = manifestRelative;
+        effect.aiMaskBaseTimeOffset = fluxAIMaskGenerationTimeOffset(gui, manifestRelative, _layers[_selectedLayer].timeOffset);
+        fluxConfigureAIMaskTimeOffsetNode(effect.aiMaskTimeOffsetNode, _layers[_selectedLayer].timeOffset - effect.aiMaskBaseTimeOffset);
         effect.aiMaskTargetPlane.clear();
         effect.isAIMaskCopy = false;
         shuffleNode->setLabel(QString::fromUtf8("AI Effect Mask").toStdString());
@@ -1594,7 +1666,7 @@ FluxTimeline::addAIMaskCopyToSelectedLayer(const QString& relativeMask, const QS
         gui->rebuildCompositingGraph(this);
 
         const int maskInput = discoverMaskInput(effect.node);
-        const bool shuffleHasRead = (shuffleNode->getInput(0) == readNode);
+        const bool shuffleHasRead = (timeOffsetNode->getInput(0) == readNode && shuffleNode->getInput(0) == timeOffsetNode);
         const bool effectHasMask = (maskInput >= 0 && effect.node->getInput(maskInput) == shuffleNode);
         if (!shuffleHasRead || !effectHasMask) {
             if (message) *message = QString::fromUtf8("Add Mask failed: AI mask Shuffle was created but effect mask wiring did not verify.");
@@ -1620,11 +1692,13 @@ FluxTimeline::addAIMaskCopyToSelectedLayer(const QString& relativeMask, const QS
         }
     }
     NodePtr readNode = fluxCreateAIReadNode(gui, readMask, _layers[targetLayer].sourceFrameRate);
+    NodePtr timeOffsetNode = fluxCreateNode(gui, PLUGINID_OFX_TIMEOFFSET);
     NodePtr mergeNode = fluxCreateNode(gui, PLUGINID_FLUX_CHANNEL_MERGE);
-    if (!readNode || !mergeNode) {
+    if (!readNode || !timeOffsetNode || !mergeNode) {
         if (readNode) readNode->deactivate(std::list<NodePtr>(), false, true);
+        if (timeOffsetNode) timeOffsetNode->deactivate(std::list<NodePtr>(), false, true);
         if (mergeNode) mergeNode->deactivate(std::list<NodePtr>(), false, true);
-        if (message) *message = QString::fromUtf8("Add Mask failed: could not create AI Read or Flux ChannelMerge node.");
+        if (message) *message = QString::fromUtf8("Add Mask failed: could not create AI Read, TimeOffset, or Flux ChannelMerge node.");
         return false;
     }
     mergeNode->setLabel(QString::fromUtf8("AI Mask Alpha %1").arg(next).toStdString());
@@ -1644,8 +1718,11 @@ FluxTimeline::addAIMaskCopyToSelectedLayer(const QString& relativeMask, const QS
     // frame makes rebuild/reopen recreate a one-frame Read.
     effect.aiMaskSourceRelativePath = readMask;
     effect.aiMaskManifestRelativePath = manifestRelative;
+    effect.aiMaskBaseTimeOffset = fluxAIMaskGenerationTimeOffset(gui, manifestRelative, _layers[targetLayer].timeOffset);
     effect.aiMaskReadNode = readNode;
+    effect.aiMaskTimeOffsetNode = timeOffsetNode;
     effect.aiMaskChannelMergeNode = mergeNode;
+    fluxConfigureAIMaskTimeOffsetNode(effect.aiMaskTimeOffsetNode, _layers[targetLayer].timeOffset - effect.aiMaskBaseTimeOffset);
     _layers[targetLayer].effects.append(effect);
     _layers[targetLayer].expanded = true;
     _selectedType = eFluxSelectionEffect;
@@ -1660,7 +1737,7 @@ FluxTimeline::addAIMaskCopyToSelectedLayer(const QString& relativeMask, const QS
         gui->rebuildCompositingGraph(this);
     }
     const bool hasLayerInput = (mergeNode->getInput(0) != NodePtr());
-    const bool hasMaskInput = (mergeNode->getInput(1) == readNode);
+    const bool hasMaskInput = (timeOffsetNode->getInput(0) == readNode && mergeNode->getInput(1) == timeOffsetNode);
     if (!hasLayerInput || !hasMaskInput) {
         qDebug() << "FluxTimeline::addAIMaskCopyToSelectedLayer: wiring verification failed"
                  << "layer" << targetLayer
@@ -1714,6 +1791,15 @@ FluxTimeline::replaceSelectedAIMaskCopy(const QString& relativeMask, const QStri
     // frame makes rebuild/reopen recreate a one-frame Read.
     effect.aiMaskSourceRelativePath = readMask;
     effect.aiMaskManifestRelativePath = manifestRelative;
+    effect.aiMaskBaseTimeOffset = fluxAIMaskGenerationTimeOffset(gui, manifestRelative, _layers[_selectedLayer].timeOffset);
+    if (!effect.aiMaskTimeOffsetNode || !effect.aiMaskTimeOffsetNode->isActivated()) {
+        effect.aiMaskTimeOffsetNode = fluxCreateNode(gui, PLUGINID_OFX_TIMEOFFSET);
+    }
+    if (!effect.aiMaskTimeOffsetNode) {
+        if (message) *message = QString::fromUtf8("Replace Mask failed: could not create replacement AI TimeOffset node.");
+        return false;
+    }
+    fluxConfigureAIMaskTimeOffsetNode(effect.aiMaskTimeOffsetNode, _layers[_selectedLayer].timeOffset - effect.aiMaskBaseTimeOffset);
 
     if (isLayerAlpha) {
         if (effect.aiMaskSourceChannel.isEmpty()) {
@@ -1744,10 +1830,16 @@ FluxTimeline::replaceSelectedAIMaskCopy(const QString& relativeMask, const QStri
     bool hasMaskInput = false;
     if (isEffectMask) {
         const int maskInput = discoverMaskInput(effect.node);
-        hasMaskInput = (effect.aiMaskShuffleNode && effect.aiMaskShuffleNode->getInput(0) == newRead &&
+        const NodePtr maskSource = effect.aiMaskTimeOffsetNode ? effect.aiMaskTimeOffsetNode : newRead;
+        hasMaskInput = (effect.aiMaskShuffleNode && effect.aiMaskTimeOffsetNode &&
+                        effect.aiMaskTimeOffsetNode->getInput(0) == newRead &&
+                        effect.aiMaskShuffleNode->getInput(0) == maskSource &&
                         maskInput >= 0 && effect.node->getInput(maskInput) == effect.aiMaskShuffleNode);
     } else {
-        hasMaskInput = (effect.node && effect.node->getNInputs() > 1 && effect.node->getInput(1) == newRead);
+        const NodePtr maskSource = effect.aiMaskTimeOffsetNode ? effect.aiMaskTimeOffsetNode : newRead;
+        hasMaskInput = (effect.node && effect.node->getNInputs() > 1 &&
+                        effect.aiMaskTimeOffsetNode && effect.aiMaskTimeOffsetNode->getInput(0) == newRead &&
+                        effect.node->getInput(1) == maskSource);
     }
     if (!hasMaskInput) {
         qDebug() << "FluxTimeline::replaceSelectedAIMaskCopy: wiring verification failed"
@@ -5832,6 +5924,14 @@ FluxTimeline::updateLayerMoveKnob(int layerIndex)
             intKnob->setValue(layer.timeOffset, ViewSpec::all(), 0);
         }
     }
+
+    for (int e = 0; e < layer.effects.size(); ++e) {
+        FluxEffect& effect = layer.effects[e];
+        if (!effect.aiMaskTimeOffsetNode) {
+            continue;
+        }
+        fluxConfigureAIMaskTimeOffsetNode(effect.aiMaskTimeOffsetNode, layer.timeOffset - effect.aiMaskBaseTimeOffset);
+    }
 }
 
 void
@@ -5876,6 +5976,14 @@ FluxTimeline::updateLayerTrimKnobs(int layerIndex)
         if (choice) {
             choice->setValue(2, ViewSpec::all(), 0); // black
         }
+    }
+
+    for (int e = 0; e < layer.effects.size(); ++e) {
+        FluxEffect& effect = layer.effects[e];
+        if (!effect.aiMaskTimeOffsetNode) {
+            continue;
+        }
+        fluxConfigureAIMaskTimeOffsetNode(effect.aiMaskTimeOffsetNode, layer.timeOffset - effect.aiMaskBaseTimeOffset);
     }
 }
 
@@ -6105,8 +6213,12 @@ FluxTimeline::serializeForProject() const
             effectSer.aiMaskOperation = effect.aiMaskOperation.toStdString();
             effectSer.aiMaskSourceRelativePath = effect.aiMaskSourceRelativePath.toStdString();
             effectSer.aiMaskManifestRelativePath = effect.aiMaskManifestRelativePath.toStdString();
+            effectSer.aiMaskBaseTimeOffset = effect.aiMaskBaseTimeOffset;
             if (effect.aiMaskReadNode) {
                 effectSer.aiMaskReadNodeScriptName = effect.aiMaskReadNode->getFullyQualifiedName();
+            }
+            if (effect.aiMaskTimeOffsetNode) {
+                effectSer.aiMaskTimeOffsetNodeScriptName = effect.aiMaskTimeOffsetNode->getFullyQualifiedName();
             }
             if (effect.aiMaskShuffleNode) {
                 effectSer.aiMaskShuffleNodeScriptName = effect.aiMaskShuffleNode->getFullyQualifiedName();
@@ -6252,8 +6364,12 @@ FluxTimeline::restoreFromProjectSerialization(const FluxTimelineSerialization& s
             }
             effect.aiMaskSourceRelativePath = QString::fromStdString(effectSer.aiMaskSourceRelativePath);
             effect.aiMaskManifestRelativePath = QString::fromStdString(effectSer.aiMaskManifestRelativePath);
+            effect.aiMaskBaseTimeOffset = effectSer.aiMaskBaseTimeOffset;
             if (!effectSer.aiMaskReadNodeScriptName.empty()) {
                 effect.aiMaskReadNode = project->getNodeByFullySpecifiedName(effectSer.aiMaskReadNodeScriptName);
+            }
+            if (!effectSer.aiMaskTimeOffsetNodeScriptName.empty()) {
+                effect.aiMaskTimeOffsetNode = project->getNodeByFullySpecifiedName(effectSer.aiMaskTimeOffsetNodeScriptName);
             }
             if (!effectSer.aiMaskShuffleNodeScriptName.empty()) {
                 effect.aiMaskShuffleNode = project->getNodeByFullySpecifiedName(effectSer.aiMaskShuffleNodeScriptName);

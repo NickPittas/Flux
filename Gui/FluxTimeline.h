@@ -98,17 +98,20 @@ struct FluxEffect {
     bool isAIMaskCopy; // legacy custom-plane AI mask row
     QString aiMaskUsage; // "layer-alpha" or "effect-mask"; empty for normal effects
     QString aiMaskTargetPlane; // legacy custom plane name
+    int aiMaskBaseTimeOffset; // layer timeOffset when this mask sequence was generated/applied
     QString aiMaskSourceChannel; // red, green, blue, alpha
     QString aiMaskOperation; // copy, plus, max, multiply, screen
     QString aiMaskSourceRelativePath;
     QString aiMaskManifestRelativePath;
     NodePtr aiMaskReadNode;
+    NodePtr aiMaskTimeOffsetNode;
     NodePtr aiMaskShuffleNode;
     NodePtr aiMaskChannelMergeNode;
 
     FluxEffect()
         : enabled(true)
         , isAIMaskCopy(false)
+        , aiMaskBaseTimeOffset(0)
         , aiMaskSourceChannel(QString::fromUtf8("red"))
         , aiMaskOperation(QString::fromUtf8("max"))
     {}

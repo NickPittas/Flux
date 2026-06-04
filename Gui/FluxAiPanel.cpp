@@ -194,6 +194,7 @@ FluxAiPanel::FluxAiPanel(Gui* gui, QWidget* parent)
     , _sourceSourceFrame(0)
     , _sourceRangeFirstFrame(0)
     , _sourceRangeLastFrame(0)
+    , _sourceTimeOffset(0)
     , _updatingFrameRangeControls(false)
     , _taskCombo(nullptr)
     , _modelCombo(nullptr)
@@ -447,6 +448,7 @@ void FluxAiPanel::setViewerForCapture(ViewerGL* viewer)
     _sourceSourceFrame = 0;
     _sourceRangeFirstFrame = 0;
     _sourceRangeLastFrame = 0;
+    _sourceTimeOffset = 0;
     _sourceFrameWidth = 0;
     _sourceFrameHeight = 0;
     _sourceFramePng.clear();
@@ -464,13 +466,14 @@ void FluxAiPanel::setViewerForCapture(ViewerGL* viewer)
                QString::fromUtf8("pass"), QString::fromUtf8("AI source capture context cleared."), QString(), found);
 }
 
-void FluxAiPanel::setSourceCaptureContext(ViewerGL* viewer, const NodePtr& viewerNode, int layerIndex, const QString& layerName, const QString& filePath, const NodePtr& readerNode, const QString& readerLabel, const NodePtr& aiPaintNode, int timelineFrame, int sourceFrame, int rangeFirstFrame, int rangeLastFrame)
+void FluxAiPanel::setSourceCaptureContext(ViewerGL* viewer, const NodePtr& viewerNode, int layerIndex, const QString& layerName, const QString& filePath, const NodePtr& readerNode, const QString& readerLabel, const NodePtr& aiPaintNode, int timelineFrame, int sourceFrame, int sourceTimeOffset, int rangeFirstFrame, int rangeLastFrame)
 {
     const bool sameRangeContext = _hasSelectedSource &&
                                   _sourceLayerIndex == layerIndex &&
                                   _sourceFilePath == filePath &&
                                   _sourceRangeFirstFrame == qMin(rangeFirstFrame, rangeLastFrame) &&
-                                  _sourceRangeLastFrame == qMax(rangeFirstFrame, rangeLastFrame);
+                                  _sourceRangeLastFrame == qMax(rangeFirstFrame, rangeLastFrame) &&
+                                  _sourceTimeOffset == sourceTimeOffset;
     if (_viewer != viewer) {
         setViewerForCapture(viewer);
     } else if (_sourceAIPaintNode && _sourceAIPaintNode != aiPaintNode) {
@@ -486,6 +489,7 @@ void FluxAiPanel::setSourceCaptureContext(ViewerGL* viewer, const NodePtr& viewe
     _sourceReaderLabel = readerLabel;
     _sourceTimelineFrame = timelineFrame;
     _sourceSourceFrame = sourceFrame;
+    _sourceTimeOffset = sourceTimeOffset;
     setSelectedSource(layerName, filePath, timelineFrame, sourceFrame);
     setFrameRangeControls(rangeFirstFrame, rangeLastFrame, sameRangeContext);
     setAIPaintLivePreviewEnabled(aipaintLivePreviewEnabled(_sourceAIPaintNode));
@@ -500,6 +504,7 @@ void FluxAiPanel::setSourceCaptureContext(ViewerGL* viewer, const NodePtr& viewe
     found.insert(QString::fromUtf8("source_frame"), sourceFrame);
     found.insert(QString::fromUtf8("range_first"), qMin(rangeFirstFrame, rangeLastFrame));
     found.insert(QString::fromUtf8("range_last"), qMax(rangeFirstFrame, rangeLastFrame));
+    found.insert(QString::fromUtf8("time_offset"), sourceTimeOffset);
     writeAiLog(static_cast<bool>(aiPaintNode) ? QString::fromUtf8("info") : QString::fromUtf8("warn"),
                QString::fromUtf8("panel"), QString::fromUtf8("source_context_bound"),
                static_cast<bool>(aiPaintNode) ? QString::fromUtf8("pass") : QString::fromUtf8("block"),
@@ -1001,6 +1006,163 @@ QString FluxAiPanel::selectedResultManifestProjectRelative() const
     return _resultHistoryList->currentItem()->data(Qt::UserRole).toString();
 }
 
+static int resultManifestGenerationTimeOffset(const QJsonObject& manifest, int fallbackTimeOffset)
+{
+    const QJsonObject source = manifest.value(QString::fromUtf8("source_metadata")).toObject();
+    const char* frameRangeKeys[] = {
+        "sam3_frame_range",
+        "matanyone2_frame_range",
+        "videomama_frame_range"
+    };
+    for (const char* key : frameRangeKeys) {
+        const QJsonObject range = source.value(QString::fromUtf8(key)).toObject();
+        if (range.contains(QString::fromUtf8("time_offset"))) {
+            return range.value(QString::fromUtf8("time_offset")).toInt(fallbackTimeOffset);
+        }
+    }
+    if (source.contains(QString::fromUtf8("time_offset"))) {
+        return source.value(QString::fromUtf8("time_offset")).toInt(fallbackTimeOffset);
+    }
+    return fallbackTimeOffset;
+}
+
+static bool inferSequencePatternFrameRange(const QString& projectPath,
+                                           const QString& projectRelativePattern,
+                                           int* firstFrame,
+                                           int* lastFrame)
+{
+    if (projectPath.isEmpty() || projectRelativePattern.isEmpty() || !projectRelativePattern.contains(QLatin1Char('#'))) {
+        return false;
+    }
+
+    const QString absolutePattern = QDir(projectPath).filePath(projectRelativePattern);
+    const QFileInfo patternInfo(absolutePattern);
+    const QString filePattern = patternInfo.fileName();
+    const QRegularExpression hashRe(QLatin1String("#{2,}"));
+    const QRegularExpressionMatch match = hashRe.match(filePattern);
+    if (!match.hasMatch()) {
+        return false;
+    }
+
+    const QString prefix = filePattern.left(match.capturedStart());
+    const QString suffix = filePattern.mid(match.capturedEnd());
+    const int digits = match.capturedLength();
+    const QStringList entries = QDir(patternInfo.absolutePath()).entryList(QDir::Files | QDir::Readable, QDir::Name);
+    int minFrame = INT_MAX;
+    int maxFrame = INT_MIN;
+    for (const QString& entry : entries) {
+        if (!entry.startsWith(prefix) || !entry.endsWith(suffix)) {
+            continue;
+        }
+        const int numberStart = prefix.size();
+        const int numberLength = entry.size() - prefix.size() - suffix.size();
+        if (numberLength != digits) {
+            continue;
+        }
+        const QString numberText = entry.mid(numberStart, numberLength);
+        bool ok = false;
+        const int frame = numberText.toInt(&ok);
+        if (!ok) {
+            continue;
+        }
+        minFrame = qMin(minFrame, frame);
+        maxFrame = qMax(maxFrame, frame);
+    }
+    if (minFrame == INT_MAX || maxFrame == INT_MIN) {
+        return false;
+    }
+    if (firstFrame) { *firstFrame = minFrame; }
+    if (lastFrame) { *lastFrame = maxFrame; }
+    return true;
+}
+
+static QJsonArray renumberSequenceFrames(const QJsonArray& frames,
+                                         int firstFrame)
+{
+    QJsonArray renumbered;
+    int frame = firstFrame;
+    for (const QJsonValue& value : frames) {
+        QJsonObject obj = value.toObject();
+        obj.insert(QString::fromUtf8("source_frame"), frame);
+        obj.insert(QString::fromUtf8("timeline_frame"), frame);
+        renumbered.append(obj);
+        ++frame;
+    }
+    return renumbered;
+}
+
+int FluxAiPanel::selectedResultGenerationTimeOffset(int fallbackTimeOffset) const
+{
+    const QString manifestPath = selectedResultManifestProjectRelative();
+    if (manifestPath.isEmpty() || !_gui || !_gui->getApp() || !_gui->getApp()->getProject()) {
+        return fallbackTimeOffset;
+    }
+    QString safeManifest;
+    if (!sanitizeProjectRelativePath(manifestPath, &safeManifest)) {
+        return fallbackTimeOffset;
+    }
+    QFile file(QDir(_gui->getApp()->getProject()->getProjectPath()).filePath(safeManifest));
+    if (!file.open(QIODevice::ReadOnly)) {
+        return fallbackTimeOffset;
+    }
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        return fallbackTimeOffset;
+    }
+    return resultManifestGenerationTimeOffset(doc.object(), fallbackTimeOffset);
+}
+
+bool FluxAiPanel::selectedResultGenerationRange(int* firstFrame, int* lastFrame, int* timeOffset) const
+{
+    const QString manifestPath = selectedResultManifestProjectRelative();
+    if (manifestPath.isEmpty() || !_gui || !_gui->getApp() || !_gui->getApp()->getProject()) {
+        return false;
+    }
+    QString safeManifest;
+    if (!sanitizeProjectRelativePath(manifestPath, &safeManifest)) {
+        return false;
+    }
+    QFile file(QDir(_gui->getApp()->getProject()->getProjectPath()).filePath(safeManifest));
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        return false;
+    }
+
+    const QJsonObject source = doc.object().value(QString::fromUtf8("source_metadata")).toObject();
+    int start = INT_MIN;
+    int end = INT_MIN;
+    const QString projectPath = _gui->getApp()->getProject()->getProjectPath();
+    QString maskPattern;
+    if (sanitizeProjectRelativePath(doc.object().value(QString::fromUtf8("selected_mask_sequence_pattern_project_relative")).toString(), &maskPattern) &&
+        inferSequencePatternFrameRange(projectPath, maskPattern, &start, &end)) {
+        if (firstFrame) { *firstFrame = qMin(start, end); }
+        if (lastFrame) { *lastFrame = qMax(start, end); }
+        if (timeOffset) { *timeOffset = resultManifestGenerationTimeOffset(doc.object(), _sourceTimeOffset); }
+        return true;
+    }
+
+    const QJsonObject sam3Sequence = source.value(QString::fromUtf8("sam3_source_sequence")).toObject();
+    start = sam3Sequence.value(QString::fromUtf8("source_frame_start")).toInt(INT_MIN);
+    end = sam3Sequence.value(QString::fromUtf8("source_frame_end")).toInt(INT_MIN);
+    if (start == INT_MIN || end == INT_MIN) {
+        const QJsonObject frameRange = source.value(QString::fromUtf8("sam3_frame_range")).toObject();
+        start = frameRange.value(QString::fromUtf8("source_start")).toInt(INT_MIN);
+        end = frameRange.value(QString::fromUtf8("source_end")).toInt(INT_MIN);
+    }
+    if (start == INT_MIN || end == INT_MIN) {
+        return false;
+    }
+    if (firstFrame) { *firstFrame = qMin(start, end); }
+    if (lastFrame) { *lastFrame = qMax(start, end); }
+    if (timeOffset) { *timeOffset = resultManifestGenerationTimeOffset(doc.object(), _sourceTimeOffset); }
+    return true;
+}
+
 bool FluxAiPanel::selectedResultMaskProjectRelative(QString* relativeMask, QString* message, QString* relativeSequencePattern) const
 {
     const QString manifestPath = selectedResultManifestProjectRelative();
@@ -1239,24 +1401,26 @@ void FluxAiPanel::setFrameRangeControls(int firstFrame, int lastFrame, bool pres
 {
     const int minimumFrame = qMin(firstFrame, lastFrame);
     const int maximumFrame = qMax(firstFrame, lastFrame);
-    const int previousStart = _frameRangeStartSpin ? _frameRangeStartSpin->value() : minimumFrame;
-    const int previousEnd = _frameRangeEndSpin ? _frameRangeEndSpin->value() : maximumFrame;
-    const int selectedStart = preserveSelection ? qBound(minimumFrame, previousStart, maximumFrame) : minimumFrame;
-    const int selectedEnd = preserveSelection ? qBound(minimumFrame, previousEnd, maximumFrame) : maximumFrame;
+    const int displayMinimumFrame = minimumFrame + _sourceTimeOffset;
+    const int displayMaximumFrame = maximumFrame + _sourceTimeOffset;
+    const int previousStart = _frameRangeStartSpin ? _frameRangeStartSpin->value() : displayMinimumFrame;
+    const int previousEnd = _frameRangeEndSpin ? _frameRangeEndSpin->value() : displayMaximumFrame;
+    const int selectedStart = preserveSelection ? qBound(displayMinimumFrame, previousStart, displayMaximumFrame) : displayMinimumFrame;
+    const int selectedEnd = preserveSelection ? qBound(displayMinimumFrame, previousEnd, displayMaximumFrame) : displayMaximumFrame;
 
     _sourceRangeFirstFrame = minimumFrame;
     _sourceRangeLastFrame = maximumFrame;
     _updatingFrameRangeControls = true;
     if (_frameRangeStartSpin) {
-        _frameRangeStartSpin->setRange(minimumFrame, maximumFrame);
+        _frameRangeStartSpin->setRange(displayMinimumFrame, displayMaximumFrame);
         _frameRangeStartSpin->setValue(qMin(selectedStart, selectedEnd));
     }
     if (_frameRangeEndSpin) {
-        _frameRangeEndSpin->setRange(minimumFrame, maximumFrame);
+        _frameRangeEndSpin->setRange(displayMinimumFrame, displayMaximumFrame);
         _frameRangeEndSpin->setValue(qMax(selectedStart, selectedEnd));
     }
     if (_frameRangeLabel) {
-        _frameRangeLabel->setText(QString::fromUtf8("Frame Range: source %1-%2 (trim default)").arg(minimumFrame).arg(maximumFrame));
+        _frameRangeLabel->setText(QString::fromUtf8("Frame Range: timeline %1-%2 (trim default, source %3-%4)").arg(displayMinimumFrame).arg(displayMaximumFrame).arg(minimumFrame).arg(maximumFrame));
     }
     _updatingFrameRangeControls = false;
     updateUiState();
@@ -1268,17 +1432,23 @@ bool FluxAiPanel::selectedFrameRange(int* firstFrame, int* lastFrame, QString* m
         if (message) { *message = QString::fromUtf8("SAM3 frame range unavailable: no selected source."); }
         return false;
     }
-    const int start = _frameRangeStartSpin->value();
-    const int end = _frameRangeEndSpin->value();
+    const int timelineStart = _frameRangeStartSpin->value();
+    const int timelineEnd = _frameRangeEndSpin->value();
+    const int start = timelineStart - _sourceTimeOffset;
+    const int end = timelineEnd - _sourceTimeOffset;
     if (start > end) {
         if (message) { *message = QString::fromUtf8("SAM3 frame range is invalid: start is after end."); }
         return false;
     }
     if (start < _sourceRangeFirstFrame || end > _sourceRangeLastFrame) {
         if (message) {
-            *message = QString::fromUtf8("SAM3 frame range is outside the selected layer trim: requested %1-%2, trim %3-%4.")
+            *message = QString::fromUtf8("SAM3 frame range is outside the selected layer trim: requested timeline %1-%2 (source %3-%4), trim timeline %5-%6 (source %7-%8).")
+                           .arg(timelineStart)
+                           .arg(timelineEnd)
                            .arg(start)
                            .arg(end)
+                           .arg(_sourceRangeFirstFrame + _sourceTimeOffset)
+                           .arg(_sourceRangeLastFrame + _sourceTimeOffset)
                            .arg(_sourceRangeFirstFrame)
                            .arg(_sourceRangeLastFrame);
         }
@@ -1294,7 +1464,7 @@ QJsonObject FluxAiPanel::selectedFrameRangeMetadata() const
     int start = _sourceRangeFirstFrame;
     int end = _sourceRangeLastFrame;
     selectedFrameRange(&start, &end, nullptr);
-    const int timeOffset = _sourceFrameMetadata.value(QString::fromUtf8("time_offset")).toInt(_sourceTimelineFrame - _sourceSourceFrame);
+    const int timeOffset = _sourceTimeOffset;
     QJsonObject metadata;
     metadata.insert(QString::fromUtf8("source_start"), start);
     metadata.insert(QString::fromUtf8("source_end"), end);
@@ -1553,7 +1723,7 @@ bool FluxAiPanel::promptIsInTimelineRange(const AIPaintPrompt& prompt, int timel
         if (it != prompt.metadata.end()) {
             try {
                 const int sf = std::stoi(it->second);
-                const int timeOffset = _sourceFrameMetadata.value(QString::fromUtf8("time_offset")).toInt(_sourceTimelineFrame - _sourceSourceFrame);
+                const int timeOffset = _sourceTimeOffset;
                 const int tf = sf + timeOffset;
                 return tf >= timelineStart && tf <= timelineEnd;
             } catch (...) {}
@@ -2013,7 +2183,7 @@ QJsonObject FluxAiPanel::buildAIPaintPromptForSam(const AIPaintPrompt& prompt, Q
     // --- Resolve per-prompt frame ownership ---
     // Deriving sourceFrame from timelineFrame uses current panel source context/timeOffset
     // because AIPaint.cpp lacks source layer context.
-    const int timeOffset = _sourceFrameMetadata.value(QString::fromUtf8("time_offset")).toInt(_sourceTimelineFrame - _sourceSourceFrame);
+    const int timeOffset = _sourceTimeOffset;
 
     // Build a QJsonObject view of prompt.metadata for lookup.
     QJsonObject promptMeta;
@@ -3941,7 +4111,7 @@ void FluxAiPanel::processSam3WorkerLine(const QByteArray& line)
                     const double bx2 = boundsObj.value(QString::fromUtf8("x2")).toDouble(0.0);
                     const double by2 = boundsObj.value(QString::fromUtf8("y2")).toDouble(0.0);
                     const bool hasBounds = !boundsObj.isEmpty() && (bx2 > bx1) && (by2 > by1);
-                    aiPaint->setLivePreviewMaskPath(mask, currentAIPaintPromptFrame(),
+                    aiPaint->setLivePreviewMaskPath(mask, _sourceTimelineFrame,
                                                      bx1, by1, bx2, by2, hasBounds);
                     setAIPaintSam3StatusKnob(_sourceAIPaintNode, QString::fromUtf8("live preview ready"));
                     if (_statusLabel) { _statusLabel->setText(QString::fromUtf8("Status: SAM3 live preview ready")); }
@@ -4102,12 +4272,9 @@ void FluxAiPanel::runMatAnyone2()
     appendLog(warningText);
 
     QString message;
-    // Do not call refreshSourceFrameMetadata() here: VideoMaMa must reuse the
-    // processed SAM3 source sequence selected from Result History and must not
-    // export reader/source footage on its own.
     if (!_sourceAIPaintNode || !_sourceAIPaintNode->isActivated()) {
         if (_statusLabel) { _statusLabel->setText(QString::fromUtf8("Status: source capture blocked")); }
-        appendLog(QString::fromUtf8("VideoMaMa blocked: selected layer has no active AI Paint source context (no footage re-export)."));
+        appendLog(QString::fromUtf8("MatAnyone2 blocked: selected layer has no active AI Paint source context."));
         updateUiState();
         return;
     }
@@ -4120,6 +4287,7 @@ void FluxAiPanel::runMatAnyone2()
         updateUiState();
         return;
     }
+    int generationTimeOffsetForResult = _sourceTimeOffset;
 
     // Resolve base mask — multiple sources, pick first available
     // 1. AI Paint live preview mask on the current source node
@@ -4146,20 +4314,30 @@ void FluxAiPanel::runMatAnyone2()
     if (baseMaskAbsolute.isEmpty()) {
         QString maskRelative, maskMessage;
         QString sequencePattern;
+        int historyRangeStart = 0;
+        int historyRangeEnd = 0;
+        int historyTimeOffset = _sourceTimeOffset;
         if (selectedResultMaskProjectRelative(&maskRelative, &maskMessage, &sequencePattern)) {
-            // If the result has a video sequence, try to extract the mask for rangeStart
+            if (selectedResultGenerationRange(&historyRangeStart, &historyRangeEnd, &historyTimeOffset)) {
+                rangeStart = historyRangeStart;
+                rangeEnd = historyRangeEnd;
+                generationTimeOffsetForResult = historyTimeOffset;
+                appendLog(tr("MatAnyone2 using selected SAM3 history frame range %1-%2.").arg(rangeStart).arg(rangeEnd));
+            }
+            // If the result has a video sequence, try to extract the mask for rangeStart in the selected result's numbering.
             if (!sequencePattern.isEmpty() && sequencePattern.contains(QLatin1Char('#'))) {
                 QRegularExpression hashRe(QLatin1String("#{2,}"));
                 QRegularExpressionMatch match = hashRe.match(sequencePattern);
                 if (match.hasMatch()) {
                     const int hashLen = match.capturedLength();
-                    const QString frameNumStr = QString::number(rangeStart).rightJustified(hashLen, QLatin1Char('0'));
+                    const int maskFrame = rangeStart;
+                    const QString frameNumStr = QString::number(maskFrame).rightJustified(hashLen, QLatin1Char('0'));
                     const QString seqMaskRelative = sequencePattern.mid(0, match.capturedStart()) + frameNumStr + sequencePattern.mid(match.capturedEnd());
                     const QString seqMaskAbsolute = QDir(project->getProjectPath()).filePath(seqMaskRelative);
                     if (QFileInfo(seqMaskAbsolute).isFile() && QFileInfo(seqMaskAbsolute).size() > 0) {
                         baseMaskAbsolute = seqMaskAbsolute;
                         baseMaskRelative = seqMaskRelative;
-                        appendLog(tr("MatAnyone2 using mask frame %1 from SAM3 video sequence: %2").arg(rangeStart).arg(seqMaskRelative));
+                        appendLog(tr("MatAnyone2 using mask frame %1 from SAM3 video sequence: %2").arg(maskFrame).arg(seqMaskRelative));
                     }
                 }
             }
@@ -4189,7 +4367,13 @@ void FluxAiPanel::runMatAnyone2()
 
     // Reuse cached source sequence if same range, otherwise export
     QJsonObject sourceMetadata = _sourceFrameMetadata;
-    const QJsonObject frameRangeMetadata = selectedFrameRangeMetadata();
+    QJsonObject frameRangeMetadata = selectedFrameRangeMetadata();
+    frameRangeMetadata.insert(QString::fromUtf8("source_start"), rangeStart);
+    frameRangeMetadata.insert(QString::fromUtf8("source_end"), rangeEnd);
+    frameRangeMetadata.insert(QString::fromUtf8("duration_frames"), qMax(0, rangeEnd - rangeStart + 1));
+    frameRangeMetadata.insert(QString::fromUtf8("time_offset"), generationTimeOffsetForResult);
+    frameRangeMetadata.insert(QString::fromUtf8("timeline_start"), rangeStart + generationTimeOffsetForResult);
+    frameRangeMetadata.insert(QString::fromUtf8("timeline_end"), rangeEnd + generationTimeOffsetForResult);
     sourceMetadata.insert(QString::fromUtf8("matanyone2_frame_range"), frameRangeMetadata);
     _sourceFrameMetadata = sourceMetadata;
 
@@ -4210,7 +4394,6 @@ void FluxAiPanel::runMatAnyone2()
                     if (mpe.error == QJsonParseError::NoError && mdoc.isObject()) {
                         const QJsonObject mobj = mdoc.object();
                         const QJsonObject srcMeta = mobj.value(QString::fromUtf8("source_metadata")).toObject();
-
                         // Try matanyone2_source_sequence first, then sam3_source_sequence as fallback
                         QStringList seqKeys;
                         seqKeys << QString::fromUtf8("matanyone2_source_sequence")
@@ -4220,17 +4403,12 @@ void FluxAiPanel::runMatAnyone2()
                             const QJsonObject manifestSeq = srcMeta.value(seqKey).toObject();
                             if (manifestSeq.isEmpty()) { continue; }
 
-                            // Read the base directory (absolute) and range from the manifest
                             const QString baseDir = manifestSeq.value(QString::fromUtf8("temporary_source_sequence_dir")).toString();
-                            const int manifestStart = manifestSeq.value(QString::fromUtf8("source_frame_start")).toInt(-1);
-                            const int manifestEnd = manifestSeq.value(QString::fromUtf8("source_frame_end")).toInt(-1);
-
-                            if (baseDir.isEmpty() || manifestStart != rangeStart || manifestEnd != rangeEnd) { continue; }
+                            if (baseDir.isEmpty()) { continue; }
 
                             const QJsonArray manifestFrames = manifestSeq.value(QString::fromUtf8("frames")).toArray();
                             if (manifestFrames.isEmpty()) { continue; }
 
-                            // Resolve relative frame paths against the base directory
                             const QString firstRelPath = manifestFrames.at(0).toObject().value(QString::fromUtf8("path")).toString();
                             const QString lastRelPath = manifestFrames.at(manifestFrames.size() - 1).toObject().value(QString::fromUtf8("path")).toString();
                             const QString firstAbsPath = QDir(baseDir).filePath(firstRelPath);
@@ -4239,7 +4417,12 @@ void FluxAiPanel::runMatAnyone2()
                             if (QFileInfo(firstAbsPath).isFile() && QFileInfo(lastAbsPath).isFile()) {
                                 sequenceDir = baseDir;
                                 sequenceMetadata = manifestSeq;
-                                appendLog(tr("MatAnyone2 reusing source sequence from selected result manifest (%1) for range %2-%3")
+                                sequenceMetadata.insert(QString::fromUtf8("frames"), renumberSequenceFrames(manifestFrames, rangeStart));
+                                sequenceMetadata.insert(QString::fromUtf8("source_frame_start"), rangeStart);
+                                sequenceMetadata.insert(QString::fromUtf8("source_frame_end"), rangeEnd);
+                                sequenceMetadata.insert(QString::fromUtf8("timeline_frame_start"), rangeStart);
+                                sequenceMetadata.insert(QString::fromUtf8("timeline_frame_end"), rangeEnd);
+                                appendLog(tr("MatAnyone2 reusing source sequence from selected result manifest (%1) with selected mask numbering %2-%3")
                                           .arg(seqKey).arg(rangeStart).arg(rangeEnd));
                             }
                         }
@@ -4249,7 +4432,7 @@ void FluxAiPanel::runMatAnyone2()
         }
     }
 
-    if (_cachedSourceSequenceRangeStart == rangeStart && _cachedSourceSequenceRangeEnd == rangeEnd && !_cachedSourceSequenceDir.isEmpty() && !_cachedSourceSequenceMetadata.isEmpty()) {
+    if (sequenceDir.isEmpty() && _cachedSourceSequenceRangeStart == rangeStart && _cachedSourceSequenceRangeEnd == rangeEnd && !_cachedSourceSequenceDir.isEmpty() && !_cachedSourceSequenceMetadata.isEmpty()) {
         // Verify cached frames still exist (resolve relative paths against cached dir)
         const QJsonArray cachedFrames = _cachedSourceSequenceMetadata.value(QString::fromUtf8("frames")).toArray();
         bool framesValid = !cachedFrames.isEmpty();
@@ -5049,11 +5232,14 @@ void FluxAiPanel::runVideoMama()
         updateUiState();
         return;
     }
-    FluxTimeline* fluxTimeline = _gui ? _gui->getFluxTimeline() : nullptr;
-    const QList<FluxLayer>& layers = fluxTimeline ? fluxTimeline->getLayers() : QList<FluxLayer>();
-    const int videoMamaTimeOffset = (_sourceLayerIndex >= 0 && _sourceLayerIndex < layers.size())
-                                    ? layers[_sourceLayerIndex].timeOffset
-                                    : (_sourceTimelineFrame - _sourceSourceFrame);
+    int maskGenerationTimeOffset = _sourceTimeOffset;
+    int selectedHistoryStart = 0;
+    int selectedHistoryEnd = 0;
+    if (selectedResultGenerationRange(&selectedHistoryStart, &selectedHistoryEnd, &maskGenerationTimeOffset)) {
+        rangeStart = selectedHistoryStart;
+        rangeEnd = selectedHistoryEnd;
+        appendLog(tr("VideoMaMa using selected SAM3 history frame range %1-%2.").arg(rangeStart).arg(rangeEnd));
+    }
 
     // Resolve base mask from the selected SAM3 result. Do not use AI Paint live
     // preview here: VideoMaMa must consume the exported SAM3 mask sequence.
@@ -5075,7 +5261,7 @@ void FluxAiPanel::runVideoMama()
                 QRegularExpressionMatch match = hashRe.match(sequencePattern);
                 if (match.hasMatch()) {
                     const int hashLen = match.capturedLength();
-                    const int firstTimelineFrame = rangeStart + videoMamaTimeOffset;
+                    const int firstTimelineFrame = rangeStart;
                     const QString frameNumStr = QString::number(firstTimelineFrame).rightJustified(hashLen, QLatin1Char('0'));
                     const QString seqMaskRelative = sequencePattern.mid(0, match.capturedStart()) + frameNumStr + sequencePattern.mid(match.capturedEnd());
                     const QString seqMaskAbsolute = QDir(project->getProjectPath()).filePath(seqMaskRelative);
@@ -5118,7 +5304,13 @@ void FluxAiPanel::runVideoMama()
 
     // VideoMaMa must reuse SAM3 exported footage and mask — never re-export.
     QJsonObject sourceMetadata = _sourceFrameMetadata;
-    const QJsonObject frameRangeMetadata = selectedFrameRangeMetadata();
+    QJsonObject frameRangeMetadata = selectedFrameRangeMetadata();
+    frameRangeMetadata.insert(QString::fromUtf8("source_start"), rangeStart);
+    frameRangeMetadata.insert(QString::fromUtf8("source_end"), rangeEnd);
+    frameRangeMetadata.insert(QString::fromUtf8("duration_frames"), qMax(0, rangeEnd - rangeStart + 1));
+    frameRangeMetadata.insert(QString::fromUtf8("time_offset"), maskGenerationTimeOffset);
+    frameRangeMetadata.insert(QString::fromUtf8("timeline_start"), rangeStart + maskGenerationTimeOffset);
+    frameRangeMetadata.insert(QString::fromUtf8("timeline_end"), rangeEnd + maskGenerationTimeOffset);
     sourceMetadata.insert(QString::fromUtf8("videomama_frame_range"), frameRangeMetadata);
     _sourceFrameMetadata = sourceMetadata;
 
@@ -5213,16 +5405,11 @@ void FluxAiPanel::runVideoMama()
                 effectiveEnd = inferredLast;
             }
         }
-        if (effectiveStart < 0 || effectiveEnd < 0) {
-            if (_statusLabel) { _statusLabel->setText(QString::fromUtf8("Status: cannot determine SAM3 range")); }
-            appendLog(QString::fromUtf8("VideoMaMa blocked: SAM3 source sequence has no usable range metadata (no source_frame_start/end and no source_frame in frames)."));
-            updateUiState();
-            return;
-        }
-        if (effectiveStart != rangeStart || effectiveEnd != rangeEnd) {
-            if (_statusLabel) { _statusLabel->setText(QString::fromUtf8("Status: frame range mismatch")); }
-            appendLog(QString::fromUtf8("VideoMaMa blocked: SAM3 source sequence range (%1-%2) does not match requested range (%3-%4). Re-run SAM3 for range %3-%4 first (no footage re-export).")
-                      .arg(effectiveStart).arg(effectiveEnd).arg(rangeStart).arg(rangeEnd));
+        const int expectedFrames = qMax(0, rangeEnd - rangeStart + 1);
+        if (expectedFrames <= 0 || manifestFrames.size() != expectedFrames) {
+            if (_statusLabel) { _statusLabel->setText(QString::fromUtf8("Status: SAM3 sequence length mismatch")); }
+            appendLog(QString::fromUtf8("VideoMaMa blocked: selected SAM3 source sequence has %1 frame(s), but selected mask numbering %2-%3 requires %4.")
+                      .arg(manifestFrames.size()).arg(rangeStart).arg(rangeEnd).arg(expectedFrames));
             updateUiState();
             return;
         }
@@ -5249,7 +5436,10 @@ void FluxAiPanel::runVideoMama()
                 break;
             }
             QJsonObject normalizedFrame = frameObj;
+            const int frameNumber = rangeStart + normalizedFrames.size();
             normalizedFrame.insert(QString::fromUtf8("path"), frameAbsPath);
+            normalizedFrame.insert(QString::fromUtf8("source_frame"), frameNumber);
+            normalizedFrame.insert(QString::fromUtf8("timeline_frame"), frameNumber);
             normalizedFrames.append(normalizedFrame);
             if (resolvedBaseDir.isEmpty()) {
                 resolvedBaseDir = QFileInfo(frameAbsPath).absolutePath();
@@ -5266,11 +5456,10 @@ void FluxAiPanel::runVideoMama()
         sequenceDir = baseDir.isEmpty() ? resolvedBaseDir : baseDir;
         sequenceMetadata = manifestSeq;
         sequenceMetadata.insert(QString::fromUtf8("frames"), normalizedFrames);
-        // Back-fill range and directory if the old manifest omitted them
-        if (manifestStart < 0 || manifestEnd < 0) {
-            sequenceMetadata.insert(QString::fromUtf8("source_frame_start"), effectiveStart);
-            sequenceMetadata.insert(QString::fromUtf8("source_frame_end"), effectiveEnd);
-        }
+        sequenceMetadata.insert(QString::fromUtf8("source_frame_start"), rangeStart);
+        sequenceMetadata.insert(QString::fromUtf8("source_frame_end"), rangeEnd);
+        sequenceMetadata.insert(QString::fromUtf8("timeline_frame_start"), rangeStart);
+        sequenceMetadata.insert(QString::fromUtf8("timeline_frame_end"), rangeEnd);
         if (baseDirAbsent) {
             sequenceMetadata.insert(QString::fromUtf8("temporary_source_sequence_dir"), sequenceDir);
         }

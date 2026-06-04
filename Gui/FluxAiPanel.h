@@ -42,7 +42,7 @@ public:
     explicit FluxAiPanel(Gui* gui, QWidget* parent = nullptr);
     ~FluxAiPanel() override;
     void setViewerForCapture(ViewerGL* viewer);
-    void setSourceCaptureContext(ViewerGL* viewer, const NodePtr& viewerNode, int layerIndex, const QString& layerName, const QString& filePath, const NodePtr& readerNode, const QString& readerLabel, const NodePtr& aiPaintNode, int timelineFrame, int sourceFrame, int rangeFirstFrame, int rangeLastFrame);
+    void setSourceCaptureContext(ViewerGL* viewer, const NodePtr& viewerNode, int layerIndex, const QString& layerName, const QString& filePath, const NodePtr& readerNode, const QString& readerLabel, const NodePtr& aiPaintNode, int timelineFrame, int sourceFrame, int sourceTimeOffset, int rangeFirstFrame, int rangeLastFrame);
     Q_INVOKABLE void refreshAIPaintPromptState();
     Q_INVOKABLE void requestAIPaintSam3Load();
     Q_INVOKABLE void requestAIPaintSam3Unload();
@@ -105,6 +105,8 @@ private:
     QString resultHistoryDisplayLabel(const QString& projectRelativeManifest) const;
     QString selectedResultManifestProjectRelative() const;
     bool selectedResultMaskProjectRelative(QString* relativeMask, QString* message, QString* relativeSequencePattern = nullptr) const;
+    int selectedResultGenerationTimeOffset(int fallbackTimeOffset) const;
+    bool selectedResultGenerationRange(int* firstFrame, int* lastFrame, int* timeOffset) const;
     void updateUiState();
     void stopSam3PersistentWorker();
     void stopMatAnyone2Worker();
@@ -167,6 +169,7 @@ private:
     int _sourceSourceFrame;
     int _sourceRangeFirstFrame;
     int _sourceRangeLastFrame;
+    int _sourceTimeOffset;
     bool _updatingFrameRangeControls;
     QComboBox* _taskCombo;
     QComboBox* _modelCombo;
