@@ -17,6 +17,7 @@ ACTIONS = [
     ("ai-runtime-self-check", "SAM3.1 runtime self-check", "Run the SAM3.1 probe through the provider env Python.", False),
     ("ai-remove-menu", "Remove installed AI model", "Choose installed models in this curses picker, then remove by explicit model id.", False),
     ("deploy-runtime", "Install/repair runtime only", "Repair installed app, Python runtime, plugins, launcher; no rebuild.", True),
+    ("installer-self-test", "Installer self-test", "Fresh-clone configure and stale-submodule repair verification without host install mutation.", False),
     ("build-all", "Build Flux from source", "Compile Flux/Natron and Flux OFX targets from the configured build tree.", True),
     ("configure", "Configure build", "Run CMake configuration for current source/build settings.", True),
     ("fedora-deps", "Install Fedora dependencies", "Install Fedora build/runtime packages with sudo dnf.", True),

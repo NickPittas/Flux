@@ -62,11 +62,10 @@ COPY_MODE="copy"
 
 FEDORA_PACKAGES=(
   cmake
+  pkgconf-pkg-config
   extra-cmake-modules
   gcc
   gcc-c++
-  clang
-  make
   ninja-build
   git
   boost-devel
@@ -85,14 +84,13 @@ FEDORA_PACKAGES=(
   libXrender-devel
   mesa-libGL
   mesa-libGL-devel
-  mesa-libGLU
-  glew-devel
   expat-devel
   cairo-devel
   pango-devel
   glib2-devel
   fontconfig-devel
   freetype-devel
+  harfbuzz-devel
   libpng-devel
   libjpeg-turbo-devel
   libtiff-devel
@@ -103,14 +101,6 @@ FEDORA_PACKAGES=(
   ffmpeg-devel
   OpenColorIO-devel
   OpenImageIO-devel
-  ImageMagick-c++
-  libraqm
-  liblqr-1
-  libzip-devel
-  minizip-ng-devel
-  eigen3-devel
-  glog-devel
-  ceres-solver-devel
 )
 
 REQUIRED_PYPLUG_FILES=(
@@ -402,7 +392,6 @@ enable_rpmfusion_free() {
   os_id="$(detect_os)"
   [[ "$os_id" == "fedora" ]] || die "RPM Fusion setup only supports Fedora; detected '${os_id}'."
   command -v rpm >/dev/null 2>&1 || die 'rpm is required to check RPM Fusion.'
-  require_privilege_or_guidance 'RPM Fusion setup' || die 'sudo or pkexec is required to enable RPM Fusion.'
   command -v dnf >/dev/null 2>&1 || die 'dnf is required to enable RPM Fusion.'
 
   if rpm -q rpmfusion-free-release >/dev/null 2>&1; then
@@ -410,6 +399,7 @@ enable_rpmfusion_free() {
     return 0
   fi
 
+  require_privilege_or_guidance 'RPM Fusion setup' || die 'sudo or pkexec is required to enable RPM Fusion.'
   fedora_version="$(rpm -E %fedora)"
   rpmfusion_url="https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm"
   log "Enabling RPM Fusion free for Fedora ${fedora_version}."
@@ -424,7 +414,7 @@ install_fedora_packages() {
   command -v dnf >/dev/null 2>&1 || die 'dnf is required for dependency installation.'
 
   log 'Installing Fedora packages. RPM Fusion free must be enabled for ffmpeg-devel.'
-  run_privileged dnf install -y --allowerasing "${FEDORA_PACKAGES[@]}"
+  run_privileged dnf install -y --setopt=install_weak_deps=False --allowerasing "${FEDORA_PACKAGES[@]}"
 }
 
 update_openfx_submodule_fallback() {
@@ -442,6 +432,9 @@ update_openfx_submodule_fallback() {
   fi
   git -C "$openfx_dir" fetch origin "$openfx_ref"
   git -C "$openfx_dir" checkout --detach "$openfx_ref"
+  if [[ ! -f "${openfx_dir}/HostSupport/src/ofxhBinary.cpp" || ! -f "${openfx_dir}/include/ofxCore.h" ]]; then
+    die 'OpenFX submodule checkout is incomplete after repair.'
+  fi
 }
 
 
@@ -472,9 +465,9 @@ ensure_required_submodule_file() {
 
 ensure_required_submodules() {
   ensure_required_submodule_file libs/SequenceParsing libs/SequenceParsing/SequenceParsing.cpp || return
-  ensure_required_submodule_file Tests/google-test Tests/google-test/README || return
-  ensure_required_submodule_file Tests/google-mock Tests/google-mock/README || return
-  ensure_required_submodule_file libs/google-breakpad libs/google-breakpad/src/tools/linux/symupload/sym_upload.cc || return
+  ensure_required_submodule_file libs/SequenceParsing libs/SequenceParsing/tinydir/tinydir.h || return
+  ensure_required_submodule_file Tests/google-test Tests/google-test/src/gtest-all.cc || return
+  ensure_required_submodule_file Tests/google-mock Tests/google-mock/src/gmock-all.cc || return
   ensure_required_submodule_file plugins/natron-plugins plugins/natron-plugins/README.md || return
 }
 
@@ -1193,6 +1186,43 @@ status_word() {
   fi
 }
 
+run_installer_self_test() {
+  local tmp clone
+  command -v git >/dev/null 2>&1 || die 'git is required for installer self-test.'
+  command -v cmake >/dev/null 2>&1 || die 'cmake is required for installer self-test.'
+
+  tmp="$(mktemp -d)"
+  clone="${tmp}/Flux"
+
+  log "Self-test: cloning current checkout to ${clone}."
+  git clone --no-local --no-checkout "$FLUX_ROOT" "$clone" >/dev/null
+  git -C "$clone" checkout "$(git -C "$FLUX_ROOT" rev-parse --abbrev-ref HEAD)" >/dev/null
+
+  log 'Self-test: running private configure in fresh clone.'
+  FLUX_SETUP_INTERNAL_DISPATCH=1 \
+  FLUX_BUILD_DIR="${tmp}/build-fresh" \
+  FLUX_INSTALL_PREFIX="${tmp}/install-fresh" \
+  "$clone/tools/linux/flux-linux-setup.sh" __flux_setup_action configure >/dev/null
+
+  [[ -f "${clone}/libs/SequenceParsing/SequenceParsing.cpp" ]] || die 'Self-test failed: SequenceParsing source missing after fresh configure.'
+  [[ -f "${clone}/libs/SequenceParsing/tinydir/tinydir.h" ]] || die 'Self-test failed: nested tinydir source missing after fresh configure.'
+  [[ -f "${clone}/libs/OpenFX/HostSupport/src/ofxhBinary.cpp" ]] || die 'Self-test failed: OpenFX HostSupport source missing after fresh configure.'
+  [[ -f "${clone}/Tests/google-test/src/gtest-all.cc" ]] || die 'Self-test failed: google-test source missing after fresh configure.'
+  [[ -f "${clone}/Tests/google-mock/src/gmock-all.cc" ]] || die 'Self-test failed: google-mock source missing after fresh configure.'
+
+  log 'Self-test: damaging SequenceParsing checkout and verifying repair.'
+  rm -f "${clone}/libs/SequenceParsing/SequenceParsing.cpp"
+  FLUX_SETUP_INTERNAL_DISPATCH=1 \
+  FLUX_BUILD_DIR="${tmp}/build-repair" \
+  FLUX_INSTALL_PREFIX="${tmp}/install-repair" \
+  "$clone/tools/linux/flux-linux-setup.sh" __flux_setup_action configure >/dev/null
+
+  [[ -f "${clone}/libs/SequenceParsing/SequenceParsing.cpp" ]] || die 'Self-test failed: SequenceParsing repair did not restore source.'
+  rm -rf "$tmp"
+  log 'Installer self-test passed.'
+}
+
+
 rpmfusion_status() {
   if command -v rpm >/dev/null 2>&1 && rpm -q rpmfusion-free-release >/dev/null 2>&1; then
     printf 'enabled'
@@ -1330,6 +1360,7 @@ run_deploy_runtime() {
   clear_ofx_cache || return
   write_launcher || return
   validate_ldd || return
+  validate_ofx_discovery || return
 }
 
 run_build_all() {
@@ -1482,6 +1513,7 @@ run_private_action() {
     fedora-deps) install_fedora_packages ;;
     rpmfusion) enable_rpmfusion_free ;;
     checks) run_checks ;;
+    installer-self-test) run_installer_self_test ;;
     launch) launch_flux ;;
     uninstall) uninstall_flux ;;
     status-summary) print_status_summary ;;

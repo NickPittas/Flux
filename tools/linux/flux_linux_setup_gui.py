@@ -10,6 +10,7 @@ import json
 import os
 import queue
 import subprocess
+import signal
 import sys
 import threading
 from pathlib import Path
@@ -62,6 +63,7 @@ class FluxInstallerGui:
         self.current_action = ""
         self.last_diagnostics: dict | None = None
         self.repair_vars: dict[str, BooleanVar] = {}
+        self.cancel_button: ttk.Button | None = None
 
         self.style = ttk.Style()
         try:
@@ -97,6 +99,7 @@ class FluxInstallerGui:
 
         self.root.after(100, self._pump_events)
         self.refresh_diagnostics(show_log=False)
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
 
     def _status_page(self) -> None:
         tab = ttk.Frame(self.notebook, padding=10)
@@ -134,6 +137,7 @@ class FluxInstallerGui:
         ttk.Label(tab, text="App install/build actions. Output appears immediately in Logs.").pack(anchor=W, pady=(0, 8))
         for label, action in (
             ("Full bootstrap: deps → configure → build → deploy → checks", "full-bootstrap"),
+            ("Installer self-test: fresh clone + stale submodule repair", "installer-self-test"),
             ("Install / repair app runtime, PyPlugs, OFX, launcher", "deploy-runtime"),
             ("Configure CMake", "configure"),
             ("Build Flux + OFX", "build-all"),
@@ -171,6 +175,9 @@ class FluxInstallerGui:
         row = ttk.Frame(tab)
         row.pack(fill=X)
         self._button(row, "Clear log", self.clear_log).pack(side=LEFT)
+        self.cancel_button = self._button(row, "Cancel running action", self.cancel_action)
+        self.cancel_button.pack(side=LEFT, padx=6)
+        self.cancel_button.configure(state=DISABLED)
 
     def _provider_box(self, parent: ttk.Frame, title: str, runtime_id: str, model_id: str) -> ttk.LabelFrame:
         box = ttk.LabelFrame(parent, text=title, padding=8)
@@ -194,6 +201,9 @@ class FluxInstallerGui:
     def run_action(self, action: str, *args: str, select_logs: bool = True, auto_yes: bool = False) -> None:
         if self.process is not None:
             return
+        if action == "launch":
+            self.launch_flux_detached()
+            return
         command_text = f"{SETUP_SCRIPT} __flux_setup_action {action} {' '.join(args)}".strip()
         if action in MUTATING_ACTIONS and not auto_yes:
             if not messagebox.askyesno("Confirm repair/install action", f"Run this action?\n\n{command_text}"):
@@ -202,6 +212,8 @@ class FluxInstallerGui:
         if select_logs:
             self.notebook.select(self.notebook.tabs()[-1])
         self._set_buttons(DISABLED)
+        if self.cancel_button is not None:
+            self.cancel_button.configure(state=NORMAL)
         self.progress.configure(mode="indeterminate")
         self.progress.start(12)
         self.current_action = f"{action} {' '.join(args)}".strip()
@@ -209,6 +221,36 @@ class FluxInstallerGui:
         self._append_log(f"\n=== Running: {command_text} ===\n")
         thread = threading.Thread(target=self._run_process, args=(action, args, auto_yes), daemon=True)
         thread.start()
+
+    def launch_flux_detached(self) -> None:
+        cmd = [str(SETUP_SCRIPT), "__flux_setup_action", "launch"]
+        try:
+            subprocess.Popen(
+                cmd,
+                cwd=str(FLUX_ROOT),
+                env=env_for_backend(),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            self.status.configure(text="Flux launched")
+        except Exception as exc:
+            self._append_log(f"ERROR: failed to launch Flux: {exc}\n")
+            self.status.configure(text="Launch failed")
+
+    def cancel_action(self) -> None:
+        process = self.process
+        if process is None:
+            return
+        self._append_log("=== Cancelling running action ===\n")
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        except Exception:
+            process.terminate()
+
 
     def _run_process(self, action: str, args: tuple[str, ...], auto_yes: bool) -> None:
         cmd = [str(SETUP_SCRIPT), "__flux_setup_action", action, *args]
@@ -222,6 +264,7 @@ class FluxInstallerGui:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 bufsize=1,
+                start_new_session=True,
             )
             if auto_yes and self.process.stdin is not None:
                 try:
@@ -236,6 +279,7 @@ class FluxInstallerGui:
                 self.events.put(("log", line))
             code = self.process.wait()
             self.events.put(("done", str(code)))
+            self.process = None
         except Exception as exc:
             self.events.put(("error", str(exc)))
         finally:
@@ -387,6 +431,8 @@ class FluxInstallerGui:
                 self.status.configure(text=f"{self.current_action}: {'completed' if ok else 'failed with exit code ' + payload}")
                 self._append_log(f"=== {self.current_action} {'completed' if ok else 'failed'} ===\n")
                 self._set_buttons(NORMAL)
+                if self.cancel_button is not None:
+                    self.cancel_button.configure(state=DISABLED)
                 if getattr(self, "_repair_queue", None) and ok:
                     self.root.after(150, self._run_next_repair)
                 else:
@@ -396,6 +442,8 @@ class FluxInstallerGui:
                 self.status.configure(text="Failed")
                 self._append_log(payload + "\n")
                 self._set_buttons(NORMAL)
+                if self.cancel_button is not None:
+                    self.cancel_button.configure(state=DISABLED)
         self.root.after(100, self._pump_events)
 
     def _append_log(self, text: str) -> None:
@@ -413,6 +461,10 @@ class FluxInstallerGui:
         for button in self.buttons:
             button.configure(state=state)
 
+
+    def close(self) -> None:
+        self.cancel_action()
+        self.root.destroy()
 
 def main() -> int:
     try:
