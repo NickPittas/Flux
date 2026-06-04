@@ -290,12 +290,38 @@ sudo_can_run() {
   sudo -n true >/dev/null 2>&1
 }
 
-require_sudo_or_guidance() {
+run_privileged() {
+  if command -v sudo >/dev/null 2>&1; then
+    if [[ -t 0 ]]; then
+      sudo "$@"
+      return
+    fi
+    if sudo -n true >/dev/null 2>&1; then
+      sudo -n "$@"
+      return
+    fi
+  fi
+
+  if command -v pkexec >/dev/null 2>&1; then
+    pkexec "$@"
+    return
+  fi
+
+  return 1
+}
+
+privilege_can_run() {
+  command -v sudo >/dev/null 2>&1 && { [[ -t 0 ]] || sudo -n true >/dev/null 2>&1; } && return 0
+  command -v pkexec >/dev/null 2>&1
+}
+
+
+require_privilege_or_guidance() {
   local action="$1"
-  if sudo_can_run; then
+  if privilege_can_run; then
     return 0
   fi
-  warn "sudo is unavailable or non-interactive for ${action}."
+  warn "No interactive privilege helper is available for ${action}."
   print_fedora_guidance
   return 1
 }
@@ -376,7 +402,7 @@ enable_rpmfusion_free() {
   os_id="$(detect_os)"
   [[ "$os_id" == "fedora" ]] || die "RPM Fusion setup only supports Fedora; detected '${os_id}'."
   command -v rpm >/dev/null 2>&1 || die 'rpm is required to check RPM Fusion.'
-  require_sudo_or_guidance 'RPM Fusion setup' || die 'sudo is required to enable RPM Fusion.'
+  require_privilege_or_guidance 'RPM Fusion setup' || die 'sudo or pkexec is required to enable RPM Fusion.'
   command -v dnf >/dev/null 2>&1 || die 'dnf is required to enable RPM Fusion.'
 
   if rpm -q rpmfusion-free-release >/dev/null 2>&1; then
@@ -387,18 +413,18 @@ enable_rpmfusion_free() {
   fedora_version="$(rpm -E %fedora)"
   rpmfusion_url="https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-${fedora_version}.noarch.rpm"
   log "Enabling RPM Fusion free for Fedora ${fedora_version}."
-  sudo dnf install -y "$rpmfusion_url"
+  run_privileged dnf install -y "$rpmfusion_url"
 }
 
 install_fedora_packages() {
   local os_id
   os_id="$(detect_os)"
   [[ "$os_id" == "fedora" ]] || die "Dependency installation currently supports Fedora only; detected '${os_id}'."
-  require_sudo_or_guidance 'dependency installation' || die 'sudo is required to install dependencies.'
+  require_privilege_or_guidance 'dependency installation' || die 'sudo or pkexec is required to install dependencies.'
   command -v dnf >/dev/null 2>&1 || die 'dnf is required for dependency installation.'
 
   log 'Installing Fedora packages. RPM Fusion free must be enabled for ffmpeg-devel.'
-  sudo dnf install -y --allowerasing "${FEDORA_PACKAGES[@]}"
+  run_privileged dnf install -y --allowerasing "${FEDORA_PACKAGES[@]}"
 }
 
 update_openfx_submodule_fallback() {
@@ -406,7 +432,7 @@ update_openfx_submodule_fallback() {
   local openfx_url="https://github.com/NatronGitHub/openfx.git"
   local openfx_ref="a5d9ca88512692b0a872044cfde90e3181ff5ad6"
 
-  warn "OpenFX submodule checkout failed; falling back to reachable Natron-2.5.0 OpenFX ref ${openfx_ref}."
+  log "Using reachable Natron-2.5.0 OpenFX ref ${openfx_ref} for installer bootstrap."
   if git -C "$FLUX_ROOT" ls-files --error-unmatch .gitmodules &>/dev/null &&
      git -C "$FLUX_ROOT" config --file .gitmodules --get submodule.libs/OpenFX.path >/dev/null; then
     git -C "$FLUX_ROOT" submodule init libs/OpenFX || true
@@ -421,12 +447,8 @@ update_openfx_submodule_fallback() {
 update_submodules() {
   command -v git >/dev/null 2>&1 || die 'git is required to update submodules.'
   log 'Updating git submodules.'
-  if git -C "$FLUX_ROOT" submodule update --init --recursive; then
-    return 0
-  fi
-
-  update_openfx_submodule_fallback || return
-  git -C "$FLUX_ROOT" submodule update --init --recursive -- ':!libs/OpenFX'
+  git -C "$FLUX_ROOT" submodule update --init --recursive -- ':!libs/OpenFX' || return
+  update_openfx_submodule_fallback
 }
 
 configure_flux() {
