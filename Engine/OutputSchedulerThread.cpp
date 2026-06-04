@@ -711,8 +711,12 @@ OutputSchedulerThread::pushFramesToRenderInternal(int startingFrame,
 #endif
         _imp->lastFramePushedIndex = startingFrame;
     } else {
-        ///Push 2x the count of threads to be sure no one will be waiting
-        while ( (int)_imp->framesToRender.size() < nThreads * 2 ) {
+        // Keep a small frame-number backlog so a single sequential render
+        // thread can decode ahead while the scheduler/main thread is displaying
+        // the previous frame. This preserves ordered FFmpeg access; it only
+        // queues frame indices, not rendered image buffers.
+        const int queueCapacity = std::max(nThreads * 2, std::min(appPTR->getHardwareIdealThreadCount(), 4));
+        while ( (int)_imp->framesToRender.size() < queueCapacity ) {
             _imp->framesToRender.push_back(startingFrame);
 #ifdef TRACE_SCHEDULER
             QString pushDirectionStr = newDirection == eRenderDirectionForward ? QLatin1String("Forward") : QLatin1String("Backward");
@@ -1390,6 +1394,8 @@ OutputSchedulerThread::threadLoopOnce(const GenericThreadStartArgsPtr &inArgs)
 
             if (_imp->mode == eProcessFrameBySchedulerThread) {
                 processFrame(framesToRender->frames);
+            } else if (_imp->mode == eProcessFrameByMainThreadAsync) {
+                requestExecutionOnMainThread(framesToRender, true);
             } else {
                 requestExecutionOnMainThread(framesToRender);
             }
@@ -2740,7 +2746,7 @@ DefaultScheduler::onRenderStopped(bool aborted)
 
 ViewerDisplayScheduler::ViewerDisplayScheduler(RenderEngine* engine,
                                                const ViewerInstancePtr& viewer)
-    : OutputSchedulerThread(engine, viewer, eProcessFrameByMainThread) //< OpenGL rendering is done on the main-thread
+    : OutputSchedulerThread(engine, viewer, eProcessFrameByMainThreadAsync) //< OpenGL rendering is done on the main-thread
     , _viewer(viewer)
 {
 }
@@ -2792,7 +2798,6 @@ void
 ViewerDisplayScheduler::timelineGoTo(int time)
 {
     ViewerInstancePtr viewer = _viewer.lock();
-
     viewer->getTimeline()->seekFrame(time, false, 0, eTimelineChangeReasonPlaybackSeek);
 }
 

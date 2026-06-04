@@ -234,6 +234,7 @@ Q_SIGNALS:
 
     // Emitted by requestExecutionOnMainThread
     void executionOnMainThreadRequested(GenericThreadExecOnMainThreadArgsPtr args);
+    void executionOnMainThreadRequestedAsync(GenericThreadExecOnMainThreadArgsPtr args);
 
     void taskAborted();
 
@@ -255,6 +256,7 @@ public Q_SLOTS:
 private Q_SLOTS:
 
     void onExecutionOnMainThreadReceived(const GenericThreadExecOnMainThreadArgsPtr& args);
+    void onExecutionOnMainThreadReceivedAsync(const GenericThreadExecOnMainThreadArgsPtr& args);
 
 protected:
 
@@ -302,12 +304,17 @@ protected:
     ThreadStateEnum resolveState();
 
     /**
-     * @brief Requests the function executeOnMainThread to be called on the main-thread with the given arguments.
-     * This function is blocking and will return only when the client code in executeOnMainThread has returned.
+     * Requests the function executeOnMainThread to be called on the main-thread
+     * with the given arguments.
+     *
+     * By default this function is blocking and will return only when the client
+     * code in executeOnMainThread has returned. When async is true, the request
+     * is queued to the main thread and this function returns immediately.
+     *
      * You may only call this function from this thread, i.e: the thread that is running the run() function.
      * You may only call this function whilst the thread state is eThreadStateActive
      **/
-    void requestExecutionOnMainThread(const GenericThreadExecOnMainThreadArgsPtr& inArgs);
+    void requestExecutionOnMainThread(const GenericThreadExecOnMainThreadArgsPtr& inArgs, bool async = false);
 
 private:
 

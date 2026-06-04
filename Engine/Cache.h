@@ -691,8 +691,14 @@ private:
         {
             foundAvailableFile = _nextAvailableCacheFile.lock();
             if (_nextAvailableCacheFileIndex != -1 && foundAvailableFile) {
-                foundTileIndex = _nextAvailableCacheFileIndex;
-                *dataOffset = foundTileIndex * _tileByteSize;
+                if (_nextAvailableCacheFileIndex < (int)foundAvailableFile->usedTiles.size() &&
+                    !foundAvailableFile->usedTiles[_nextAvailableCacheFileIndex]) {
+                    foundTileIndex = _nextAvailableCacheFileIndex;
+                    *dataOffset = foundTileIndex * _tileByteSize;
+                } else {
+                    foundTileIndex = -1;
+                    foundAvailableFile.reset();
+                }
                 _nextAvailableCacheFileIndex = -1;
                 _nextAvailableCacheFile.reset();
             } else {
@@ -736,8 +742,16 @@ private:
             _nextAvailableCacheFileIndex = 1;
         }
 
-        // Notify the memory file that this portion of the file is valid
         foundAvailableFile->usedTiles[foundTileIndex] = true;
+        _nextAvailableCacheFile.reset();
+        _nextAvailableCacheFileIndex = -1;
+        for (std::size_t i = foundTileIndex + 1; i < foundAvailableFile->usedTiles.size(); ++i) {
+            if (!foundAvailableFile->usedTiles[i]) {
+                _nextAvailableCacheFile = foundAvailableFile;
+                _nextAvailableCacheFileIndex = (int)i;
+                break;
+            }
+        }
         return foundAvailableFile;
     }
 

@@ -142,6 +142,7 @@ GenericSchedulerThread::GenericSchedulerThread()
     , _imp( new GenericSchedulerThreadPrivate(this) )
 {
     QObject::connect( this, SIGNAL(executionOnMainThreadRequested(GenericThreadExecOnMainThreadArgsPtr)), this, SLOT(onExecutionOnMainThreadReceived(GenericThreadExecOnMainThreadArgsPtr)) );
+    QObject::connect( this, SIGNAL(executionOnMainThreadRequestedAsync(GenericThreadExecOnMainThreadArgsPtr)), this, SLOT(onExecutionOnMainThreadReceivedAsync(GenericThreadExecOnMainThreadArgsPtr)) );
 }
 
 GenericSchedulerThread::~GenericSchedulerThread()
@@ -587,15 +588,23 @@ GenericSchedulerThread::run()
 } // run()
 
 void
-GenericSchedulerThread::requestExecutionOnMainThread(const GenericThreadExecOnMainThreadArgsPtr& inArgs)
+GenericSchedulerThread::requestExecutionOnMainThread(const GenericThreadExecOnMainThreadArgsPtr& inArgs,
+                                                     bool async)
 {
     // We must be within the run() function
     assert(QThread::currentThread() == this);
     assert(getThreadState() == eThreadStateActive);
 
     QMutexLocker processLocker (&_imp->executingOnMainThreadMutex);
-    assert(!_imp->executingOnMainThread);
+    while (_imp->executingOnMainThread) {
+        _imp->executingOnMainThreadCond.wait(processLocker.mutex());
+    }
     _imp->executingOnMainThread = true;
+
+    if (async) {
+        Q_EMIT executionOnMainThreadRequestedAsync(inArgs);
+        return;
+    }
 
     Q_EMIT executionOnMainThreadRequested(inArgs);
 
@@ -615,6 +624,18 @@ GenericSchedulerThread::onExecutionOnMainThreadReceived(const GenericThreadExecO
     _imp->executingOnMainThread = false;
 
     // There can only be one-thread waiting and this is this the GenericSchedulerThread thread
+    _imp->executingOnMainThreadCond.wakeOne();
+}
+
+void
+GenericSchedulerThread::onExecutionOnMainThreadReceivedAsync(const GenericThreadExecOnMainThreadArgsPtr& args)
+{
+    assert( QThread::currentThread() == qApp->thread() );
+    executeOnMainThread(args);
+
+    QMutexLocker processLocker (&_imp->executingOnMainThreadMutex);
+    assert(_imp->executingOnMainThread);
+    _imp->executingOnMainThread = false;
     _imp->executingOnMainThreadCond.wakeOne();
 }
 

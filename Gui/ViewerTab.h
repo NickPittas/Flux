@@ -316,7 +316,7 @@ public Q_SLOTS:
     void toggleStartBackward();
 
     void startPause(bool);
-    void abortRendering();
+    void abortRendering(bool keepOldestRender = true);
     void startBackward(bool);
     void previousFrame();
     void nextFrame();

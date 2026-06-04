@@ -199,7 +199,8 @@ public:
     enum ProcessFrameModeEnum
     {
         eProcessFrameBySchedulerThread = 0, //< the processFrame function will be called by the OutputSchedulerThread thread.
-        eProcessFrameByMainThread //< the processFrame function will be called by the application's main-thread.
+        eProcessFrameByMainThread, //< the processFrame function will be called by the application's main-thread and block the scheduler until it returns.
+        eProcessFrameByMainThreadAsync //< the processFrame function will be queued on the application's main-thread without blocking the scheduler.
     };
 
     OutputSchedulerThread(RenderEngine* engine,

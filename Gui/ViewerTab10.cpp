@@ -246,7 +246,7 @@ ViewerTab::toggleStartBackward()
 void
 ViewerTab::startPause(bool b)
 {
-    abortRendering();
+    abortRendering(false);
     if (b) {
         Gui* gui = getGui();
         if (!gui) {
@@ -267,7 +267,7 @@ ViewerTab::startPause(bool b)
 }
 
 void
-ViewerTab::abortRendering()
+ViewerTab::abortRendering(bool keepOldestRender)
 {
     if (_imp->play_Forward_Button) {
         _imp->play_Forward_Button->setDown(false);
@@ -287,7 +287,7 @@ ViewerTab::abortRendering()
         for (std::list<ViewerTab*>::const_iterator it = activeNodes.begin(); it != activeNodes.end(); ++it) {
             ViewerInstance* viewer = (*it)->getInternalNode();
             if (viewer) {
-                viewer->getRenderEngine()->abortRenderingNoRestart();
+                viewer->getRenderEngine()->abortRenderingNoRestart(keepOldestRender);
             }
         }
     }
@@ -380,7 +380,7 @@ ViewerTab::abortViewersAndRefresh()
 void
 ViewerTab::startBackward(bool b)
 {
-    abortRendering();
+    abortRendering(false);
     if (b) {
         Gui* gui = getGui();
         if (!gui) {

@@ -72,6 +72,7 @@ CLANG_DIAG_ON(deprecated)
 
 #define NATRON_TIME_ELASPED_BEFORE_PROGRESS_REPORT 4. //!< do not display the progress report if estimated total time is less than this (in seconds)
 
+
 NATRON_NAMESPACE_ENTER
 
 using std::make_pair;
@@ -1343,7 +1344,6 @@ ViewerInstance::renderViewer_internal(ViewIdx view,
     if (isAbortable) {
         isAbortable->setAbortInfo( !isSequentialRender, inArgs.params->abortInfo, getNode()->getEffectInstance() );
     }
-
 
     assert( !inArgs.params->nbCachedTile || inArgs.params->nbCachedTile < (int)inArgs.params->tiles.size() );
 

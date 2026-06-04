@@ -1237,6 +1237,7 @@ AppManager::clearPlaybackCache()
     clearLastRenderedTextures();
 }
 
+
 void
 AppManager::clearViewerCache()
 {
