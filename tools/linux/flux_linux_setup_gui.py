@@ -23,6 +23,7 @@ FLUX_ROOT = SCRIPT_DIR.parent.parent
 
 MUTATING_ACTIONS = {
     "full-bootstrap",
+    "update-installed",
     "deploy-runtime",
     "fedora-deps",
     "rpmfusion",
@@ -137,6 +138,7 @@ class FluxInstallerGui:
         ttk.Label(tab, text="App install/build actions. Output appears immediately in Logs.").pack(anchor=W, pady=(0, 8))
         for label, action in (
             ("Full bootstrap: deps → configure → build → deploy → checks", "full-bootstrap"),
+            ("Update installed Flux: git pull → configure → build → deploy → cache clear", "update-installed"),
             ("Installer self-test: fresh clone + stale submodule repair", "installer-self-test"),
             ("Install / repair app runtime, PyPlugs, OFX, launcher", "deploy-runtime"),
             ("Configure CMake", "configure"),

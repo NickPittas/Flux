@@ -9,6 +9,7 @@ ENV = dict(os.environ, FLUX_SETUP_INTERNAL_DISPATCH="1")
 
 ACTIONS = [
     ("full-bootstrap", "Full setup / update Flux", "Build, install app/runtime/plugins/launcher, validate, and offer default AI setup.", True),
+    ("update-installed", "Update installed Flux", "Fast-forward source, refresh submodules, configure/build/deploy, clear OFX cache, and validate.", True),
     ("ai-install-menu", "Install or update AI models", "Choose models in this curses checklist, then run concrete model installs.", False),
     ("ai-token", "Hugging Face token", "Hidden token prompt; optional persistence only in accepted secure keyring.", True),
     ("ai-status", "AI model status", "Show model/cache/config paths and installed/missing model state.", False),

@@ -479,6 +479,60 @@ update_submodules() {
   update_openfx_submodule_fallback
 }
 
+git_tracked_changes_for_update() {
+  git -C "$FLUX_ROOT" diff --name-status -- ':!openfx-misc'
+  git -C "$FLUX_ROOT" diff --cached --name-status -- ':!openfx-misc'
+}
+
+assert_git_checkout_for_update() {
+  command -v git >/dev/null 2>&1 || die 'git is required to update Flux.'
+  git -C "$FLUX_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die 'Update installed Flux requires a Flux git checkout.'
+  git -C "$FLUX_ROOT" symbolic-ref -q HEAD >/dev/null || die 'Update installed Flux requires a branch checkout, not detached HEAD.'
+  git -C "$FLUX_ROOT" remote get-url origin >/dev/null 2>&1 || die 'Update installed Flux requires an origin remote.'
+}
+
+assert_clean_tree_for_update() {
+  local dirty
+  dirty="$(git_tracked_changes_for_update)"
+  if [[ -n "$dirty" ]]; then
+    printf '%s\n' "$dirty" >&2
+    die 'Flux checkout has local changes. Commit, stash, or discard them before running Update installed Flux.'
+  fi
+}
+
+fast_forward_flux_checkout() {
+  local branch upstream head remote_head base
+  assert_git_checkout_for_update || return
+  assert_clean_tree_for_update || return
+
+  branch="$(git -C "$FLUX_ROOT" symbolic-ref --short HEAD)"
+  if ! upstream="$(git -C "$FLUX_ROOT" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null)"; then
+    if [[ "$branch" == "flux/main" ]]; then
+      git -C "$FLUX_ROOT" branch --set-upstream-to=origin/flux/main flux/main || die 'Could not set upstream to origin/flux/main.'
+      upstream="origin/flux/main"
+    else
+      die "Branch ${branch} has no upstream. Check out flux/main or set an upstream before updating."
+    fi
+  fi
+
+  log "Fetching latest Flux source from ${upstream}."
+  git -C "$FLUX_ROOT" fetch --prune origin || return
+  head="$(git -C "$FLUX_ROOT" rev-parse HEAD)"
+  remote_head="$(git -C "$FLUX_ROOT" rev-parse "$upstream")"
+  base="$(git -C "$FLUX_ROOT" merge-base HEAD "$upstream")"
+
+  if [[ "$head" == "$remote_head" ]]; then
+    log 'Flux source is already up to date.'
+    return 0
+  fi
+  if [[ "$head" != "$base" ]]; then
+    die "Flux branch ${branch} cannot be fast-forwarded to ${upstream}. Resolve local commits manually, then rerun update."
+  fi
+
+  log "Fast-forwarding ${branch} to ${upstream}."
+  git -C "$FLUX_ROOT" merge --ff-only "$upstream"
+}
+
 configure_flux() {
   command -v cmake >/dev/null 2>&1 || die 'cmake is required to configure Flux.'
   ensure_required_submodules || return
@@ -1372,6 +1426,31 @@ run_full_bootstrap() {
   validate_ofx_discovery || return
 }
 
+run_update_installed() {
+  DO_BUILD=1
+  FORCE=1
+  validate_install_prefix || return
+  [[ -x "$FLUX_APP_BIN" || -x "${BUILD_DIR}/App/Natron" ]] || die "No existing Flux build or install found. Run full bootstrap first."
+  fast_forward_flux_checkout || return
+  update_submodules || return
+  preflight_ofx_bundle_sources || return
+  verify_fedora_repos || return
+  check_fedora_packages || install_fedora_packages || return
+  configure_flux || return
+  build_flux || return
+  build_ofx_flux || return
+  manifest_reset || return
+  install_app || return
+  bootstrap_python_runtime || return
+  install_runtime_payloads || return
+  setup_default_ai_models || return
+  clear_ofx_cache || return
+  write_launcher || return
+  validate_ldd || return
+  validate_ofx_discovery || return
+  log 'Flux update complete.'
+}
+
 run_deploy_runtime() {
   confirm_default_yes "Refresh/replace existing Flux-managed install files if present?" && FORCE=1 || FORCE=0
   validate_install_prefix || return
@@ -1530,6 +1609,7 @@ run_private_action() {
   local action="${1:-}"; shift || true
   case "$action" in
     full-bootstrap) run_full_bootstrap ;;
+    update-installed) run_update_installed ;;
     deploy-runtime) run_deploy_runtime ;;
     build-all) run_build_all ;;
     configure) configure_flux ;;
