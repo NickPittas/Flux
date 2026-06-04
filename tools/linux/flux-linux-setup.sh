@@ -515,11 +515,34 @@ ensure_build_jobs() {
   fi
 }
 
+ensure_openfx_misc_sources() {
+  local misc_dir="${FLUX_ROOT}/openfx-misc"
+  local misc_url="https://github.com/NatronGitHub/openfx-misc.git"
+
+  if [[ -f "${misc_dir}/openfx/include/ofxCore.h" &&
+        -f "${misc_dir}/openfx/Support/Library/ofxsCore.cpp" &&
+        -f "${misc_dir}/SupportExt/ofxsGenerator.cpp" &&
+        -f "${misc_dir}/SupportExt/ofxsRectangleInteract.cpp" ]]; then
+    return 0
+  fi
+
+  warn "OpenFX misc support sources are missing or incomplete; refreshing ${misc_dir}."
+  rm -rf "$misc_dir"
+  git clone --recurse-submodules "$misc_url" "$misc_dir"
+
+  if [[ ! -f "${misc_dir}/openfx/include/ofxCore.h" ||
+        ! -f "${misc_dir}/openfx/Support/Library/ofxsCore.cpp" ||
+        ! -f "${misc_dir}/SupportExt/ofxsGenerator.cpp" ||
+        ! -f "${misc_dir}/SupportExt/ofxsRectangleInteract.cpp" ]]; then
+    die 'OpenFX misc support checkout is incomplete after repair.'
+  fi
+}
+
 build_ofx_flux() {
   local ofx_flux_build_dir="${BUILD_DIR}/openfx-flux"
   command -v cmake >/dev/null 2>&1 || die 'cmake is required to build openfx-flux.'
   [[ -d "${FLUX_ROOT}/openfx-flux" ]] || die "Missing Flux OFX source path: ${FLUX_ROOT}/openfx-flux"
-  [[ -d "${FLUX_ROOT}/openfx-misc/openfx/include" ]] || die 'Missing OpenFX support headers. Use the installer submodule update action or run git submodule update --init --recursive from a developer shell.'
+  ensure_openfx_misc_sources || return
 
   ensure_build_jobs
   log "Building Flux OFX bundle FluxTextRender.ofx.bundle with ${BUILD_JOBS} jobs."
