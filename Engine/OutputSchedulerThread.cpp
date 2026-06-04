@@ -1108,15 +1108,16 @@ OutputSchedulerThread::startRender()
         _imp->expectFrameToRender = startingFrame;
     }
     SchedulingPolicyEnum policy = getSchedulingPolicy();
-    if (policy == eSchedulingPolicyFFA) {
+    if ( (policy == eSchedulingPolicyFFA) || rendersFramesDirectly() ) {
 #ifndef NATRON_PLAYBACK_USES_THREAD_POOL
         ///push all frame range and let the threads deal with it
         pushAllFrameRange();
 #endif
     } else {
 #ifndef NATRON_PLAYBACK_USES_THREAD_POOL
-        ///Push as many frames as there are threads
-        pushFramesToRender(startingFrame, nThreads);
+        const int queueSize = getOrderedFrameQueueSize(nThreads);
+        ///Push as many frames as ordered scheduling allows
+        pushFramesToRender(startingFrame, queueSize);
 #endif
     }
 
@@ -1364,7 +1365,8 @@ OutputSchedulerThread::threadLoopOnce(const GenericThreadStartArgsPtr &inArgs)
                         bufferFull = isBufferFull(_imp->buf.size(), nbThreadsHardware);
                     }
                     if (!bufferFull) {
-                        pushFramesToRender(newNThreads);
+                        const int queueSize = getOrderedFrameQueueSize(newNThreads);
+                        pushFramesToRender(queueSize);
                     }
 #else
                     startTasksFromLastStartedFrame();
@@ -1523,6 +1525,10 @@ OutputSchedulerThread::adjustNumberOfThreads(int* newNThreads,
         optimalNThreads = appPTR->getHardwareIdealThreadCount();
     } else {
         optimalNThreads = userSettingParallelThreads;
+    }
+
+    if ( (getSchedulingPolicy() == eSchedulingPolicyOrdered) && (getOrderedFrameQueueSize(1) == 1) ) {
+        optimalNThreads = 1;
     }
     optimalNThreads = std::max(1, optimalNThreads);
 
@@ -2198,6 +2204,7 @@ private:
         ///Even if enableRenderStats is false, we at least profile the time spent rendering the frame when rendering with a Write node.
         ///Though we don't enable render stats for sequential renders (e.g: WriteFFMPEG) since this is 1 file.
         RenderStatsPtr stats = std::make_shared<RenderStats>(enableRenderStats);
+        const bool renderDirectly = _imp->scheduler->rendersFramesDirectly();
         NodePtr outputNode = output->getNode();
         std::string cb = outputNode->getBeforeFrameRenderCallback();
         if ( !cb.empty() ) {
@@ -2252,18 +2259,24 @@ private:
             // it comes from Natron itself. All exceptions from plugins are already caught
             // by the HostSupport library.
             EffectInstancePtr activeInputToRender;
-            //if (renderDirectly) {
-            activeInputToRender = output;
-            WriteNode* isWriteNode = dynamic_cast<WriteNode*>( output.get() );
-            if (isWriteNode) {
-                NodePtr embeddedWriter = isWriteNode->getEmbeddedWriter();
-                if (embeddedWriter) {
-                    activeInputToRender = embeddedWriter->getEffectInstance();
+            if (renderDirectly) {
+                activeInputToRender = output;
+                WriteNode* isWriteNode = dynamic_cast<WriteNode*>( output.get() );
+                if (isWriteNode) {
+                    NodePtr embeddedWriter = isWriteNode->getEmbeddedWriter();
+                    if (embeddedWriter) {
+                        activeInputToRender = embeddedWriter->getEffectInstance();
+                    }
                 }
+            } else {
+                activeInputToRender = output->getInput(0);
             }
-            assert(activeInputToRender);
+            if (!activeInputToRender) {
+                _imp->scheduler->notifyRenderFailure("Output node has no input to render");
+                return;
+            }
             NodePtr activeInputNode = activeInputToRender->getNode();
-            U64 activeInputToRenderHash = isWriteNode ? isWriteNode->getHash() : activeInputToRender->getHash();
+            U64 activeInputToRenderHash = renderDirectly ? activeInputToRender->getHash() : activeInputToRender->getRenderHash();
             const double par = activeInputToRender->getAspectRatio(-1);
             const bool isRenderDueToRenderInteraction = false;
             const bool isSequentialRender = true;
@@ -2356,14 +2369,14 @@ private:
                     return;
                 }
 
-                ///If we need sequential rendering, pass the image to the output scheduler that will ensure the sequential ordering
-                /*if (!renderDirectly) {
+                ///If we need sequential rendering, pass the image to the output scheduler that will ensure the sequential ordering.
+                if (!renderDirectly) {
                     for (std::map<ImagePlaneDesc,ImagePtr>::iterator it = planes.begin(); it != planes.end(); ++it) {
                         _imp->scheduler->appendToBuffer(time, viewsToRender[view], stats, std::dynamic_pointer_cast<BufferableObject>(it->second));
                     }
-                   } else {*/
-                _imp->scheduler->notifyFrameRendered(time, viewsToRender[view], viewsToRender, stats, eSchedulingPolicyFFA);
-                //}
+                } else {
+                    _imp->scheduler->notifyFrameRendered(time, viewsToRender[view], viewsToRender, stats, eSchedulingPolicyFFA);
+                }
             }
         } catch (const std::exception& e) {
             _imp->scheduler->notifyRenderFailure( std::string("Error while rendering: ") + e.what() );
@@ -2527,12 +2540,61 @@ DefaultScheduler::handleRenderFailure(const std::string& errorMessage)
 SchedulingPolicyEnum
 DefaultScheduler::getSchedulingPolicy() const
 {
-    /*SequentialPreferenceEnum sequentiallity = _effect.lock()->getSequentialPreference();
-       if (sequentiallity == eSequentialPreferenceNotSequential) {*/
+    // Check if the output node or any upstream node requires or prefers sequential rendering.
+    // - eSequentialPreferenceOnlySequential writers block parallel scheduling (hard constraint).
+    // - eSequentialPreferencePreferSequential nodes (e.g. ReadFFmpeg) hint that ordered
+    //   scheduling avoids seek/decode thrashing (soft preference we now honor).
+    OutputEffectInstancePtr effect = _effect.lock();
+    if (effect) {
+        NodePtr node = effect->getNode();
+        if (node) {
+            std::string seqNodeName;
+            if ( node->hasSequentialOnlyNodeUpstream(seqNodeName) ||
+                 node->hasSequentialPreferredNodeUpstream(seqNodeName) ) {
+                return eSchedulingPolicyOrdered;
+            }
+        }
+    }
     return eSchedulingPolicyFFA;
-    /*} else {
-        return eSchedulingPolicyOrdered;
-       }*/
+}
+
+int
+DefaultScheduler::getOrderedFrameQueueSize(int nThreads) const
+{
+    OutputEffectInstancePtr effect = _effect.lock();
+    if (effect) {
+        NodePtr node = effect->getNode();
+        if (node) {
+            std::string seqNodeName;
+            if ( node->hasSequentialPreferredNodeUpstream(seqNodeName) ) {
+                return 1;
+            }
+        }
+    }
+    return nThreads;
+}
+
+bool
+DefaultScheduler::rendersFramesDirectly() const
+{
+    if (getSchedulingPolicy() == eSchedulingPolicyFFA) {
+        return true;
+    }
+
+    OutputEffectInstancePtr effect = _effect.lock();
+    if (!effect) {
+        return false;
+    }
+    NodePtr node = effect->getNode();
+    if (!node) {
+        return false;
+    }
+
+    std::string seqNodeName;
+    if ( node->hasSequentialOnlyNodeUpstream(seqNodeName) ) {
+        return false;
+    }
+    return node->hasSequentialPreferredNodeUpstream(seqNodeName);
 }
 
 void

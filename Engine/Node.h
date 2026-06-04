@@ -963,6 +963,17 @@ public:
      **/
     bool hasSequentialOnlyNodeUpstream(std::string & nodeName) const;
 
+    /**
+     * @brief Returns whether this node or one of its inputs (recursively) has
+     * eSequentialPreferencePreferSequential. Unlike hasSequentialOnlyNodeUpstream,
+     * this checks all node types (readers, writers, filters), not only writers
+     * with eSequentialPreferenceOnlySequential.
+     *
+     * @param nodeName If the return value is true, this will be set to the name of the node
+     * which prefers sequential rendering.
+     **/
+    bool hasSequentialPreferredNodeUpstream(std::string& nodeName) const;
+
 
     /**
      * @brief Updates the sub label knob: e.g for the Merge node it corresponds to the

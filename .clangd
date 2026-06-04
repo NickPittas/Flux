@@ -1,0 +1,28 @@
+---
+CompileFlags:
+  CompilationDatabase: build
+  Remove:
+    - -Wmaybe-uninitialized
+    - -Wno-maybe-uninitialized
+    - -Wduplicated-cond
+    - -Wshift-overflow=*
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None
+Index:
+  Background: Build
+---
+If:
+  PathMatch: openfx-io/.*
+CompileFlags:
+  CompilationDatabase: openfx-io/build
+  Remove:
+    - -Wmaybe-uninitialized
+    - -Wno-maybe-uninitialized
+    - -Wduplicated-cond
+    - -Wshift-overflow=*
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None
+Index:
+  Background: Build

@@ -554,8 +554,8 @@ public:
      * @bried Returns the effect render order preferences:
      * eSequentialPreferenceNotSequential: The effect does not need to be run in a sequential order
      * eSequentialPreferenceOnlySequential: The effect can only be run in a sequential order (i.e like the background render would do)
-     * eSequentialPreferencePreferSequential: This indicates that the effect would work better by rendering sequential. This is merely
-     * a hint to Natron but for now we just consider it as eSequentialPreferenceNotSequential.
+     * eSequentialPreferencePreferSequential: This indicates that the effect would work better by rendering sequential.
+     * The scheduler uses ordered frame delivery when an upstream node reports this preference.
      **/
     virtual SequentialPreferenceEnum getSequentialPreference() const
     {

@@ -1748,6 +1748,26 @@ Node::hasSequentialOnlyNodeUpstream(std::string & nodeName) const
     }
 }
 
+bool
+Node::hasSequentialPreferredNodeUpstream(std::string& nodeName) const
+{
+    // Check current node for eSequentialPreferencePreferSequential
+    SequentialPreferenceEnum pref = _imp->effect->getSequentialPreference();
+    if (pref == eSequentialPreferencePreferSequential) {
+        nodeName = getScriptName_mt_safe();
+        return true;
+    }
+    // Recurse into inputs
+    QMutexLocker l(&_imp->inputsMutex);
+    for (InputsV::iterator it = _imp->inputs.begin(); it != _imp->inputs.end(); ++it) {
+        NodePtr input = it->lock();
+        if ( input && input->isActivated() && input->hasSequentialPreferredNodeUpstream(nodeName) ) {
+            return true;
+        }
+    }
+    return false;
+}
+
 //////////////////////////////////
 
 InspectorNode::InspectorNode(const AppInstancePtr& app,

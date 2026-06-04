@@ -316,6 +316,8 @@ public:
 
     void runCallbackWithVariables(const QString& callback);
 
+    virtual bool rendersFramesDirectly() const { return getSchedulingPolicy() == eSchedulingPolicyFFA; }
+
 private Q_SLOTS:
 
     void onThreadSpawnsTimerTriggered();
@@ -385,6 +387,15 @@ protected:
      * @brief Must return the scheduling policy that the output device will have
      **/
     virtual SchedulingPolicyEnum getSchedulingPolicy() const = 0;
+    /**
+     * @brief Return how many frames ordered scheduling may keep queued ahead.
+     *
+     * Ordered scheduling normally lets render threads pre-render a short window
+     * while the scheduler consumes frames in presentation order. Some readers
+     * explicitly prefer sequential access because out-of-order upstream renders
+     * are much more expensive than the parallelism is worth.
+     **/
+    virtual int getOrderedFrameQueueSize(int nThreads) const { return nThreads; }
 
     /**
      * @brief Returns the last successful render time.
@@ -494,6 +505,8 @@ private:
 
     virtual void handleRenderFailure(const std::string& errorMessage) OVERRIDE FINAL;
     virtual SchedulingPolicyEnum getSchedulingPolicy() const OVERRIDE FINAL;
+    virtual int getOrderedFrameQueueSize(int nThreads) const OVERRIDE FINAL;
+    virtual bool rendersFramesDirectly() const OVERRIDE FINAL;
     virtual void aboutToStartRender() OVERRIDE FINAL;
     virtual void onRenderStopped(bool aborted) OVERRIDE FINAL;
     OutputEffectInstanceWPtr _effect;
