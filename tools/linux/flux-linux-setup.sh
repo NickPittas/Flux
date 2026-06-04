@@ -445,13 +445,28 @@ update_openfx_submodule_fallback() {
 }
 
 
+repair_required_submodule() {
+  local path="$1"
+
+  warn "Repairing incomplete submodule checkout: ${path}"
+  git -C "$FLUX_ROOT" submodule deinit -f "$path" >/dev/null 2>&1 || true
+  rm -rf "${FLUX_ROOT:?}/${path}" "${FLUX_ROOT}/.git/modules/${path}"
+  git -C "$FLUX_ROOT" submodule sync --recursive "$path" || return
+  git -C "$FLUX_ROOT" submodule update --init --recursive --force "$path"
+}
+
 ensure_required_submodule_file() {
   local path="$1"
   local required_file="$2"
 
   git -C "$FLUX_ROOT" submodule update --init --recursive "$path" || return
+  if [[ -f "${FLUX_ROOT}/${required_file}" ]]; then
+    return 0
+  fi
+
+  repair_required_submodule "$path" || return
   if [[ ! -f "${FLUX_ROOT}/${required_file}" ]]; then
-    die "Required submodule content is missing after update: ${required_file}"
+    die "Required submodule content is missing after repair: ${required_file}"
   fi
 }
 
@@ -474,6 +489,7 @@ update_submodules() {
 configure_flux() {
   command -v cmake >/dev/null 2>&1 || die 'cmake is required to configure Flux.'
   ensure_required_submodules || return
+  update_openfx_submodule_fallback || return
   log "Configuring Flux: build_dir=${BUILD_DIR}, build_type=${BUILD_TYPE}"
   cmake -S "$FLUX_ROOT" -B "$BUILD_DIR" \
     -DNATRON_QT6=ON \
