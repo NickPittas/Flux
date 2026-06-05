@@ -319,38 +319,45 @@ Gui::loadFluxStyleSheet()
     //   %10 = altered text colour
     //   %11 = mouse over selection color
 
-    const QColor fluxSelection(66, 133, 244);     // %1  — Google blue
-    const QColor fluxBase(32, 32, 38);            // %2  — Panel backgrounds
-    const QColor fluxRaised(48, 48, 56);          // %3  — Button faces, raised elements
-    const QColor fluxSunken(22, 22, 26);          // %4  — Sunken panels, tab bg
-    const QColor fluxText(210, 210, 215);         // %5  — Primary text
-    const QColor fluxInterp(76, 175, 80);         // %6  — Interpolated keyframes (green)
-    const QColor fluxKeyframe(255, 171, 0);       // %7  — Keyframe markers (amber)
-    const QColor fluxDisabled(0, 0, 0);           // %8  — Disabled editable text (black)
-    const QColor fluxExpr(171, 71, 188);          // %9  — Expression indicators (purple)
-    const QColor fluxAltText(120, 180, 255);      // %10 — Altered text (light blue)
-    const QColor fluxHover(255, 191, 120);        // %11 — Mouse-over selection (warm orange)
+    const QColor fluxSelection(56, 139, 253);     // %1  — Blue accent
+    const QColor fluxBase(17, 22, 28);            // %2  — Panel shell
+    const QColor fluxRaised(23, 29, 36);          // %3  — Inner controls
+    const QColor fluxSunken(11, 15, 19);          // %4  — Window/chrome
+    const QColor fluxText(218, 223, 232);         // %5  — Primary text
+    const QColor fluxInterp(94, 184, 118);        // %6  — Interpolated keyframes
+    const QColor fluxKeyframe(226, 171, 67);      // %7  — Keyframe markers
+    const QColor fluxDisabled(112, 120, 132);     // %8  — Disabled editable text
+    const QColor fluxExpr(137, 112, 206);         // %9  — Expression indicators
+    const QColor fluxAltText(122, 196, 255);      // %10 — Altered text
+    const QColor fluxHover(88, 166, 255);         // %11 — Hover accent
 
-    // Set the application palette first (for widgets that don't use QSS)
+    // Set the application palette first so custom-painted widgets inherit
+    // the same Flux skin even when they bypass QSS.
     QPalette p = qApp->palette();
-    p.setBrush(QPalette::Window, fluxBase);
-    p.setBrush(QPalette::WindowText, fluxText);
-    p.setBrush(QPalette::Base, fluxSunken);
-    p.setBrush(QPalette::AlternateBase, fluxBase);
-    p.setBrush(QPalette::Text, fluxText);
-    p.setBrush(QPalette::Button, fluxRaised);
-    p.setBrush(QPalette::ButtonText, fluxText);
-    p.setBrush(QPalette::Light, fluxRaised);
-    p.setBrush(QPalette::Dark, fluxSunken);
-    p.setBrush(QPalette::Mid, fluxBase);
-    p.setBrush(QPalette::BrightText, fluxText);
-    p.setBrush(QPalette::Link, fluxSelection);
-    p.setBrush(QPalette::LinkVisited, fluxSelection);
-    p.setBrush(QPalette::Highlight, fluxSelection);
-    p.setBrush(QPalette::HighlightedText, Qt::white);
-    p.setBrush(QPalette::ToolTipBase, fluxRaised);
-    p.setBrush(QPalette::ToolTipText, fluxText);
-    p.setBrush(QPalette::PlaceholderText, fluxAltText);
+    p.setColor(QPalette::Window, fluxSunken);
+    p.setColor(QPalette::WindowText, fluxText);
+    p.setColor(QPalette::Base, fluxSunken);
+    p.setColor(QPalette::AlternateBase, fluxBase);
+    p.setColor(QPalette::Text, fluxText);
+    p.setColor(QPalette::Button, fluxRaised);
+    p.setColor(QPalette::ButtonText, fluxText);
+    p.setColor(QPalette::Light, fluxRaised.lighter(110));
+    p.setColor(QPalette::Midlight, fluxRaised);
+    p.setColor(QPalette::Dark, fluxSunken);
+    p.setColor(QPalette::Mid, fluxRaised.darker(130));
+    p.setColor(QPalette::Shadow, QColor(10, 12, 16));
+    p.setColor(QPalette::BrightText, Qt::white);
+    p.setColor(QPalette::Highlight, fluxSelection);
+    p.setColor(QPalette::HighlightedText, Qt::white);
+    p.setColor(QPalette::Link, fluxSelection);
+    p.setColor(QPalette::LinkVisited, fluxHover);
+    p.setColor(QPalette::ToolTipBase, fluxRaised);
+    p.setColor(QPalette::ToolTipText, fluxText);
+    p.setColor(QPalette::PlaceholderText, QColor(130, 143, 159));
+    p.setColor(QPalette::Disabled, QPalette::WindowText, fluxDisabled);
+    p.setColor(QPalette::Disabled, QPalette::Text, fluxDisabled);
+    p.setColor(QPalette::Disabled, QPalette::ButtonText, fluxDisabled);
+    p.setColor(QPalette::Disabled, QPalette::Highlight, QColor(56, 70, 82));
     qApp->setPalette(p);
 
     // Load Natron's mainstyle.qss template with Flux colors

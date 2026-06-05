@@ -58,13 +58,16 @@ FluxExportPanel::FluxExportPanel(Gui* gui, QWidget* parent)
 
     // --- Output File ---
     QGroupBox* outputGroup = new QGroupBox(QString::fromUtf8("Output File"));
+    outputGroup->setObjectName(QString::fromUtf8("FluxExportOutputGroup"));
     QHBoxLayout* pathLayout = new QHBoxLayout(outputGroup);
 
     _outputPathEdit = new QLineEdit();
+    _outputPathEdit->setObjectName(QString::fromUtf8("FluxExportOutputPathEdit"));
     _outputPathEdit->setPlaceholderText(QString::fromUtf8("Click browse to set output file..."));
     pathLayout->addWidget(_outputPathEdit);
 
     _browseButton = new QPushButton(QString::fromUtf8("Browse"));
+    _browseButton->setObjectName(QString::fromUtf8("FluxExportBrowseButton"));
     pathLayout->addWidget(_browseButton);
 
     outputGroup->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
@@ -75,6 +78,7 @@ FluxExportPanel::FluxExportPanel(Gui* gui, QWidget* parent)
     // Do not put this section in its own scroll area: the entire export panel
     // scrolls as one unit, so Write and Reformat sections remain usable.
     _writeSettingsContainer = new QWidget();
+    _writeSettingsContainer->setObjectName(QString::fromUtf8("FluxExportWriteSettings"));
     _writeSettingsContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
     QVBoxLayout* writeContainerLayout = new QVBoxLayout(_writeSettingsContainer);
     writeContainerLayout->setContentsMargins(0, 0, 0, 0);
@@ -83,13 +87,16 @@ FluxExportPanel::FluxExportPanel(Gui* gui, QWidget* parent)
 
     // --- Format Override ---
     _reformatGroup = new QGroupBox(QString::fromUtf8("Format Override"));
+    _reformatGroup->setObjectName(QString::fromUtf8("FluxExportReformatGroup"));
     QVBoxLayout* reformatLayout = new QVBoxLayout(_reformatGroup);
 
     _reformatToggle = new QCheckBox(QString::fromUtf8("Enable Reformat"));
+    _reformatToggle->setObjectName(QString::fromUtf8("FluxExportReformatToggle"));
     reformatLayout->addWidget(_reformatToggle);
 
     // Reformat settings container — holds the Reformat NodeGui's settings panel
     _reformatSettingsContainer = new QWidget();
+    _reformatSettingsContainer->setObjectName(QString::fromUtf8("FluxExportReformatSettings"));
     _reformatSettingsContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
     QVBoxLayout* reformatContainerLayout = new QVBoxLayout(_reformatSettingsContainer);
     reformatContainerLayout->setContentsMargins(0, 0, 0, 0);

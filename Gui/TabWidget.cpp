@@ -90,6 +90,38 @@ CLANG_DIAG_ON(deprecated)
 #define TAB_DRAG_WIDGET_PERCENT_FOR_SPLITTING 0.13
 
 NATRON_NAMESPACE_ENTER
+static QPixmap tintDarkPixels(const QPixmap& pixmap,
+                              const QColor& targetColor,
+                              int threshold = 190)
+{
+    if (pixmap.isNull()) {
+        return pixmap;
+    }
+    QImage img = pixmap.toImage();
+    if (img.isNull()) {
+        return pixmap;
+    }
+    if (img.format() != QImage::Format_ARGB32 && img.format() != QImage::Format_ARGB32_Premultiplied) {
+        img = img.convertToFormat(QImage::Format_ARGB32);
+    }
+    for (int y = 0; y < img.height(); ++y) {
+        QRgb* line = reinterpret_cast<QRgb*>(img.scanLine(y));
+        for (int x = 0; x < img.width(); ++x) {
+            const QRgb pixel = line[x];
+            const int alpha = qAlpha(pixel);
+            if (!alpha) {
+                continue;
+            }
+            const int r = qRed(pixel);
+            const int g = qGreen(pixel);
+            const int b = qBlue(pixel);
+            if (r <= threshold && g <= threshold && b <= threshold) {
+                line[x] = qRgba(targetColor.red(), targetColor.green(), targetColor.blue(), alpha);
+            }
+        }
+    }
+    return QPixmap::fromImage(img);
+}
 
 class TransparentDropRect
     : public QWidget
@@ -274,18 +306,23 @@ TabWidget::TabWidget(Gui* gui,
     _imp->headerLayout->setSpacing(0);
     _imp->header->setLayout(_imp->headerLayout);
 
-
     QPixmap pixC, pixM, pixL;
+    const QColor headerGlyphColor(184, 190, 198);
     appPTR->getIcon(NATRON_PIXMAP_CLOSE_WIDGET, &pixC);
     appPTR->getIcon(NATRON_PIXMAP_MAXIMIZE_WIDGET, &pixM);
     appPTR->getIcon(NATRON_PIXMAP_TAB_WIDGET_LAYOUT_BUTTON, &pixL);
+    pixC = tintDarkPixels(pixC, headerGlyphColor);
+    pixM = tintDarkPixels(pixM, headerGlyphColor);
+    pixL = tintDarkPixels(pixL, headerGlyphColor, 150);
 
     const QSize smallButtonSize( TO_DPIX(NATRON_SMALL_BUTTON_SIZE), TO_DPIY(NATRON_SMALL_BUTTON_SIZE) );
-    const QSize smallButtonIconSize( TO_DPIX(NATRON_SMALL_BUTTON_ICON_SIZE), TO_DPIY(NATRON_SMALL_BUTTON_ICON_SIZE) );
+    const QSize smallButtonIconSize( std::max(1, (TO_DPIX(NATRON_SMALL_BUTTON_ICON_SIZE) * 3) / 4),
+                                     std::max(1, (TO_DPIY(NATRON_SMALL_BUTTON_ICON_SIZE) * 3) / 4) );
 
     _imp->leftCornerButton = new Button(QIcon(pixL), QString(), _imp->header);
     _imp->leftCornerButton->setFixedSize(smallButtonSize);
     _imp->leftCornerButton->setIconSize(smallButtonIconSize);
+    _imp->leftCornerButton->setProperty("fluxPanelHeaderButton", true);
     _imp->leftCornerButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr(LEFT_HAND_CORNER_BUTTON_TT), NATRON_NAMESPACE::WhiteSpaceNormal) );
     _imp->leftCornerButton->setFocusPolicy(Qt::NoFocus);
     _imp->headerLayout->addWidget(_imp->leftCornerButton);
@@ -301,6 +338,7 @@ TabWidget::TabWidget(Gui* gui,
     _imp->floatButton = new Button(QIcon(pixM), QString(), _imp->header);
     _imp->floatButton->setFixedSize(smallButtonSize);
     _imp->floatButton->setIconSize(smallButtonIconSize);
+    _imp->floatButton->setProperty("fluxPanelHeaderButton", true);
     _imp->floatButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Float pane"), NATRON_NAMESPACE::WhiteSpaceNormal) );
     _imp->floatButton->setEnabled(true);
     _imp->floatButton->setFocusPolicy(Qt::NoFocus);
@@ -310,11 +348,11 @@ TabWidget::TabWidget(Gui* gui,
     _imp->closeButton = new Button(QIcon(pixC), QString(), _imp->header);
     _imp->closeButton->setFixedSize(smallButtonSize);
     _imp->closeButton->setIconSize(smallButtonIconSize);
+    _imp->closeButton->setProperty("fluxPanelHeaderButton", true);
     _imp->closeButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Close pane"), NATRON_NAMESPACE::WhiteSpaceNormal) );
     _imp->closeButton->setFocusPolicy(Qt::NoFocus);
     QObject::connect( _imp->closeButton, SIGNAL(clicked()), this, SLOT(closePane()) );
     _imp->headerLayout->addWidget(_imp->closeButton);
-
 
     /*adding menu to the left corner button*/
     _imp->leftCornerButton->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -393,12 +431,18 @@ TabWidget::createMenu()
     //QFont f(appFont,appFontSize);
     //menu.setFont(f) ;
     QPixmap pixV, pixM, pixH, pixC, pixA;
+    const QColor headerGlyphColor(184, 190, 198);
 
     appPTR->getIcon(NATRON_PIXMAP_TAB_WIDGET_SPLIT_VERTICALLY, NATRON_MEDIUM_BUTTON_ICON_SIZE, &pixV);
     appPTR->getIcon(NATRON_PIXMAP_TAB_WIDGET_SPLIT_HORIZONTALLY, NATRON_MEDIUM_BUTTON_ICON_SIZE, &pixH);
     appPTR->getIcon(NATRON_PIXMAP_MAXIMIZE_WIDGET, NATRON_MEDIUM_BUTTON_ICON_SIZE, &pixM);
     appPTR->getIcon(NATRON_PIXMAP_CLOSE_WIDGET, NATRON_MEDIUM_BUTTON_ICON_SIZE, &pixC);
     appPTR->getIcon(NATRON_PIXMAP_TAB_WIDGET_LAYOUT_BUTTON_ANCHOR, NATRON_MEDIUM_BUTTON_ICON_SIZE, &pixA);
+    pixV = tintDarkPixels(pixV, headerGlyphColor);
+    pixH = tintDarkPixels(pixH, headerGlyphColor);
+    pixM = tintDarkPixels(pixM, headerGlyphColor);
+    pixC = tintDarkPixels(pixC, headerGlyphColor);
+    pixA = tintDarkPixels(pixA, headerGlyphColor);
     QAction* splitVerticallyAction = new QAction(QIcon(pixV), tr("Split vertical"), &menu);
     QObject::connect( splitVerticallyAction, SIGNAL(triggered()), this, SLOT(onSplitVertically()) );
     menu.addAction(splitVerticallyAction);
@@ -409,7 +453,6 @@ TabWidget::createMenu()
     QAction* floatAction = new QAction(QIcon(pixM), tr("Float pane"), &menu);
     QObject::connect( floatAction, SIGNAL(triggered()), this, SLOT(floatCurrentWidget()) );
     menu.addAction(floatAction);
-
 
     if ( (_imp->tabBar->count() == 0) ) {
         floatAction->setEnabled(false);

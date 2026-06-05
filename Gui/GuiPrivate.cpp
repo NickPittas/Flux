@@ -117,6 +117,36 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 
 
 NATRON_NAMESPACE_ENTER
+static QPixmap tintPaneButtonPixmap(const QPixmap& pixmap,
+                                    const QColor& targetColor)
+{
+    if (pixmap.isNull()) {
+        return pixmap;
+    }
+    QImage img = pixmap.toImage();
+    if (img.isNull()) {
+        return pixmap;
+    }
+    if (img.format() != QImage::Format_ARGB32 && img.format() != QImage::Format_ARGB32_Premultiplied) {
+        img = img.convertToFormat(QImage::Format_ARGB32);
+    }
+    for (int y = 0; y < img.height(); ++y) {
+        QRgb* line = reinterpret_cast<QRgb*>(img.scanLine(y));
+        for (int x = 0; x < img.width(); ++x) {
+            const QRgb pixel = line[x];
+            const int alpha = qAlpha(pixel);
+            if (alpha > 0) {
+                const int r = qRed(pixel);
+                const int g = qGreen(pixel);
+                const int b = qBlue(pixel);
+                if (r <= 190 && g <= 190 && b <= 190) {
+                    line[x] = qRgba(targetColor.red(), targetColor.green(), targetColor.blue(), alpha);
+                }
+            }
+        }
+    }
+    return QPixmap::fromImage(img);
+}
 GuiPrivate::GuiPrivate(const GuiAppInstancePtr& app,
                        Gui* gui)
     : _gui(gui)
@@ -339,19 +369,24 @@ GuiPrivate::createPropertiesBinGui()
     _propertiesScrollArea->setWidgetResizable(true);
 
     QWidget* propertiesAreaButtonsContainer = new QWidget(_propertiesBin);
+    propertiesAreaButtonsContainer->setObjectName(QString::fromUtf8("FluxPropertiesHeaderControls"));
     QHBoxLayout* propertiesAreaButtonsLayout = new QHBoxLayout(propertiesAreaButtonsContainer);
     propertiesAreaButtonsLayout->setContentsMargins(0, 0, 0, 0);
     propertiesAreaButtonsLayout->setSpacing(5);
     QPixmap closePanelPix;
-    int smallSizeIcon = TO_DPIX(NATRON_SMALL_BUTTON_ICON_SIZE);
+    const int smallIconWidth = std::max(1, (TO_DPIX(NATRON_SMALL_BUTTON_ICON_SIZE) * 3) / 4);
+    const int smallIconHeight = std::max(1, (TO_DPIY(NATRON_SMALL_BUTTON_ICON_SIZE) * 3) / 4);
+    int smallSizeIcon = std::max(smallIconWidth, smallIconHeight);
     appPTR->getIcon(NATRON_PIXMAP_CLOSE_PANEL, smallSizeIcon, &closePanelPix);
+    closePanelPix = tintPaneButtonPixmap(closePanelPix, QColor(184, 190, 198));
     _clearAllPanelsButton = new Button(QIcon(closePanelPix), QString(), propertiesAreaButtonsContainer);
 
     const QSize smallButtonSize( TO_DPIX(NATRON_SMALL_BUTTON_SIZE), TO_DPIY(NATRON_SMALL_BUTTON_SIZE) );
-    const QSize smallButtonIconSize( TO_DPIX(NATRON_SMALL_BUTTON_ICON_SIZE), TO_DPIY(NATRON_SMALL_BUTTON_ICON_SIZE) );
+    const QSize smallButtonIconSize( smallIconWidth, smallIconHeight );
 
     _clearAllPanelsButton->setFixedSize(smallButtonSize);
     _clearAllPanelsButton->setIconSize(smallButtonIconSize);
+    _clearAllPanelsButton->setProperty("fluxPanelHeaderButton", true);
     _clearAllPanelsButton->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Clears all the panels in the properties bin pane."),
                                                                       NATRON_NAMESPACE::WhiteSpaceNormal) );
     _clearAllPanelsButton->setFocusPolicy(Qt::NoFocus);
@@ -359,6 +394,8 @@ GuiPrivate::createPropertiesBinGui()
     QPixmap minimizePix, maximizePix;
     appPTR->getIcon(NATRON_PIXMAP_MINIMIZE_WIDGET, smallSizeIcon, &minimizePix);
     appPTR->getIcon(NATRON_PIXMAP_MAXIMIZE_WIDGET, smallSizeIcon, &maximizePix);
+    minimizePix = tintPaneButtonPixmap(minimizePix, QColor(184, 190, 198));
+    maximizePix = tintPaneButtonPixmap(maximizePix, QColor(184, 190, 198));
     QIcon mIc;
     mIc.addPixmap(minimizePix, QIcon::Normal, QIcon::On);
     mIc.addPixmap(maximizePix, QIcon::Normal, QIcon::Off);
@@ -367,6 +404,7 @@ GuiPrivate::createPropertiesBinGui()
     _minimizeAllPanelsButtons->setChecked(false);
     _minimizeAllPanelsButtons->setFixedSize(smallButtonSize);
     _minimizeAllPanelsButtons->setIconSize(smallButtonIconSize);
+    _minimizeAllPanelsButtons->setProperty("fluxPanelHeaderButton", true);
     _minimizeAllPanelsButtons->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Minimize / Maximize all panels."), NATRON_NAMESPACE::WhiteSpaceNormal) );
     _minimizeAllPanelsButtons->setFocusPolicy(Qt::NoFocus);
     QObject::connect( _minimizeAllPanelsButtons, SIGNAL(clicked(bool)), _gui, SLOT(minimizeMaximizeAllPanels(bool)) );

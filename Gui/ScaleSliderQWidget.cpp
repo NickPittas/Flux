@@ -50,6 +50,7 @@ GCC_DIAG_UNUSED_PRIVATE_FIELD_ON
 #include "Gui/ZoomContext.h"
 #include "Gui/Gui.h"
 
+#include "Gui/FluxStyleUtils.h"
 #define TICK_HEIGHT 8
 #define SLIDER_WIDTH 6
 #define SLIDER_HEIGHT 20
@@ -457,28 +458,12 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
     p.setOpacity(1);
     style()->drawPrimitive(QStyle::PE_Widget, &opt, &p, this);
 
-    double txtR, txtG, txtB;
-    if (_imp->altered) {
-        appPTR->getCurrentSettings()->getAltTextColor(&txtR, &txtG, &txtB);
-    } else {
-        appPTR->getCurrentSettings()->getTextColor(&txtR, &txtG, &txtB);
-    }
-
-    QColor textColor;
-    textColor.setRgbF( Image::clamp<qreal>(txtR, 0., 1.),
-                       Image::clamp<qreal>(txtG, 0., 1.),
-                       Image::clamp<qreal>(txtB, 0., 1.) );
-
-    QColor scaleColor;
-    scaleColor.setRgbF(textColor.redF() / 2., textColor.greenF() / 2., textColor.blueF() / 2.);
+    QColor textColor = _imp->altered ? FluxStyle::alteredColor(this) : FluxStyle::text(this);
+    QColor scaleColor = FluxStyle::track(this);
 
     QFontMetrics fontM(_imp->font, 0);
 
-    if (!_imp->useLineColor) {
-        p.setPen(scaleColor);
-    } else {
-        p.setPen(_imp->lineColor);
-    }
+    p.setPen(_imp->useLineColor ? _imp->lineColor : scaleColor);
 
     QPointF btmLeft = _imp->zoomCtx.toZoomCoordinates(0, height() - 1);
     QPointF topRight = _imp->zoomCtx.toZoomCoordinates(width() - 1, 0);
@@ -490,10 +475,34 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
     /*drawing X axis*/
     double lineYpos = height() - 1 - fontM.height()  - TO_DPIY(TICK_HEIGHT) / 2;
     {
-        QPen axisPen = p.pen();
-        axisPen.setWidthF(2.0);
-        p.setPen(axisPen);
+        // Muted dark base rail
+        QPen basePen;
+        basePen.setWidthF(1.0);
+        basePen.setColor(FluxStyle::mix(FluxStyle::base(this), FluxStyle::window(this), 0.5));
+        p.setPen(basePen);
         p.drawLine(0, lineYpos, width() - 1, lineYpos);
+
+        // Active segment (blue) and Inactive segment (pale grey)
+        double xMin = _imp->zoomCtx.toWidgetCoordinates(_imp->minimum, 0).x();
+        double xMax = _imp->zoomCtx.toWidgetCoordinates(_imp->maximum, 0).x();
+        xMin = std::max(0.0, std::min((double)width() - 1, xMin));
+        xMax = std::max(0.0, std::min((double)width() - 1, xMax));
+
+        // Pale grey inactive segment across the valid range
+        QPen inactivePen;
+        inactivePen.setWidthF(1.0);
+        inactivePen.setColor(FluxStyle::mix(FluxStyle::base(this), FluxStyle::text(this), 0.25));
+        p.setPen(inactivePen);
+        p.drawLine(xMin, lineYpos, xMax, lineYpos);
+
+        // Blue active segment up to current position
+        double positionValue = _imp->zoomCtx.toWidgetCoordinates(_imp->value, 0).x();
+        double posClamped = std::max(xMin, std::min(xMax, positionValue));
+        QPen activePen;
+        activePen.setWidthF(1.2);
+        activePen.setColor(FluxStyle::accent(this));
+        p.setPen(activePen);
+        p.drawLine(xMin, lineYpos, posClamped, lineYpos);
     }
 
     double tickBottom = _imp->zoomCtx.toZoomCoordinates( 0, height() - 1 - fontM.height() ).y();
@@ -528,7 +537,7 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
         QColor color(textColor);
         color.setAlphaF(alpha);
         QPen pen(color);
-        pen.setWidthF(2.5);
+        pen.setWidthF(1.0);
         p.setPen(pen);
 
         // for Int slider, because smallTickSize is at least 1, isFloating can never be true
@@ -556,7 +565,7 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
                     alphaText *= (tickSizePixel - sSizePixel) / (double)minTickSizeTextPixel;
                 }
                 //alphaText = std::min(alphaText, alpha); // don't draw more opaque than ticks
-                QColor c = _imp->readOnly || !isEnabled() ? Qt::black : textColor;
+                QColor c = _imp->readOnly || !isEnabled() ? FluxStyle::disabledText(this) : textColor;
                 c.setAlphaF(alphaText);
                 p.setFont(_imp->font);
                 p.setPen(c);
@@ -577,76 +586,38 @@ ScaleSliderQWidget::paintEvent(QPaintEvent* /*e*/)
     }
     double positionValue = _imp->zoomCtx.toWidgetCoordinates(_imp->value, 0).x();
 
-    SettingsPtr settings = appPTR->getCurrentSettings();
-    if (!_imp->useSliderColor) {
-        double sliderColorRGB[3];
-        settings->getSliderColor(&sliderColorRGB[0], &sliderColorRGB[1], &sliderColorRGB[2]);
-        _imp->sliderColor.setRgbF(sliderColorRGB[0], sliderColorRGB[1], sliderColorRGB[2]);
-    } else {
-        _imp->sliderColor = _imp->customSliderColor;
-    }
-
-    double selectionColorRGB[3];
-    settings->getSelectionColor(&selectionColorRGB[0], &selectionColorRGB[1], &selectionColorRGB[2]);
-    QColor selectionColor;
-    selectionColor.setRgbF(selectionColorRGB[0], selectionColorRGB[1], selectionColorRGB[2]);
-
-#ifdef SLIDER_RECTANGLE
-    QPointF sliderBottomLeft(positionValue - TO_DPIX(SLIDER_WIDTH) / 2, height() - 1 - fontM.height() / 2);
-    QPointF sliderTopRight( positionValue + TO_DPIX(SLIDER_WIDTH) / 2, height() - 1 - fontM.height() / 2 - TO_DPIY(SLIDER_HEIGHT) );
-
-    /*draw the slider*/
-    p.setPen(_imp->sliderColor);
-    p.fillRect(sliderBottomLeft.x(), sliderBottomLeft.y(), sliderTopRight.x() - sliderBottomLeft.x(), sliderTopRight.y() - sliderBottomLeft.y(), _imp->sliderColor);
-
-    /*draw a black rect around the slider for contrast or orange when focused*/
-    if ( !hasFocus() ) {
-        p.setPen(Qt::black);
-    } else {
-        QPen pen = p.pen();
-        pen.setColor(selectionColor)
-        QVector<qreal> dashStyle;
-        qreal space = 2;
-        dashStyle << 1 << space;
-        pen.setDashPattern(dashStyle);
-        p.setOpacity(0.8);
-        p.setPen(pen);
-    }
-
-    p.drawLine( sliderBottomLeft.x(), sliderBottomLeft.y(), sliderBottomLeft.x(), sliderTopRight.y() );
-    p.drawLine( sliderBottomLeft.x(), sliderTopRight.y(), sliderTopRight.x(), sliderTopRight.y() );
-    p.drawLine( sliderTopRight.x(), sliderTopRight.y(), sliderTopRight.x(), sliderBottomLeft.y() );
-    p.drawLine( sliderTopRight.x(), sliderBottomLeft.y(), sliderBottomLeft.x(), sliderBottomLeft.y() );
-#else
     QPainter::RenderHints rh = p.renderHints();
     p.setRenderHints(QPainter::Antialiasing);
-   /*draw the slider*/
-    if (!_imp->readOnly) {
-        p.setBrush(QBrush(_imp->sliderColor));
+
+    QColor handleColor;
+    if (_imp->readOnly) {
+        handleColor = FluxStyle::withAlpha(FluxStyle::disabledText(this), 0.75);
+    } else if (_imp->useSliderColor) {
+        handleColor = _imp->customSliderColor;
     } else {
-        QColor disabledColor(100,100,100, 200);
-        p.setBrush(QBrush(disabledColor));
+        if (hasFocus()) {
+            handleColor = FluxStyle::accent(this); // blue active when focused
+        } else {
+            handleColor = FluxStyle::mix(FluxStyle::base(this), FluxStyle::text(this), 0.35); // low contrast neutral grey nub
+        }
     }
-    /*draw a black rect around the slider for contrast or orange when focused*/
-    if ( !hasFocus() || _imp->readOnly ) {
-        p.setPen(Qt::black);
+    p.setBrush(QBrush(handleColor));
+
+    QPen handlePen = p.pen();
+    if (hasFocus() && !_imp->readOnly) {
+        handlePen.setColor(FluxStyle::focusOutline(this));
+        handlePen.setWidthF(1.2);
     } else {
-        QPen pen = p.pen();
-        pen.setColor(selectionColor); // alpha could be set too, if required
-        //QVector<qreal> dashStyle;
-        //qreal space = 2;
-        //dashStyle << 1 << space;
-        //pen.setDashPattern(dashStyle);
-        //p.setOpacity(0.8); // also sets opacity of the brush/fill!
-        p.setPen(pen);
+        handlePen.setColor(FluxStyle::mix(handleColor, FluxStyle::base(this), 0.4)); // soft border blending with base
+        handlePen.setWidthF(1.0);
     }
-    QRectF handleRect(positionValue - TO_DPIX(SLIDER_WIDTH) / 2.,
-                      lineYpos - TO_DPIY(SLIDER_HEIGHT) / 2.,
-                      TO_DPIX(SLIDER_WIDTH),
-                      TO_DPIY(SLIDER_HEIGHT));
-    p.drawRoundedRect(handleRect, TO_DPIX(2), TO_DPIX(2));
+    p.setPen(handlePen);
+
+    qreal r = TO_DPIX(4.5); // radius 4.5 -> diameter 9
+    QRectF handleRect(positionValue - r, lineYpos - r, r * 2.0, r * 2.0);
+    p.drawEllipse(handleRect);
+
     p.setRenderHints(rh);
-#endif
 } // paintEvent
 
 void

@@ -8,6 +8,7 @@
 #include "Gui/FluxTextAnimatorModel.h"
 #include "Gui/Gui.h"
 #include "Gui/GuiAppInstance.h"
+#include "Gui/FluxStyleUtils.h"
 #include "Engine/AppInstance.h"
 #include "Engine/Curve.h"
 #include "Engine/Knob.h"
@@ -60,10 +61,14 @@ protected:
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing, true);
         QPolygonF d;
-        const qreal cx = width() / 2.0, cy = height() / 2.0, r = width() * 0.34;
+        const qreal cx = width() / 2.0, cy = height() / 2.0, r = width() * 0.30;
         d << QPointF(cx, cy - r) << QPointF(cx + r, cy) << QPointF(cx, cy + r) << QPointF(cx - r, cy);
-        p.setPen(QPen(Qt::white, 1.3));
-        p.setBrush(_active ? QBrush(Qt::white) : Qt::NoBrush);
+        const QColor border = FluxStyle::mix(FluxStyle::disabledText(this), FluxStyle::window(this), 0.4);
+        p.setPen(QPen(_active ? FluxStyle::keyframeColor() : border, _active ? 1.6 : 1.15));
+        p.setBrush(_active ? QBrush(FluxStyle::keyframeColor()) : Qt::NoBrush);
+        if (!_active && underMouse()) {
+            p.setPen(QPen(FluxStyle::hoverBorder(this), 1.15));
+        }
         p.drawPolygon(d);
     }
 private:
@@ -88,14 +93,17 @@ FluxTextAnimatorPanel::FluxTextAnimatorPanel(Gui* gui, QWidget* parent)
     QVBoxLayout* main = new QVBoxLayout(this);
     main->setContentsMargins(6, 6, 6, 6);
     _addButton = new QPushButton(tr("Add Animator"), this);
+    _addButton->setObjectName(QString::fromUtf8("FluxTextAnimatorAddButton"));
     main->addWidget(_addButton);
     _emptyLabel = new QLabel(tr("Select a FluxMotionText layer to add text animators."), this);
     _emptyLabel->setWordWrap(true);
     main->addWidget(_emptyLabel);
     QScrollArea* scroll = new QScrollArea(this);
+    scroll->setObjectName(QString::fromUtf8("FluxTextAnimatorScrollArea"));
     scroll->setWidgetResizable(true);
     main->addWidget(scroll, 1);
     _body = new QWidget(scroll);
+    _body->setObjectName(QString::fromUtf8("FluxTextAnimatorContent"));
     _animatorLayout = new QVBoxLayout(_body);
     _animatorLayout->setContentsMargins(0, 0, 0, 0);
     _animatorLayout->setSpacing(8);
@@ -285,6 +293,7 @@ void FluxTextAnimatorPanel::toggleKey(const QString& name, int dims)
 QPushButton* FluxTextAnimatorPanel::keyButton(const QString& name, int dims, const QString& tip)
 {
     FluxAnimatorKeyButton* b = new FluxAnimatorKeyButton(_body);
+    b->setProperty("fluxKeyButton", true);
     b->setToolTip(tip);
     const double t = currentFrameTime();
     bool active = false;
@@ -432,14 +441,19 @@ QGroupBox* FluxTextAnimatorPanel::makeAnimatorGroup(int id, int index, int count
 {
     QString p = QString::fromUtf8("Animator %1").arg(id);
     QGroupBox* g = new QGroupBox(stringValue(FluxTextAnimatorModel::knobName(id, QString::fromUtf8("name")), p), parent);
-    if (id == _selectedAnimatorId) {
-        g->setStyleSheet(QString::fromUtf8("QGroupBox { border: 2px solid #62a8ff; border-radius: 4px; margin-top: 8px; padding-top: 8px; }"));
-    }
+    g->setProperty("fluxAnimatorCard", true);
+    g->setProperty("selected", id == _selectedAnimatorId);
     QVBoxLayout* outer = new QVBoxLayout(g);
     QWidget* head = new QWidget(g); QHBoxLayout* hl = new QHBoxLayout(head); hl->setContentsMargins(0,0,0,0);
+    head->setObjectName(QString::fromUtf8("FluxTextAnimatorHeader"));
     QCheckBox* enabled = new QCheckBox(tr("Enabled"), head); enabled->setChecked(boolValue(FluxTextAnimatorModel::knobName(id, QString::fromUtf8("enabled")), true));
+    enabled->setProperty("fluxAnimatorControl", QString::fromUtf8("enabled"));
     QLineEdit* name = new QLineEdit(g->title(), head);
+    name->setObjectName(QString::fromUtf8("FluxTextAnimatorNameEdit"));
     QPushButton* up = new QPushButton(tr("↑"), head); QPushButton* down = new QPushButton(tr("↓"), head); QPushButton* remove = new QPushButton(tr("Remove"), head);
+    up->setProperty("fluxAnimatorAction", QString::fromUtf8("moveUp"));
+    down->setProperty("fluxAnimatorAction", QString::fromUtf8("moveDown"));
+    remove->setProperty("fluxAnimatorAction", QString::fromUtf8("remove"));
     up->setEnabled(index > 0); down->setEnabled(index + 1 < count);
     hl->addWidget(enabled); hl->addWidget(name, 1); hl->addWidget(up); hl->addWidget(down); hl->addWidget(remove); outer->addWidget(head);
     connect(enabled, &QCheckBox::toggled, this, [this, id](bool v) { setBoolValue(FluxTextAnimatorModel::knobName(id, QString::fromUtf8("enabled")), v); });

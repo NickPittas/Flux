@@ -1217,6 +1217,7 @@ Gui::setupFluxUi()
         _imp->_panes.push_back(topLeftPane);
     }
     topLeftPane->setObjectName_mt_safe( QString::fromUtf8("fluxTopLeftPane") );
+    topLeftPane->setProperty("fluxPaneRole", QString::fromUtf8("projectTabs"));
     topLeftPane->setAsAnchor(true);
 
     // ====================================================================
@@ -1224,12 +1225,14 @@ Gui::setupFluxUi()
     // ====================================================================
     TabWidget* workshopPane = topLeftPane->splitVertically(false);
     workshopPane->setObjectName_mt_safe( QString::fromUtf8("fluxWorkshopPane") );
+    workshopPane->setProperty("fluxPaneRole", QString::fromUtf8("timelineTabs"));
 
     // ====================================================================
     // 3. Split top-left horizontally to create top-center pane
     // ====================================================================
     TabWidget* topCenterPane = topLeftPane->splitHorizontally(false);
     topCenterPane->setObjectName_mt_safe( QString::fromUtf8("fluxTopCenterPane") );
+    topCenterPane->setProperty("fluxPaneRole", QString::fromUtf8("viewerTabs"));
     _imp->_fluxViewerPane = topCenterPane;
 
     // ====================================================================
@@ -1237,6 +1240,7 @@ Gui::setupFluxUi()
     // ====================================================================
     TabWidget* topRightPane = topCenterPane->splitHorizontally(false);
     topRightPane->setObjectName_mt_safe( QString::fromUtf8("fluxTopRightPane") );
+    topRightPane->setProperty("fluxPaneRole", QString::fromUtf8("inspectorTabs"));
     _imp->_fluxTopLeftPane = topLeftPane;
     _imp->_fluxTopRightPane = topRightPane;
     _imp->_fluxWorkshopPane = workshopPane;

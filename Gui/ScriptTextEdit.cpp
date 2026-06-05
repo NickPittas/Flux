@@ -47,6 +47,7 @@ CLANG_DIAG_ON(uninitialized)
 #include "Gui/GuiAppInstance.h"
 #include "Gui/GuiApplicationManager.h"
 #include "Gui/KnobWidgetDnD.h" // KNOB_DND_MIME_DATA_KEY
+#include "Gui/FluxStyleUtils.h"
 
 NATRON_NAMESPACE_ENTER
 
@@ -314,6 +315,7 @@ InputScriptTextEdit::InputScriptTextEdit(Gui* gui,
     , _lineNumber( new LineNumberWidget(this) )
     , _gui(gui)
 {
+    _lineNumber->setObjectName(QString::fromUtf8("FluxScriptLineNumberArea"));
     QObject::connect( this, SIGNAL(blockCountChanged(int)), this, SLOT(updateLineNumberAreaWidth(int)) );
     QObject::connect( this, SIGNAL(updateRequest(QRect,int)), this, SLOT(updateLineNumberArea(QRect,int)) );
     QObject::connect( this, SIGNAL(cursorPositionChanged()), this, SLOT(highlightCurrentLine()) );
@@ -381,11 +383,9 @@ void
 InputScriptTextEdit::highlightCurrentLine()
 {
     QList<QTextEdit::ExtraSelection> extraSelections;
-
     if ( !isReadOnly() ) {
         QTextEdit::ExtraSelection selection;
-        QColor lineColor = QColor(100, 100, 100);
-
+        QColor lineColor = FluxStyle::mix(FluxStyle::base(this), FluxStyle::button(this), 0.12);
         selection.format.setBackground(lineColor);
         selection.format.setProperty(QTextFormat::FullWidthSelection, true);
         selection.cursor = textCursor();
@@ -400,18 +400,9 @@ void
 InputScriptTextEdit::lineNumberAreaPaintEvent(QPaintEvent *event)
 {
     QPainter painter(_lineNumber);
-    QColor fillColor;
-    QColor txtColor;
-    QColor selColor;
-    {
-        double r, g, b;
-        appPTR->getCurrentSettings()->getRaisedColor(&r, &g, &b);
-        fillColor.setRgbF( Image::clamp(r, 0., 1.), Image::clamp(g, 0., 1.), Image::clamp(b, 0., 1.) );
-        appPTR->getCurrentSettings()->getTextColor(&r, &g, &b);
-        txtColor.setRgbF( Image::clamp(r, 0., 1.), Image::clamp(g, 0., 1.), Image::clamp(b, 0., 1.) );
-        appPTR->getCurrentSettings()->getSelectionColor(&r, &g, &b);
-        selColor.setRgbF( Image::clamp(r, 0., 1.), Image::clamp(g, 0., 1.), Image::clamp(b, 0., 1.) );
-    }
+    const QColor fillColor = FluxStyle::mix(FluxStyle::base(this), FluxStyle::window(this), 0.25);
+    const QColor txtColor = FluxStyle::disabledText(this);
+    const QColor selColor = hasFocus() ? FluxStyle::accent(this) : FluxStyle::text(this);
 
     painter.fillRect(event->rect(), fillColor);
 
@@ -524,6 +515,7 @@ InputScriptTextEdit::leaveEvent(QEvent* /*e*/)
 OutputScriptTextEdit::OutputScriptTextEdit(QWidget* parent)
     : QTextEdit(parent)
 {
+    setObjectName(QString::fromUtf8("FluxScriptOutput"));
 }
 
 OutputScriptTextEdit::~OutputScriptTextEdit()

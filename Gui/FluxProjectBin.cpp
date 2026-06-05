@@ -143,31 +143,57 @@ FluxProjectBin::setupUI()
     mainLayout->setContentsMargins(4, 4, 4, 4);
     mainLayout->setSpacing(4);
 
+    QHBoxLayout* headerLayout = new QHBoxLayout();
+    headerLayout->setContentsMargins(0, 0, 0, 0);
+    headerLayout->setSpacing(4);
+
     _headerLabel = new QLabel(QString::fromUtf8("Project Bin"));
     _headerLabel->setObjectName(QString::fromUtf8("fluxPanelHeader"));
     QFont headerFont;
     headerFont.setBold(true);
     headerFont.setPointSize(11);
     _headerLabel->setFont(headerFont);
-    mainLayout->addWidget(_headerLabel);
+    headerLayout->addWidget(_headerLabel);
 
-    QHBoxLayout* searchLayout = new QHBoxLayout();
+    headerLayout->addStretch();
+
+    _gridViewButton = new QToolButton();
+    _gridViewButton->setObjectName(QString::fromUtf8("FluxProjectBinGridViewButton"));
+    _gridViewButton->setToolTip(QString::fromUtf8("Grid View"));
+    _gridViewButton->setCheckable(true);
+    _gridViewButton->setChecked(true);
+    _gridViewButton->setIcon(QIcon::fromTheme(QString::fromUtf8("view-grid"), QIcon(QString::fromUtf8(":/Resources/Images/layout.png"))));
+    _gridViewButton->setText(QString::fromUtf8("⊞"));
+    _gridViewButton->setProperty("fluxPanelHeaderButton", true);
+    _gridViewButton->setProperty("fluxHeaderMicroAction", true);
+    QObject::connect(_gridViewButton, SIGNAL(clicked(bool)), this, SLOT(onViewModeToggled()));
+    headerLayout->addWidget(_gridViewButton);
+
+    _listViewButton = new QToolButton();
+    _listViewButton->setObjectName(QString::fromUtf8("FluxProjectBinListViewButton"));
+    _listViewButton->setToolTip(QString::fromUtf8("List View"));
+    _listViewButton->setCheckable(true);
+    _listViewButton->setChecked(false);
+    _listViewButton->setIcon(QIcon::fromTheme(QString::fromUtf8("view-list"), QIcon(QString::fromUtf8(":/Resources/Images/treeview_more.png"))));
+    _listViewButton->setText(QString::fromUtf8("☰"));
+    _listViewButton->setProperty("fluxPanelHeaderButton", true);
+    _listViewButton->setProperty("fluxHeaderMicroAction", true);
+    QObject::connect(_listViewButton, SIGNAL(clicked(bool)), this, SLOT(onViewModeToggled()));
+    headerLayout->addWidget(_listViewButton);
+
+    mainLayout->addLayout(headerLayout);
+
     _searchField = new QLineEdit();
+    _searchField->setObjectName(QString::fromUtf8("FluxProjectBinSearchField"));
     _searchField->setPlaceholderText(QString::fromUtf8("Search files..."));
     _searchField->setClearButtonEnabled(true);
+    _searchField->setProperty("fluxRecessed", true);
     QObject::connect(_searchField, SIGNAL(textChanged(QString)), this, SLOT(onSearchTextChanged(QString)));
-    searchLayout->addWidget(_searchField);
-
-    _viewModeButton = new QToolButton();
-    _viewModeButton->setText(QString::fromUtf8("List"));
-    _viewModeButton->setToolTip(QString::fromUtf8("Toggle between thumbnail and list view"));
-    _viewModeButton->setCheckable(true);
-    _viewModeButton->setChecked(false);
-    QObject::connect(_viewModeButton, SIGNAL(clicked(bool)), this, SLOT(onViewModeToggled()));
-    searchLayout->addWidget(_viewModeButton);
-    mainLayout->addLayout(searchLayout);
+    mainLayout->addWidget(_searchField);
 
     _fileList = new FluxProjectBinTreeWidget();
+    _fileList->setObjectName(QString::fromUtf8("FluxProjectBinList"));
+    _fileList->setAlternatingRowColors(false);
     _fileList->setSelectionMode(QAbstractItemView::SingleSelection);
     _fileList->setRootIsDecorated(false);
     _fileList->setItemsExpandable(false);
@@ -184,6 +210,11 @@ FluxProjectBin::setupUI()
                                << QString::fromUtf8("Path"));
     _fileList->header()->setStretchLastSection(true);
     _fileList->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    _fileList->setFrameShape(QFrame::NoFrame);
+    _fileList->setLineWidth(0);
+    _fileList->setMidLineWidth(0);
+    _fileList->setHeaderHidden(true);
+
     applyViewMode();
 
     QObject::connect(_fileList, SIGNAL(itemDoubleClicked(QTreeWidgetItem*,int)), this, SLOT(onItemDoubleClicked(QTreeWidgetItem*,int)));
@@ -191,26 +222,51 @@ FluxProjectBin::setupUI()
     QObject::connect(_fileList, SIGNAL(customContextMenuRequested(QPoint)), this, SLOT(onContextMenuRequested(QPoint)));
     mainLayout->addWidget(_fileList);
 
-    QHBoxLayout* buttonLayout = new QHBoxLayout();
-    _importButton = new QPushButton(QString::fromUtf8("Import..."));
+    QHBoxLayout* footerLayout = new QHBoxLayout();
+    footerLayout->setContentsMargins(0, 0, 0, 0);
+    footerLayout->setSpacing(4);
+
+    _statusLabel = new QLabel();
+    _statusLabel->setObjectName(QString::fromUtf8("FluxProjectBinStatusLabel"));
+    _statusLabel->setProperty("fluxFooterStatus", true);
+    QFont statusFont = _statusLabel->font();
+    statusFont.setPointSize(9);
+    _statusLabel->setFont(statusFont);
+    footerLayout->addWidget(_statusLabel);
+
+    footerLayout->addStretch();
+
+    _importButton = new QToolButton();
+    _importButton->setObjectName(QString::fromUtf8("FluxProjectBinImportButton"));
     _importButton->setToolTip(QString::fromUtf8("Import files into the project bin"));
+    _importButton->setIcon(QIcon::fromTheme(QString::fromUtf8("document-open"), QIcon(QString::fromUtf8(":/Resources/Images/open-file.png"))));
+    _importButton->setText(QString::fromUtf8("+"));
+    _importButton->setProperty("fluxPanelHeaderButton", true);
+    _importButton->setProperty("fluxFooterAction", true);
     QObject::connect(_importButton, SIGNAL(clicked(bool)), this, SLOT(onImportButtonClicked()));
+    footerLayout->addWidget(_importButton);
 
-    _clearButton = new QPushButton(QString::fromUtf8("Clear"));
+    _clearButton = new QToolButton();
+    _clearButton->setObjectName(QString::fromUtf8("FluxProjectBinClearButton"));
     _clearButton->setToolTip(QString::fromUtf8("Remove all files from the bin"));
+    _clearButton->setIcon(QIcon::fromTheme(QString::fromUtf8("edit-clear"), QIcon(QString::fromUtf8(":/Resources/Images/close.png"))));
+    _clearButton->setText(QString::fromUtf8("Clear"));
+    _clearButton->setProperty("fluxPanelHeaderButton", true);
+    _clearButton->setProperty("fluxFooterAction", true);
     QObject::connect(_clearButton, SIGNAL(clicked(bool)), this, SLOT(clearBin()));
+    footerLayout->addWidget(_clearButton);
 
-    buttonLayout->addWidget(_importButton);
-    buttonLayout->addWidget(_clearButton);
-    mainLayout->addLayout(buttonLayout);
+    mainLayout->addLayout(footerLayout);
     setLayout(mainLayout);
+
+    updateStatus();
 }
 
 void
 FluxProjectBin::applyViewMode()
 {
     _fileList->setIconSize(_thumbnailViewMode ? QSize(80, 60) : QSize(32, 24));
-    _fileList->setHeaderHidden(_thumbnailViewMode);
+    _fileList->setHeaderHidden(true);
     for (int c = eColumnResolution; c < eColumnCount; ++c) {
         _fileList->setColumnHidden(c, _thumbnailViewMode);
     }
@@ -218,7 +274,27 @@ FluxProjectBin::applyViewMode()
         QTreeWidgetItem* item = _fileList->topLevelItem(i);
         const QString path = itemPath(item);
         const QString name = item->data(eColumnName, kFluxProjectBinDisplayNameRole).toString();
-        item->setText(eColumnName, _thumbnailViewMode ? name : name);
+        if (_thumbnailViewMode) {
+            const FluxProjectBinMetadata metadata = _metadataCache.value(path);
+            QString metaStr;
+            if (!metadata.resolution.isEmpty()) {
+                metaStr += metadata.resolution;
+            }
+            if (!metadata.duration.isEmpty()) {
+                if (!metaStr.isEmpty()) metaStr += QString::fromUtf8(" | ");
+                metaStr += metadata.duration;
+            }
+            if (!metadata.fps.isEmpty()) {
+                if (!metaStr.isEmpty()) metaStr += QString::fromUtf8(" | ");
+                metaStr += metadata.fps + QString::fromUtf8(" fps");
+            }
+            if (metaStr.isEmpty()) {
+                metaStr = QString::fromUtf8("No metadata");
+            }
+            item->setText(eColumnName, name + QString::fromUtf8("\n") + metaStr);
+        } else {
+            item->setText(eColumnName, name);
+        }
         QMap<QString, QPixmap>::const_iterator cacheIt = _thumbnailCache.find(path);
         if (cacheIt != _thumbnailCache.end()) {
             item->setIcon(eColumnName, QIcon(_thumbnailViewMode ? cacheIt.value() : cacheIt.value().scaled(32, 24, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
@@ -229,10 +305,24 @@ FluxProjectBin::applyViewMode()
 void
 FluxProjectBin::onViewModeToggled()
 {
-    _thumbnailViewMode = !_viewModeButton->isChecked();
-    _viewModeButton->setText(_thumbnailViewMode ? QString::fromUtf8("List") : QString::fromUtf8("Grid"));
+    QToolButton* clickedBtn = qobject_cast<QToolButton*>(sender());
+    if (clickedBtn) {
+        if (clickedBtn == _gridViewButton) {
+            _gridViewButton->setChecked(true);
+            _listViewButton->setChecked(false);
+            _thumbnailViewMode = true;
+        } else if (clickedBtn == _listViewButton) {
+            _gridViewButton->setChecked(false);
+            _listViewButton->setChecked(true);
+            _thumbnailViewMode = false;
+        }
+    } else {
+        _gridViewButton->setChecked(_thumbnailViewMode);
+        _listViewButton->setChecked(!_thumbnailViewMode);
+    }
     applyViewMode();
 }
+
 
 void
 FluxProjectBin::addFile(const QString& filePath)
@@ -247,6 +337,7 @@ FluxProjectBin::addFile(const QString& filePath)
     }
     _metadataCache[filePath] = probeMetadata(filePath);
     _fileList->addTopLevelItem(createItem(filePath));
+    updateStatus();
 }
 
 QStringList
@@ -262,6 +353,7 @@ FluxProjectBin::clearBin()
     _files.clear();
     _thumbnailCache.clear();
     _metadataCache.clear();
+    updateStatus();
 }
 
 QTreeWidgetItem*
@@ -271,7 +363,30 @@ FluxProjectBin::createItem(const QString& filePath)
     QTreeWidgetItem* item = new QTreeWidgetItem();
     const QString displayName = fi.fileName();
     const FluxProjectBinMetadata metadata = _metadataCache.value(filePath);
-    item->setText(eColumnName, displayName);
+    item->setData(eColumnName, kFluxProjectBinPathRole, filePath);
+    item->setData(eColumnName, kFluxProjectBinDisplayNameRole, displayName);
+
+    if (_thumbnailViewMode) {
+        QString metaStr;
+        if (!metadata.resolution.isEmpty()) {
+            metaStr += metadata.resolution;
+        }
+        if (!metadata.duration.isEmpty()) {
+            if (!metaStr.isEmpty()) metaStr += QString::fromUtf8(" | ");
+            metaStr += metadata.duration;
+        }
+        if (!metadata.fps.isEmpty()) {
+            if (!metaStr.isEmpty()) metaStr += QString::fromUtf8(" | ");
+            metaStr += metadata.fps + QString::fromUtf8(" fps");
+        }
+        if (metaStr.isEmpty()) {
+            metaStr = QString::fromUtf8("No metadata");
+        }
+        item->setText(eColumnName, displayName + QString::fromUtf8("\n") + metaStr);
+    } else {
+        item->setText(eColumnName, displayName);
+    }
+
     item->setText(eColumnResolution, metadata.resolution);
     item->setText(eColumnDuration, metadata.duration);
     item->setText(eColumnStart, metadata.startFrame);
@@ -280,8 +395,6 @@ FluxProjectBin::createItem(const QString& filePath)
     item->setText(eColumnPath, metadata.filePath);
     item->setToolTip(eColumnName, filePath);
     item->setToolTip(eColumnPath, filePath);
-    item->setData(eColumnName, kFluxProjectBinPathRole, filePath);
-    item->setData(eColumnName, kFluxProjectBinDisplayNameRole, displayName);
     QMap<QString, QPixmap>::const_iterator cacheIt = _thumbnailCache.find(filePath);
     if (cacheIt != _thumbnailCache.end()) {
         item->setIcon(eColumnName, QIcon(_thumbnailViewMode ? cacheIt.value() : cacheIt.value().scaled(32, 24, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
@@ -289,6 +402,22 @@ FluxProjectBin::createItem(const QString& filePath)
         item->setIcon(eColumnName, QIcon::fromTheme(QString::fromUtf8("document-open"), QIcon()));
     }
     return item;
+}
+
+void
+FluxProjectBin::updateStatus()
+{
+    if (!_statusLabel) {
+        return;
+    }
+    const int count = _files.size();
+    if (count == 0) {
+        _statusLabel->setText(QString::fromUtf8("0 items"));
+    } else if (count == 1) {
+        _statusLabel->setText(QString::fromUtf8("1 item"));
+    } else {
+        _statusLabel->setText(QString::fromUtf8("%1 items").arg(count));
+    }
 }
 
 void
@@ -358,6 +487,7 @@ FluxProjectBin::removeItem(QTreeWidgetItem* item)
     _thumbnailCache.remove(path);
     _metadataCache.remove(path);
     delete _fileList->takeTopLevelItem(_fileList->indexOfTopLevelItem(item));
+    updateStatus();
 }
 
 void

@@ -25,6 +25,7 @@
 
 #include "NodeGraph.h"
 #include "NodeGraphPrivate.h"
+#include "Gui/FluxStyleUtils.h"
 
 #include <cmath>
 #include <stdexcept>
@@ -85,7 +86,7 @@ NodeGraph::getFullSceneScreenShot()
     QImage renderImage(sceneW_navPixelCoord, sceneH_navPixelCoord, QImage::Format_ARGB32_Premultiplied);
 
     // Fill the background
-    renderImage.fill( QColor(71, 71, 71, 255) );
+    renderImage.fill( QColor(17, 22, 28) );
 
     // Offset the visible rect corner as an offset relative to the scene rect corner
     viewRect.setX( viewRect.x() - sceneR.x() );
@@ -114,12 +115,11 @@ NodeGraph::getFullSceneScreenShot()
     scene()->addItem(_imp->_cacheSizeText);
 
     // Fill the highlight with a semi transparent whitish grey
-    painter.fillRect( viewRect_navCoordinates, QColor(200, 200, 200, 100) );
+    painter.fillRect( viewRect_navCoordinates, FluxStyle::withAlpha(FluxStyle::accent(this), 0.2) );
 
-    // Draw a border surrounding the
     QPen p;
     p.setWidth(2);
-    p.setBrush(Qt::yellow);
+    p.setBrush(FluxStyle::accent(this));
     painter.setPen(p);
     // Make sure the border is visible
     viewRect_navCoordinates.adjust(2, 2, -2, -2);
@@ -127,7 +127,7 @@ NodeGraph::getFullSceneScreenShot()
 
     // Now make an image of the requested size of the navigator and center the render image into it
     QImage img(navWidth, navHeight, QImage::Format_ARGB32_Premultiplied);
-    img.fill( QColor(71, 71, 71, 255) );
+    img.fill( QColor(17, 22, 28) );
 
     int xOffset = ( img.width() - renderImage.width() ) / 2;
     int yOffset = ( img.height() - renderImage.height() ) / 2;

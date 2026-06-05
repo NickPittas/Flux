@@ -73,10 +73,11 @@ DockablePanelTabWidget::DockablePanelTabWidget(Gui* gui,
 {
     setFocusPolicy(Qt::ClickFocus);
     QTabBar* tabbar = new NoWheelTabBar(this);
-    tabbar->setObjectName( QString::fromUtf8("PanelTabBar") );
+    tabbar->setObjectName( QString::fromUtf8("FluxPanelTabBar") );
     tabbar->setFocusPolicy(Qt::ClickFocus);
     setTabBar(tabbar);
-    setObjectName( QString::fromUtf8("PanelTabBar") );
+    setObjectName( QString::fromUtf8("FluxPanelTabWidget") );
+    setDocumentMode(true);
 }
 
 void

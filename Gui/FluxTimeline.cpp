@@ -29,6 +29,7 @@
 #include "Gui/Gui.h"
 #include "Gui/GuiAppInstance.h"
 #include "Gui/FluxEffectsPanel.h"
+#include "Gui/FluxStyleUtils.h"
 #include "Gui/FluxTextAnimatorModel.h"
 #include "Gui/NodeGraph.h"
 #include "Gui/NodeCreationDialog.h"
@@ -193,17 +194,18 @@ FluxTimeline::addLayer(const QString& name,
     layer.inPoint = _firstFrame;
     layer.outPoint = _lastFrame;
 
-    // Assign color based on type
+    // Keep the timeline visually coherent: all bars live in the same blue family
+    // while still varying slightly by layer type.
     if (type == QString::fromUtf8("footage")) {
-        layer.color = QColor(80, 130, 200);
+        layer.color = QColor(95, 137, 216);
     } else if (type == QString::fromUtf8("solid")) {
-        layer.color = QColor(130, 180, 80);
+        layer.color = QColor(86, 132, 198);
     } else if (type == QString::fromUtf8("text")) {
-        layer.color = QColor(200, 130, 80);
+        layer.color = QColor(108, 151, 223);
     } else if (type == QString::fromUtf8("adjustment")) {
-        layer.color = QColor(180, 130, 80);
+        layer.color = QColor(118, 138, 186);
     } else {
-        layer.color = QColor(120, 120, 120);
+        layer.color = QColor(92, 104, 124);
     }
 
     _layers.append(layer);
@@ -220,7 +222,7 @@ FluxTimeline::addSolidLayer(const QColor& color)
     layer.type = QString::fromUtf8("solid");
     layer.inPoint = _firstFrame;
     layer.outPoint = _lastFrame;
-    layer.color = QColor(130, 180, 80);
+    layer.color = QColor(86, 132, 198);
     // Store the solid color as a QString for later use by the gizmo
     // (actual color is set on the Constant node's "color" knob)
     layer.solidColor = color;
@@ -239,7 +241,7 @@ FluxTimeline::addTextLayer()
     layer.type = QString::fromUtf8("text");
     layer.inPoint = _firstFrame;
     layer.outPoint = _lastFrame;
-    layer.color = QColor(200, 130, 80);
+    layer.color = QColor(108, 151, 223);
 
     int newIndex = _layers.size();
     _layers.append(layer);
@@ -266,7 +268,7 @@ FluxTimeline::addNullLayer()
     layer.type = QString::fromUtf8("null");
     layer.inPoint = _firstFrame;
     layer.outPoint = _lastFrame;
-    layer.color = QColor(180, 180, 180);
+    layer.color = QColor(92, 104, 124);
     _layers.append(layer);
     rebuildVisibleRows();
     Q_EMIT compositingChanged();
@@ -2053,43 +2055,76 @@ FluxTimeline::paintEvent(QPaintEvent* /*event*/)
             rebuildVisibleRows();
         }
     }
-
     QPainter painter(this);
 
+    // Style parent tabs programmatically using a dynamic property guard to avoid loops
+    if (!property("tabsStyleApplied").toBool()) {
+        setProperty("tabsStyleApplied", true);
+        QWidget* p = this->parentWidget();
+        while (p) {
+            QTabBar* tabBar = p->findChild<QTabBar*>();
+            if (tabBar) {
+                tabBar->setStyleSheet(QStringLiteral(
+                    "QTabBar { background-color: #0b0f13; border: none; }"
+                    "QTabBar::tab { background-color: transparent; color: #8a909a; border: none; padding: 6px 16px; margin: 0; }"
+                    "QTabBar::tab:selected { color: #ffffff; border-bottom: 2px solid #3871cc; background-color: transparent; }"
+                    "QTabBar::tab:hover { color: #ffffff; }"
+                    "QTabBar::close-button { image: none; }"
+                    "QTabBar::close-button:hover { image: url(:/Resources/Images/close.png); }"));
+            }
+            if (qobject_cast<QTabWidget*>(p)) {
+                QTabWidget* tabWidget = qobject_cast<QTabWidget*>(p);
+                tabWidget->setStyleSheet(QStringLiteral("QTabWidget::pane { border: none; background-color: #0b0f13; }"));
+            }
+            p = p->parentWidget();
+        }
+    }
+
+    // ── Darker visual system palette ──
+    const QColor windowBg = QColor(11, 15, 19);    // #0b0f13 (window/chrome)
+    const QColor panelBg = QColor(17, 22, 28);     // #11161c (panel shell)
+    const QColor controlBg = QColor(23, 29, 36);   // #171d24 (inner controls / sidebar background)
+    const QColor labelBg = QColor(23, 29, 36);     // #171d24 (sidebar name column background)
+    const QColor accent = QColor(56, 113, 204);    // #3871cc (restrained blue accent)
+    const QColor accentFill = QColor(56, 113, 204, 38);
+    const QColor border = QColor(28, 34, 42);      // #1c222a (very soft separator)
+    const QColor mutedText = QColor(138, 144, 154); // neutral gray text
+
     QRect totalRect = rect();
+    painter.fillRect(totalRect, windowBg); // Outer gap color
 
-    // Background — subtle violet tint to differentiate the timeline panel.
-    painter.fillRect(totalRect, QColor(31, 29, 36));
+    // Draw the timeline panel as a floating rounded card
+    QRect cardRect = totalRect.adjusted(3, 3, -3, -3);
+    QPainterPath cardPath;
+    cardPath.addRoundedRect(cardRect, 8.0, 8.0);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.fillPath(cardPath, panelBg);
 
-    // Time ruler area
+    // Clip all subsequent painting to the floating card
+    painter.setClipPath(cardPath);
+
     QRect rulerRect(_layerLabelWidth, 0, totalRect.width() - _layerLabelWidth, kTimeRulerHeight);
     drawTimeRuler(painter, rulerRect);
 
-    // Control column background (L/V/S buttons) — darker tint
-    painter.fillRect(0, kTimeRulerHeight, kControlColumnWidth, totalRect.height() - kTimeRulerHeight, QColor(38, 34, 44));
+    painter.fillRect(0, kTimeRulerHeight, kControlColumnWidth, totalRect.height() - kTimeRulerHeight, controlBg);
+    painter.fillRect(kControlColumnWidth, kTimeRulerHeight, _layerLabelWidth - kControlColumnWidth, totalRect.height() - kTimeRulerHeight, labelBg);
 
-    // Name column background
-    painter.fillRect(kControlColumnWidth, kTimeRulerHeight, _layerLabelWidth - kControlColumnWidth, totalRect.height() - kTimeRulerHeight, QColor(40, 36, 47));
-
-    // Panel accent: small, non-invasive color cue.
-    painter.fillRect(0, 0, totalRect.width(), 2, QColor(120, 92, 155));
-
-    // Nodegraph dirty banner
     {
         Gui* gui = getGui();
         if (gui && gui->isFluxNodeGraphDirty()) {
-            painter.fillRect(0, 2, totalRect.width(), 22, QColor(210, 120, 20, 200));
+            const QRect dirtyRect(0, 2, totalRect.width(), 22);
+            const QColor warningBg(176, 118, 36, 200);
+            painter.fillRect(dirtyRect, warningBg);
             painter.setPen(QPen(Qt::white));
             QFont bannerFont = painter.font();
             bannerFont.setPixelSize(13);
             painter.setFont(bannerFont);
-            painter.drawText(QRect(0, 2, totalRect.width(), 22),
+            painter.drawText(dirtyRect,
                              Qt::AlignCenter,
                              QString::fromUtf8("Node graph modified \342\200\224 click here or press Ctrl+Shift+Y to sync"));
         }
     }
 
-    // Sync button in ruler area (only when dirty)
     {
         Gui* gui = getGui();
         if (gui && gui->isFluxNodeGraphDirty()) {
@@ -2097,49 +2132,39 @@ FluxTimeline::paintEvent(QPaintEvent* /*event*/)
             const int syncBtnH = kTimeRulerHeight - 4;
             const int syncBtnX = _layerLabelWidth + 4;
             const int syncBtnY = 2;
-            painter.fillRect(syncBtnX, syncBtnY, syncBtnW, syncBtnH, QColor(210, 120, 20, 220));
+            painter.fillRect(syncBtnX, syncBtnY, syncBtnW, syncBtnH, QColor(176, 118, 36, 220));
             painter.setPen(QPen(Qt::white));
             QFont btnFont = painter.font();
             btnFont.setPixelSize(11);
             btnFont.setBold(true);
             painter.setFont(btnFont);
-            painter.drawText(QRect(syncBtnX, syncBtnY, syncBtnW, syncBtnH),
-                             Qt::AlignCenter,
-                             QString::fromUtf8("Sync"));
+            painter.drawText(QRect(syncBtnX, syncBtnY, syncBtnW, syncBtnH), Qt::AlignCenter, QString::fromUtf8("Sync"));
         }
     }
+
     QRect barsRect(_layerLabelWidth, kTimeRulerHeight, totalRect.width() - _layerLabelWidth, totalRect.height() - kTimeRulerHeight);
     drawLayerBars(painter, barsRect);
-
-    // Playhead
     drawPlayhead(painter, totalRect);
-
-    // Snap indicator (guide line)
     drawSnapIndicator(painter, totalRect);
 
-    // T019-B: Drag preview ghost bar
     if (_isDragOver) {
         drawDragPreview(painter, totalRect);
     }
 
-    // Effect reorder drop indicator
     if (_interactionMode == eModeReorderEffect &&
         _reorderEffectLayerIndex >= 0 && _reorderEffectFromIndex >= 0 &&
         _reorderEffectTargetIndex >= 0 && _reorderEffectFromIndex != _reorderEffectTargetIndex) {
-        // Find the target effect row to draw the insertion line
         for (int ri = 0; ri < _visibleRows.size(); ++ri) {
             const FluxVisibleRow& vr = _visibleRows[ri];
             if (vr.type != eFluxVisibleRowEffect || vr.layerIndex != _reorderEffectLayerIndex) {
                 continue;
             }
             if (vr.childIndex == _reorderEffectTargetIndex) {
-                int vrY = kTimeRulerHeight + vr.y - _scrollOffsetY;
-                // Insertion line at top or bottom of target depending on direction
-                int lineY = (_reorderEffectTargetIndex < _reorderEffectFromIndex) ? vrY : vrY + vr.height;
-                painter.setPen(QPen(QColor(100, 180, 255), 2));
+                const int vrY = kTimeRulerHeight + vr.y - _scrollOffsetY;
+                const int lineY = (_reorderEffectTargetIndex < _reorderEffectFromIndex) ? vrY : vrY + vr.height;
+                painter.setPen(QPen(accent, 2));
                 painter.drawLine(_layerLabelWidth, lineY, totalRect.width(), lineY);
-                // Small triangle indicators at both ends
-                painter.setBrush(QColor(100, 180, 255));
+                painter.setBrush(accent);
                 painter.setPen(Qt::NoPen);
                 QPolygon triangle;
                 triangle << QPoint(_layerLabelWidth, lineY - 4)
@@ -2147,7 +2172,7 @@ FluxTimeline::paintEvent(QPaintEvent* /*event*/)
                          << QPoint(_layerLabelWidth + 6, lineY);
                 painter.drawPolygon(triangle);
                 triangle.clear();
-                int rightX = totalRect.width();
+                const int rightX = totalRect.width();
                 triangle << QPoint(rightX, lineY - 4)
                          << QPoint(rightX, lineY + 4)
                          << QPoint(rightX - 6, lineY);
@@ -2158,75 +2183,64 @@ FluxTimeline::paintEvent(QPaintEvent* /*event*/)
         }
     }
 
-    // Separator lines
-    painter.setPen(QColor(60, 60, 65));
+    painter.setPen(border);
     painter.drawLine(0, kTimeRulerHeight, totalRect.width(), kTimeRulerHeight);
     painter.drawLine(_layerLabelWidth, 0, _layerLabelWidth, totalRect.height());
-    painter.drawLine(kControlColumnWidth, kTimeRulerHeight, kControlColumnWidth, totalRect.height());
 
-    // Resize handle (subtle grip dots at the right edge of the label panel)
     {
-        int handleX = _layerLabelWidth;
-        int cy = totalRect.height() / 2;
+        const int handleX = _layerLabelWidth;
+        const int cy = totalRect.height() / 2;
         painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(90, 90, 95));
+        painter.setBrush(QColor(60, 68, 78));
         for (int dy = -12; dy <= 12; dy += 6) {
             painter.drawRect(handleX - 2, cy + dy - 1, 4, 2);
         }
         painter.setBrush(Qt::NoBrush);
     }
 
-    // Fit button in top-left corner (control column header, in ruler row)
     {
-        QRect fitBtnRect(2, 2, kControlColumnWidth - 4, kTimeRulerHeight - 4);
-        painter.fillRect(fitBtnRect, QColor(55, 55, 60));
-        painter.setPen(QColor(160, 160, 170));
+        const QRect fitBtnRect(2, 2, kControlColumnWidth - 4, kTimeRulerHeight - 4);
+        painter.setPen(mutedText);
         QFont fitFont;
         fitFont.setPointSize(8);
         painter.setFont(fitFont);
         painter.drawText(fitBtnRect, Qt::AlignCenter, QString::fromUtf8("Fit"));
-        painter.setPen(QColor(70, 70, 75));
-        painter.drawRect(fitBtnRect);
     }
 
-    // Keyframe/Curve mode toggle button in name-area header
     {
-        int toggleX = kControlColumnWidth + 4;
-        int toggleW = qMin(80, _layerLabelWidth - kControlColumnWidth - 8);
+        const int toggleX = kControlColumnWidth + 4;
+        const int toggleW = qMin(80, _layerLabelWidth - kControlColumnWidth - 8);
         if (toggleW > 20) {
-            QRect toggleRect(toggleX, 2, toggleW, kTimeRulerHeight - 4);
-            QColor toggleBg = _showKeyframeCurves ? QColor(80, 70, 50) : QColor(55, 55, 60);
-            painter.fillRect(toggleRect, toggleBg);
-            painter.setPen(QColor(160, 160, 170));
+            const QRect toggleRect(toggleX, 2, toggleW, kTimeRulerHeight - 4);
+            painter.setPen(_showKeyframeCurves ? accent : mutedText);
             QFont toggleFont;
             toggleFont.setPointSize(8);
             painter.setFont(toggleFont);
-            QString toggleLabel = _showKeyframeCurves
-                ? QString::fromUtf8("Curves")
-                : QString::fromUtf8("Keys");
+            const QString toggleLabel = _showKeyframeCurves ? QString::fromUtf8("Curves") : QString::fromUtf8("Keys");
             painter.drawText(toggleRect, Qt::AlignCenter, toggleLabel);
-            painter.setPen(QColor(70, 70, 75));
-            painter.drawRect(toggleRect);
         }
     }
 
-    // Rubber-band selection rectangle
     if (_interactionMode == eModeRubberBandSelect) {
-        QRect rubberRect = QRect(_rubberBandStart, _rubberBandCurrent).normalized();
-        painter.setPen(QPen(QColor(100, 150, 255, 180), 1));
-        painter.setBrush(QColor(100, 150, 255, 40));
+        const QRect rubberRect = QRect(_rubberBandStart, _rubberBandCurrent).normalized();
+        painter.setPen(QPen(accent, 1));
+        painter.setBrush(accentFill);
         painter.drawRect(rubberRect);
         painter.setBrush(Qt::NoBrush);
     }
 }
 
+
 void
 FluxTimeline::drawTimeRuler(QPainter& painter,
                             const QRect& rect)
 {
-    painter.fillRect(rect, QColor(45, 40, 54));
+    const QColor rulerBg = QColor(17, 22, 28);
+    const QColor majorTick = QColor(80, 90, 105);
+    const QColor minorTick = QColor(50, 56, 66);
+    painter.fillRect(rect, rulerBg);
 
-    painter.setPen(QColor(140, 140, 150));
+    painter.setPen(majorTick);
     QFont font;
     font.setPointSize(8);
     painter.setFont(font);
@@ -2273,9 +2287,9 @@ FluxTimeline::drawTimeRuler(QPainter& painter,
         if (x < rect.left() || x > rect.right()) {
             continue;
         }
-        painter.setPen(QColor(80, 80, 85));
+        painter.setPen(minorTick);
         painter.drawLine(x, rect.bottom() - 4, x, rect.bottom());
-        painter.setPen(QColor(140, 140, 150));
+        painter.setPen(majorTick);
     }
 }
 
@@ -2298,26 +2312,21 @@ FluxTimeline::drawLayerBars(QPainter& painter,
 
             bool isSelected = (_selectedType == eFluxSelectionLayer && i == _selectedLayer);
 
-            // ── Control column background (L/V/S) ──
-            QRect ctrlRect(0, y, kControlColumnWidth, rowHeight);
+            // ── Control and name columns background (unified sidebar) ──
+            QRect sidebarRect(0, y, _layerLabelWidth, rowHeight);
+            QRect gridRect(_layerLabelWidth, y, width() - _layerLabelWidth, rowHeight);
             if (isSelected) {
-                painter.fillRect(ctrlRect, QColor(56, 113, 204));
+                painter.fillRect(sidebarRect, QColor(30, 48, 80));
+                painter.fillRect(gridRect, QColor(23, 33, 50));
+                painter.setPen(QColor(230, 235, 245));
             } else {
-                painter.fillRect(ctrlRect, QColor(45, 45, 50));
+                painter.fillRect(sidebarRect, QColor(23, 29, 36));
+                painter.fillRect(gridRect, QColor(17, 22, 28));
+                painter.setPen(QColor(185, 190, 200));
             }
-
-            // ── Name column background ──
             int nameColX = kControlColumnWidth;
             int nameColW = _layerLabelWidth - kControlColumnWidth;
             QRect nameRect(nameColX, y, nameColW, rowHeight);
-            if (isSelected) {
-                painter.fillRect(nameRect, QColor(56, 113, 204));
-                painter.setPen(Qt::white);
-            } else {
-                painter.fillRect(nameRect, QColor(45, 45, 50));
-                painter.setPen(QColor(200, 200, 210));
-            }
-
             // Disclosure arrow if layer has visible children or animated property rows
             const bool hasChildren = layerHasExpandableChildren(i);
             int textLeftPad = 4;
@@ -2413,36 +2422,29 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             // L button (Lock) at x=4
             int lockBtnX = 4;
             if (layer.locked) {
-                painter.setPen(Qt::NoPen);
-                painter.fillRect(lockBtnX, btnY + btnInsetY, 16, btnHeight, QColor(220, 160, 50));
-                painter.setPen(QColor(40, 40, 40));
+                painter.setPen(QColor(95, 137, 216)); // active blue accent
             } else {
-                painter.setPen(isSelected ? QColor(180, 180, 200) : QColor(100, 100, 110));
+                painter.setPen(QColor(90, 95, 105)); // dim gray
             }
             painter.drawText(QRect(lockBtnX, btnY, 16, btnH), Qt::AlignCenter, QString::fromUtf8("L"));
 
             // V button (Visibility) at x=20
             int visBtnX = 20;
-            if (layer.muted) {
-                painter.setPen(Qt::NoPen);
-                painter.fillRect(visBtnX, btnY + btnInsetY, 16, btnHeight, QColor(80, 180, 120));
-                painter.setPen(QColor(40, 40, 40));
+            if (!layer.muted) {
+                painter.setPen(QColor(95, 137, 216)); // active blue accent (visible)
             } else {
-                painter.setPen(isSelected ? QColor(180, 180, 200) : QColor(100, 100, 110));
+                painter.setPen(QColor(90, 95, 105)); // dim gray (hidden)
             }
             painter.drawText(QRect(visBtnX, btnY, 16, btnH), Qt::AlignCenter, QString::fromUtf8("V"));
 
             // S button (Solo) at x=36
             int soloBtnX = 36;
             if (isAdjustmentRow(i)) {
-                // Solo is disabled for adjustment rows — always draw dim
-                painter.setPen(QColor(60, 60, 65));
+                painter.setPen(QColor(50, 50, 55)); // disabled/dim
             } else if (layer.solo) {
-                painter.setPen(Qt::NoPen);
-                painter.fillRect(soloBtnX, btnY + btnInsetY, 16, btnHeight, QColor(255, 200, 50));
-                painter.setPen(QColor(40, 40, 40));
+                painter.setPen(QColor(95, 137, 216)); // active blue accent
             } else {
-                painter.setPen(isSelected ? QColor(180, 180, 200) : QColor(100, 100, 110));
+                painter.setPen(QColor(90, 95, 105)); // dim gray
             }
             painter.drawText(QRect(soloBtnX, btnY, 16, btnH), Qt::AlignCenter, QString::fromUtf8("S"));
 
@@ -2483,33 +2485,42 @@ FluxTimeline::drawLayerBars(QPainter& painter,
                 int activeX1 = frameToX(qMax(drawStart, origDrawStart));
                 int activeX2 = frameToX(qMin(drawEnd, origDrawEnd));
 
-                // Fill entire bar with desaturated color
-                QColor desatColor = layer.color.darker(170);
+                QPainterPath barPath;
+                barPath.addRoundedRect(barRect, 6.0, 6.0);
+
+                QColor desatColor = layer.color.darker(150);
                 if (effectivelyMuted) {
-                    desatColor = desatColor.darker(200);
+                    desatColor = desatColor.darker(180);
                 }
                 if (layer.locked) {
-                    desatColor = desatColor.darker(150);
+                    desatColor = desatColor.darker(140);
                 }
-                painter.fillRect(barRect, desatColor);
+                if (isSelected) {
+                    desatColor = desatColor.lighter(110);
+                }
 
-                activeX1 = qMax(activeX1, clipLeft);
-                activeX2 = qMax(activeX2, clipLeft);
+                painter.save();
+                painter.setClipPath(barPath, Qt::IntersectClip);
+                painter.fillPath(barPath, desatColor);
 
-                // Fill active zone with normal color (overwrites desaturated)
                 if (activeX2 > activeX1) {
                     QRect activeRect(activeX1, barRect.top(), activeX2 - activeX1, barRect.height());
-                    QColor activeColor = effectivelyMuted ? layer.color.darker(200) : layer.color;
+                    QColor activeColor = effectivelyMuted ? layer.color.darker(170) : layer.color;
                     if (layer.locked) {
-                        activeColor = activeColor.darker(150);
+                        activeColor = activeColor.darker(130);
+                    }
+                    if (isSelected) {
+                        activeColor = activeColor.lighter(115);
+                    } else {
+                        activeColor = activeColor.darker(110);
                     }
                     painter.fillRect(activeRect, activeColor);
                 }
+                painter.restore();
 
-                // Bar border
-                painter.setPen(layer.color.darker(130));
-                painter.drawRect(barRect);
-
+                QColor borderColor = isSelected ? layer.color.lighter(120) : layer.color.darker(140);
+                painter.setPen(QPen(borderColor, isSelected ? 1.5 : 1.0));
+                painter.drawPath(barPath);
                 // Locked indicator: thin diagonal hatch overlay
                 if (layer.locked) {
                     painter.setPen(QPen(QColor(255, 255, 255, 25), 1));
@@ -2545,7 +2556,8 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             }
 
             // Row separator
-            painter.setPen(QColor(55, 55, 60));
+            // Row separator
+            painter.setPen(QColor(28, 34, 42));
             painter.drawLine(0, y + rowHeight, width(), y + rowHeight);
 
         } else if (visibleRow.type == eFluxVisibleRowTextAnimator) {
@@ -2564,9 +2576,12 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             const bool isAnimatorSelected = (_selectedType == eFluxSelectionTextAnimator &&
                                              _selectedLayer == li &&
                                              _selectedEffectIndex == visibleRow.childIndex);
-            painter.fillRect(0, y, width(), rowHeight, isAnimatorSelected ? QColor(46, 93, 174) : QColor(34, 35, 42));
-            painter.setPen(QColor(76, 76, 86));
-            painter.drawLine(_layerLabelWidth, y + rowHeight, width(), y + rowHeight);
+            QRect sidebarRect(0, y, _layerLabelWidth, rowHeight);
+            QRect gridRect(_layerLabelWidth, y, width() - _layerLabelWidth, rowHeight);
+            painter.fillRect(sidebarRect, isAnimatorSelected ? QColor(32, 40, 54) : QColor(17, 22, 28));
+            painter.fillRect(gridRect, isAnimatorSelected ? QColor(24, 31, 42) : QColor(14, 18, 24));
+            painter.setPen(QColor(28, 34, 42));
+            painter.drawLine(0, y + rowHeight, width(), y + rowHeight);
 
             int labelX = kControlColumnWidth + kEffectIndent;
             QRect labelRect(labelX, y, _layerLabelWidth - labelX - 4, rowHeight);
@@ -2574,11 +2589,9 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             font.setPointSize(8);
             painter.setFont(font);
             QFontMetrics fm(font);
-            painter.setPen(QColor(185, 190, 215));
+            painter.setPen(isAnimatorSelected ? QColor(229, 233, 240) : QColor(170, 176, 186));
             painter.drawText(labelRect, Qt::AlignVCenter | Qt::AlignLeft,
                              QString::fromUtf8("A ") + fm.elidedText(label, Qt::ElideRight, qMax(0, labelRect.width() - 16)));
-            painter.setPen(QColor(48, 48, 52));
-            painter.drawLine(kControlColumnWidth, y, kControlColumnWidth, y + rowHeight);
 
         } else if (visibleRow.type == eFluxVisibleRowEffect) {
             int li = visibleRow.layerIndex;
@@ -2592,33 +2605,24 @@ FluxTimeline::drawLayerBars(QPainter& painter,
                                      _selectedLayer == li &&
                                      _selectedEffectIndex == ei);
 
-            // Dark subtle row background across full width
-            QColor rowBg = isEffectSelected ? QColor(46, 93, 174) : QColor(33, 33, 37);
-            painter.fillRect(0, y, width(), rowHeight, rowBg);
+            QRect sidebarRect(0, y, _layerLabelWidth, rowHeight);
+            QRect gridRect(_layerLabelWidth, y, width() - _layerLabelWidth, rowHeight);
+            painter.fillRect(sidebarRect, isEffectSelected ? QColor(32, 40, 54) : QColor(17, 22, 28));
+            painter.fillRect(gridRect, isEffectSelected ? QColor(24, 31, 42) : QColor(14, 18, 24));
 
-            // Semi-transparent overlay for the effect being dragged
             if (_interactionMode == eModeReorderEffect &&
                 _reorderEffectLayerIndex == li && _reorderEffectFromIndex == ei &&
                 _reorderEffectFromIndex != _reorderEffectTargetIndex) {
                 painter.fillRect(0, y, width(), rowHeight, QColor(0, 0, 0, 80));
             }
 
-            // Separator across timeline area
-            painter.setPen(QColor(48, 48, 52));
-            painter.drawLine(_layerLabelWidth, y + rowHeight, width(), y + rowHeight);
+            painter.setPen(QColor(28, 34, 42));
+            painter.drawLine(0, y + rowHeight, width(), y + rowHeight);
 
-            // Enable/disable button in the fixed control column (aligned with layer V column)
-            QRect enableRect(20, y + 4, 16, qMax(10, rowHeight - 8));
-            painter.setPen(effect.enabled ? QColor(120, 190, 120) : QColor(75, 75, 82));
-            painter.setBrush(effect.enabled ? QColor(44, 72, 44) : QColor(38, 38, 42));
-            painter.drawRoundedRect(enableRect, 2, 2);
-            painter.setPen(effect.enabled ? QColor(210, 240, 210) : QColor(105, 105, 112));
-            painter.drawText(enableRect, Qt::AlignCenter, QString::fromUtf8("V"));
-
-            // Indented effect label in name column
+            painter.setPen(effect.enabled ? QColor(95, 137, 216) : QColor(90, 95, 105));
+            painter.drawText(QRect(20, y, 16, rowHeight), Qt::AlignCenter, QString::fromUtf8("V"));
             int labelX = kControlColumnWidth + kEffectIndent;
 
-            // Badge width reservation for effect viewer-input badges
             int effectBadgeReserveW = 0;
             if (!effect.viewerInputBadges.isEmpty()) {
                 effectBadgeReserveW = effect.viewerInputBadges.size() * 16 + (effect.viewerInputBadges.size() - 1) * 2 + 4;
@@ -2628,17 +2632,14 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             QFont effectFont;
             effectFont.setPointSize(8);
             painter.setFont(effectFont);
-            painter.setPen(isEffectSelected ? Qt::white : (effect.enabled ? QColor(170, 170, 180) : QColor(95, 95, 105)));
+            painter.setPen(isEffectSelected ? QColor(229, 233, 240) : (effect.enabled ? QColor(170, 176, 186) : QColor(105, 112, 122)));
             QFontMetrics efm(effectFont);
-            int effectAvailW = effectLabelRect.width();
-            QString effectLabel = efm.elidedText(effect.label, Qt::ElideRight, qMax(0, effectAvailW));
+            QString effectLabel = efm.elidedText(effect.label, Qt::ElideRight, qMax(0, effectLabelRect.width()));
 
-            // Small "fx" glyph prefix
-            painter.setPen(isEffectSelected ? QColor(200, 200, 255) : (effect.enabled ? QColor(120, 140, 180) : QColor(70, 80, 105)));
+            painter.setPen(isEffectSelected ? QColor(95, 137, 216) : (effect.enabled ? QColor(120, 140, 180) : QColor(80, 90, 105)));
             painter.drawText(effectLabelRect, Qt::AlignVCenter | Qt::AlignLeft,
                              QString::fromUtf8("\xE2\x97\x8F ") + effectLabel);
 
-            // ── Viewer-input badges on effect row ──
             if (!effect.viewerInputBadges.isEmpty()) {
                 QFont badgeFont;
                 badgeFont.setPointSize(7);
@@ -2659,15 +2660,12 @@ FluxTimeline::drawLayerBars(QPainter& painter,
                     painter.setBrush(Qt::NoBrush);
                     painter.setPen(Qt::white);
                     painter.drawText(badgeRect, Qt::AlignCenter, btxt);
-                    bx -= 2; // gap between badges
+                    bx -= 2;
                 }
                 painter.setFont(effectFont);
             }
 
-            // Separator in name column
-            painter.setPen(QColor(48, 48, 52));
-            painter.drawLine(kControlColumnWidth, y, kControlColumnWidth, y + rowHeight);
-
+            // Separator in name column removed
         } else if (visibleRow.type == eFluxVisibleRowMask) {
             int li = visibleRow.layerIndex;
             int mi = visibleRow.maskIndex;
@@ -2682,21 +2680,24 @@ FluxTimeline::drawLayerBars(QPainter& painter,
 
             // Dark subtle row background across full width
             QColor rowBg = isMaskSelected ? QColor(46, 93, 174) : QColor(30, 30, 34);
-            painter.fillRect(0, y, width(), rowHeight, rowBg);
-
-            // Separator across timeline area
-            painter.setPen(QColor(44, 44, 48));
-            painter.drawLine(_layerLabelWidth, y + rowHeight, width(), y + rowHeight);
-
-            // Enable/disable button in the fixed control column (aligned with layer V column)
+            QRect sidebarRect(0, y, _layerLabelWidth, rowHeight);
+            QRect gridRect(_layerLabelWidth, y, width() - _layerLabelWidth, rowHeight);
+            if (isMaskSelected) {
+                painter.fillRect(sidebarRect, QColor(30, 48, 80));
+                painter.fillRect(gridRect, QColor(23, 33, 50));
+            } else {
+                painter.fillRect(sidebarRect, QColor(23, 29, 36));
+                painter.fillRect(gridRect, QColor(17, 22, 28));
+            }
+            painter.setPen(QColor(28, 34, 42));
+            painter.drawLine(0, y + rowHeight, width(), y + rowHeight);
             QRect enableRect(20, y + 4, 16, qMax(10, rowHeight - 8));
-            painter.setPen(mask.enabled ? QColor(100, 175, 140) : QColor(70, 70, 76));
-            painter.setBrush(mask.enabled ? QColor(36, 66, 54) : QColor(36, 36, 40));
-            painter.drawRoundedRect(enableRect, 2, 2);
-            painter.setPen(mask.enabled ? QColor(205, 235, 220) : QColor(100, 100, 108));
-            painter.drawText(enableRect, Qt::AlignCenter, QString::fromUtf8("V"));
-
-            // Deeper indent than effect rows
+            if (mask.enabled) {
+                painter.setPen(QColor(95, 137, 216));
+            } else {
+                painter.setPen(QColor(90, 95, 105));
+            }
+            painter.drawText(QRect(20, y, 16, rowHeight), Qt::AlignCenter, QString::fromUtf8("V"));
             int labelX = kControlColumnWidth + kEffectIndent + 12;
             QRect maskLabelRect(labelX, y, _layerLabelWidth - labelX - 4, rowHeight);
             QFont maskFont;
@@ -2712,9 +2713,7 @@ FluxTimeline::drawLayerBars(QPainter& painter,
                              QString::fromUtf8("M ") + maskLabel);
 
             // Separator in name column
-            painter.setPen(QColor(44, 44, 48));
-            painter.drawLine(kControlColumnWidth, y, kControlColumnWidth, y + rowHeight);
-
+            // Separator in name column removed
         } else if (visibleRow.type == eFluxVisibleRowProperty) {
             // ── Animated property row ──
             if (visibleRow.propertyIndex < 0 || visibleRow.propertyIndex >= _propertyRows.size()) {
@@ -2727,9 +2726,15 @@ FluxTimeline::drawLayerBars(QPainter& painter,
 
             // Subtle indented row background
             QColor propBg = isPropSelected ? QColor(42, 50, 68) : QColor(28, 28, 32);
-            painter.fillRect(0, y, width(), rowHeight, propBg);
-
-            // Property label in the name column (indented deeper than effect rows)
+            QRect sidebarRect(0, y, _layerLabelWidth, rowHeight);
+            QRect gridRect(_layerLabelWidth, y, width() - _layerLabelWidth, rowHeight);
+            if (isPropSelected) {
+                painter.fillRect(sidebarRect, QColor(30, 48, 80));
+                painter.fillRect(gridRect, QColor(23, 33, 50));
+            } else {
+                painter.fillRect(sidebarRect, QColor(23, 29, 36));
+                painter.fillRect(gridRect, QColor(17, 22, 28));
+            }
             int propIndent = kControlColumnWidth + kEffectIndent + 8;
             QRect propLabelRect(propIndent, y, _layerLabelWidth - propIndent - 4, rowHeight);
             QFont propFont;
@@ -2741,13 +2746,8 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             painter.drawText(propLabelRect, Qt::AlignVCenter | Qt::AlignLeft, propLabel);
 
             // Separator in name column
-            painter.setPen(QColor(42, 42, 46));
-            painter.drawLine(kControlColumnWidth, y, kControlColumnWidth, y + rowHeight);
-
-            // Separator across timeline area
-            painter.setPen(QColor(42, 42, 46));
-            painter.drawLine(_layerLabelWidth, y + rowHeight, width(), y + rowHeight);
-
+            painter.setPen(QColor(28, 34, 42));
+            painter.drawLine(0, y + rowHeight, width(), y + rowHeight);
             // ── Draw keyframe diamonds in the timeline area ──
             QList<FluxKeyframeKey> keys = keysForProperty(prop);
 
@@ -2956,23 +2956,21 @@ FluxTimeline::drawPlayhead(QPainter& painter,
         return;
     }
 
-    // Playhead line
-    painter.setPen(QPen(QColor(220, 50, 50), 2));
+    const QColor playheadColor = QColor(56, 113, 204);
+    painter.setPen(QPen(playheadColor, 1));
     painter.drawLine(x, 0, x, rect.height());
 
-    // Playhead triangle at top
     QPainterPath triangle;
-    triangle.moveTo(x - 6, 0);
-    triangle.lineTo(x + 6, 0);
-    triangle.lineTo(x, 10);
+    triangle.moveTo(x - 4, 0);
+    triangle.lineTo(x + 4, 0);
+    triangle.lineTo(x, 7);
     triangle.closeSubpath();
-    painter.fillPath(triangle, QColor(220, 50, 50));
+    painter.fillPath(triangle, playheadColor);
 
-    // Frame number on playhead
     painter.setPen(Qt::white);
     QFont font;
     font.setPointSize(7);
-    font.setBold(true);
+    font.setBold(false);
     painter.setFont(font);
     painter.drawText(x + 4, 10, QString::number(_currentFrame));
 }
@@ -2987,8 +2985,6 @@ FluxTimeline::drawDragPreview(QPainter& painter,
 
     int x = _dragPreviewPos.x();
     int y = _dragPreviewPos.y();
-
-    // Only draw if in the layer bars area
     if (x <= _layerLabelWidth || y <= kTimeRulerHeight) {
         return;
     }
@@ -2996,12 +2992,10 @@ FluxTimeline::drawDragPreview(QPainter& painter,
     int inFrame = xToFrame(x);
     int outFrame = inFrame + 50; // Default 50-frame duration for preview
 
-    // Determine which row the drop would land on
     int row = insertionLayerIndexForY(y);
     if (row < 0) {
         row = 0;
     }
-    // Allow appending beyond existing layers
     if (row > _layers.size()) {
         row = _layers.size();
     }
@@ -3010,17 +3004,14 @@ FluxTimeline::drawDragPreview(QPainter& painter,
     int barX1 = frameToX(inFrame);
     int barX2 = frameToX(outFrame);
 
-    // Semi-transparent ghost bar
-    QColor ghostColor(100, 160, 240, 100);
+    QColor ghostColor = FluxStyle::withAlpha(FluxStyle::accent(this), 0.35);
     QRect ghostRect(barX1, barY, barX2 - barX1, kLayerRowHeight - 8);
     painter.fillRect(ghostRect, ghostColor);
 
-    // Ghost border
-    painter.setPen(QPen(QColor(100, 160, 240, 180), 1, Qt::DashLine));
+    painter.setPen(QPen(FluxStyle::withAlpha(FluxStyle::accent(this), 0.75), 1, Qt::DashLine));
     painter.drawRect(ghostRect);
 
-    // Ghost label
-    painter.setPen(QColor(200, 220, 255, 200));
+    painter.setPen(FluxStyle::withAlpha(FluxStyle::text(this), 0.85));
     QFont font;
     font.setPointSize(8);
     painter.setFont(font);

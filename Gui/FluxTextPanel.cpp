@@ -8,6 +8,7 @@
 
 #include "Gui/Gui.h"
 #include "Gui/GuiAppInstance.h"
+#include "Gui/FluxStyleUtils.h"
 #include "Engine/AppInstance.h"
 #include "Engine/Curve.h"
 #include "Engine/Knob.h"
@@ -94,8 +95,8 @@ protected:
         const int h = height();
         const qreal cx = w / 2.0;
         const qreal cy = h / 2.0;
-        const qreal rx = w * 0.38;
-        const qreal ry = h * 0.38;
+        const qreal rx = w * 0.32;
+        const qreal ry = h * 0.32;
 
         QPolygonF diamond;
         diamond << QPointF(cx, cy - ry)
@@ -103,17 +104,16 @@ protected:
                 << QPointF(cx, cy + ry)
                 << QPointF(cx - rx, cy);
 
-        if (_active) {
-            p.setBrush(Qt::white);
-            p.setPen(Qt::NoPen);
-            p.drawPolygon(diamond);
-        } else {
-            p.setBrush(Qt::NoBrush);
-            QPen pen(Qt::white);
-            pen.setWidthF(1.4);
-            p.setPen(pen);
-            p.drawPolygon(diamond);
+        const QColor border = FluxStyle::mix(FluxStyle::disabledText(this), FluxStyle::window(this), 0.4);
+        const QColor fill = _active ? FluxStyle::keyframeColor() : Qt::transparent;
+        p.setBrush(fill);
+        QPen pen(_active ? FluxStyle::keyframeColor() : border);
+        if (underMouse()) {
+            pen.setColor(FluxStyle::hoverBorder(this));
         }
+        pen.setWidthF(_active ? 1.6 : 1.15);
+        p.setPen(pen);
+        p.drawPolygon(diamond);
     }
 
 private:
@@ -153,11 +153,13 @@ FluxTextPanel::FluxTextPanel(Gui* gui, QWidget* parent)
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
     QScrollArea* scroll = new QScrollArea(this);
+    scroll->setObjectName(QString::fromUtf8("FluxTextPanelScrollArea"));
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
     mainLayout->addWidget(scroll, 1);
 
     QWidget* body = new QWidget(scroll);
+    body->setObjectName(QString::fromUtf8("FluxTextPanelContent"));
     QVBoxLayout* bodyLayout = new QVBoxLayout(body);
     bodyLayout->setContentsMargins(6, 6, 6, 6);
     bodyLayout->setSpacing(8);
@@ -168,6 +170,7 @@ FluxTextPanel::FluxTextPanel(Gui* gui, QWidget* parent)
     bodyLayout->addWidget(_emptyLabel);
 
     _controls = new QWidget(body);
+    _controls->setObjectName(QString::fromUtf8("FluxTextPanelControls"));
     QFormLayout* form = new QFormLayout(_controls);
     form->setContentsMargins(0, 0, 0, 0);
     form->setSpacing(6);
@@ -179,6 +182,7 @@ FluxTextPanel::FluxTextPanel(Gui* gui, QWidget* parent)
         vl->setContentsMargins(0, 0, 0, 0);
         vl->setSpacing(2);
         _textEdit = new QPlainTextEdit(row);
+        _textEdit->setObjectName(QString::fromUtf8("FluxTextTextEdit"));
         _textEdit->setMinimumHeight(80);
         _textKeyBtn = createKeyButton(tr("Toggle keyframe: Text"));
         // Place key button bottom-right under the text editor
@@ -216,6 +220,7 @@ FluxTextPanel::FluxTextPanel(Gui* gui, QWidget* parent)
         hl->setContentsMargins(0, 0, 0, 0);
         hl->setSpacing(4);
         _sizeSpin = new QDoubleSpinBox(row);
+        _sizeSpin->setObjectName(QString::fromUtf8("FluxTextSizeSpin"));
         _sizeSpin->setRange(1.0, 2000.0);
         _sizeSpin->setDecimals(1);
         _sizeSpin->setSingleStep(1.0);
@@ -232,6 +237,7 @@ FluxTextPanel::FluxTextPanel(Gui* gui, QWidget* parent)
         hl->setContentsMargins(0, 0, 0, 0);
         hl->setSpacing(4);
         _fillButton = new QPushButton(tr("Choose..."), row);
+        _fillButton->setObjectName(QString::fromUtf8("FluxTextFillButton"));
         _fillKeyBtn = createKeyButton(tr("Toggle keyframe: Fill Color"));
         hl->addWidget(_fillButton, 1);
         hl->addWidget(_fillKeyBtn);
@@ -245,6 +251,7 @@ FluxTextPanel::FluxTextPanel(Gui* gui, QWidget* parent)
         hl->setContentsMargins(0, 0, 0, 0);
         hl->setSpacing(4);
         _trackingSpin = new QDoubleSpinBox(row);
+        _trackingSpin->setObjectName(QString::fromUtf8("FluxTextTrackingSpin"));
         _trackingSpin->setRange(-500.0, 1000.0);
         _trackingSpin->setDecimals(2);
         _trackingSpin->setSingleStep(1.0);
@@ -261,6 +268,7 @@ FluxTextPanel::FluxTextPanel(Gui* gui, QWidget* parent)
         hl->setContentsMargins(0, 0, 0, 0);
         hl->setSpacing(4);
         _leadingSpin = new QDoubleSpinBox(row);
+        _leadingSpin->setObjectName(QString::fromUtf8("FluxTextLeadingSpin"));
         _leadingSpin->setRange(0.0, 5000.0);
         _leadingSpin->setDecimals(2);
         _leadingSpin->setSingleStep(1.0);
@@ -278,6 +286,7 @@ FluxTextPanel::FluxTextPanel(Gui* gui, QWidget* parent)
         hl->setContentsMargins(0, 0, 0, 0);
         hl->setSpacing(4);
         _alignmentCombo = new QComboBox(row);
+        _alignmentCombo->setObjectName(QString::fromUtf8("FluxTextAlignmentCombo"));
         _alignmentCombo->addItem(tr("Left"));
         _alignmentCombo->addItem(tr("Center"));
         _alignmentCombo->addItem(tr("Right"));
@@ -354,6 +363,7 @@ void FluxTextPanel::setControlsEnabled(bool enabled)
 QPushButton* FluxTextPanel::createKeyButton(const QString& tooltip)
 {
     FluxKeyDiamondButton* btn = new FluxKeyDiamondButton(_controls);
+    btn->setProperty("fluxKeyButton", true);
     btn->setToolTip(tooltip);
     return btn;
 }

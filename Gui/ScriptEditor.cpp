@@ -112,8 +112,10 @@ ScriptEditor::ScriptEditor(Gui* gui)
     , PanelWidget(this, gui)
     , _imp( new ScriptEditorPrivate() )
 {
+    setObjectName(QString::fromUtf8("FluxScriptEditor"));
     _imp->mainLayout = new QVBoxLayout(this);
     _imp->buttonsContainer = new QWidget(this);
+    _imp->buttonsContainer->setObjectName(QString::fromUtf8("FluxScriptEditorToolbar"));
     _imp->buttonsContainerLayout = new QHBoxLayout(_imp->buttonsContainer);
     _imp->buttonsContainerLayout->setContentsMargins(0, 0, 0, 0);
     _imp->buttonsContainerLayout->setSpacing(2);
@@ -239,14 +241,17 @@ ScriptEditor::ScriptEditor(Gui* gui)
     _imp->buttonsContainerLayout->addStretch();
 
     QSplitter* splitter = new QSplitter(Qt::Vertical, this);
+    splitter->setObjectName(QString::fromUtf8("FluxScriptEditorSplitter"));
 
 
     _imp->outputEdit = new OutputScriptTextEdit(this);
+    _imp->outputEdit->setObjectName(QString::fromUtf8("FluxScriptOutput"));
     QObject::connect( _imp->outputEdit, SIGNAL(userScrollChanged(bool)), this, SLOT(onUserScrollChanged(bool)) );
     _imp->outputEdit->setFocusPolicy(Qt::NoFocus);
     _imp->outputEdit->setReadOnly(true);
 
     _imp->inputEdit = new InputScriptTextEdit(gui, this);
+    _imp->inputEdit->setObjectName(QString::fromUtf8("FluxScriptInput"));
     QObject::connect( _imp->inputEdit, SIGNAL(textChanged()), this, SLOT(onInputScriptTextChanged()) );
     QFontMetrics fm = _imp->inputEdit->fontMetrics();
     _imp->inputEdit->setTabStopDistance(fm.horizontalAdvance( QLatin1Char(' ') ) * 4);

@@ -32,6 +32,7 @@
 #include <QPainterPath>
 #include <QStyleOption>
 #include "Gui/GuiMacros.h"
+#include "Gui/FluxStyleUtils.h"
 // clang-format off
 CLANG_DIAG_OFF(deprecated-register) //'register' storage class specifier is deprecated
 GCC_DIAG_UNUSED_PRIVATE_FIELD_OFF
@@ -148,46 +149,40 @@ AnimatedCheckBox::paintEvent(QPaintEvent* e)
 
     ///Draw bg
     QRectF bgRect = bRect.adjusted(fw / 2., fw / 2., -fw, -fw);
-    double bgR = 0., bgG = 0., bgB = 0.;
-    if (animation == 0) {
-        getBackgroundColor(&bgR, &bgG, &bgB);
-    } else if (animation == 1) {
-        appPTR->getCurrentSettings()->getInterpolatedColor(&bgR, &bgG, &bgB);
+    if (animation == 1) {
+        activeColor = FluxStyle::interpolatedColor();
     } else if (animation == 2) {
-        appPTR->getCurrentSettings()->getKeyframeColor(&bgR, &bgG, &bgB);
+        activeColor = FluxStyle::keyframeColor();
     } else if (animation == 3) {
-        appPTR->getCurrentSettings()->getExprColor(&bgR, &bgG, &bgB);
+        activeColor = FluxStyle::expressionColor();
+    } else {
+        activeColor = checked ? FluxStyle::accent(this) : FluxStyle::base(this);
     }
-    activeColor.setRgbF(bgR, bgG, bgB);
-    pen.setColor(activeColor);
+    pen.setColor(FluxStyle::border(this));
     p.setPen(pen);
     p.fillRect(bgRect, activeColor);
 
-    ///Draw tick (modern checkmark)
+    ///Draw tick
     if (checked) {
+        QColor tickColor;
         if (animation == 3) {
-            activeColor = Qt::black;
-        } else if (readOnly) {
-            activeColor.setRgbF(0.5, 0.5, 0.5);
+            tickColor = Qt::white;
+        } else if (readOnly || !isEnabled()) {
+            tickColor = FluxStyle::disabledText(this);
         } else if (altered) {
-            double r, g, b;
-            appPTR->getCurrentSettings()->getAltTextColor(&r, &g, &b);
-            activeColor.setRgbF(r, g, b);
-        } else if (dirty) {
-            activeColor = Qt::black;
+            tickColor = FluxStyle::alteredColor(this);
+        } else if (animation == 0) {
+            tickColor = Qt::white;
         } else {
-            double r, g, b;
-            appPTR->getCurrentSettings()->getTextColor(&r, &g, &b);
-            activeColor.setRgbF(r, g, b);
+            tickColor = FluxStyle::text(this);
         }
 
-        pen.setColor(activeColor);
+        pen.setColor(tickColor);
         p.setRenderHint(QPainter::Antialiasing);
-        pen.setWidthF( TO_DPIX(2.5) );
+        pen.setWidthF( TO_DPIX(1.8) );
         p.setPen(pen);
 
-        // Modern checkmark drawn with a polyline
-        qreal margin = TO_DPIX(4.5);
+        qreal margin = TO_DPIX(4.0);
         qreal x1 = bgRect.left() + margin;
         qreal y1 = bgRect.top() + bgRect.height() * 0.55;
         qreal x2 = bgRect.left() + bgRect.width() * 0.42;
@@ -202,11 +197,15 @@ AnimatedCheckBox::paintEvent(QPaintEvent* e)
         p.drawPath(path);
     }
 
-    ///Draw frame (subtle rounded border)
-    double frameR, frameG, frameB;
-    appPTR->getCurrentSettings()->getSunkenColor(&frameR, &frameG, &frameB);
+    ///Draw frame
     QColor frameColor;
-    frameColor.setRgbF(frameR * 1.3, frameG * 1.3, frameB * 1.3);
+    if (animation == 0 && checked) {
+        frameColor = FluxStyle::accent(this);
+    } else if (hasFocus()) {
+        frameColor = FluxStyle::focusOutline(this);
+    } else {
+        frameColor = FluxStyle::mix(FluxStyle::border(this), FluxStyle::base(this), 0.5);
+    }
     pen.setColor(frameColor);
     pen.setWidthF(1.0);
     p.setPen(pen);
@@ -215,16 +214,13 @@ AnimatedCheckBox::paintEvent(QPaintEvent* e)
 
     ///Draw focus highlight
     if ( hasFocus() ) {
-        double selR, selG, selB;
-        appPTR->getCurrentSettings()->getSelectionColor(&selR, &selG, &selB);
         QRectF focusRect = bgRect.adjusted(TO_DPIX(1.5), TO_DPIX(1.5), -TO_DPIX(1.5), -TO_DPIX(1.5));
-        activeColor.setRgbF(selR, selG, selB);
-        pen.setColor(activeColor);
-        pen.setWidthF(1.5);
+        pen.setColor(FluxStyle::focusOutline(this));
+        pen.setWidthF(1.0);
         p.setPen(pen);
         p.drawRoundedRect(focusRect, TO_DPIX(2), TO_DPIX(2));
     }
-} // AnimatedCheckBox::paintEvent
+}
 
 NATRON_NAMESPACE_EXIT
 

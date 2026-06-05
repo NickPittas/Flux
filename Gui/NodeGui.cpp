@@ -24,6 +24,7 @@
 // ***** END PYTHON BLOCK *****
 
 #include "NodeGui.h"
+#include "Gui/FluxStyleUtils.h"
 
 #include <cassert>
 #include <algorithm> // min, max
@@ -603,7 +604,7 @@ NodeGui::createGui()
     if (!node) {
         return; // throw exception instead?
     }
-    int cornerRadiusPx = 0;
+    int cornerRadiusPx = 4;
     _boundingBox = new NodeGraphRectItem(this, cornerRadiusPx);
     _boundingBox->setZValue(depth);
 
@@ -651,7 +652,7 @@ NodeGui::createGui()
 
     _nameItem = new NodeGraphTextItem(getDagGui(), this, false);
     _nameItem->setPlainText( QString::fromUtf8( node->getLabel().c_str() ) );
-    _nameItem->setDefaultTextColor( QColor(0, 0, 0, 255) );
+    _nameItem->setDefaultTextColor( FluxStyle::text(getDagGui()) );
     //_nameItem->setFont( QFont(appFont,appFontSize) );
     _nameItem->setZValue(depth + 1);
 
@@ -2198,11 +2199,21 @@ NodeGui::getDockContainer() const
 }
 
 void
-NodeGui::paint(QPainter* /*painter*/,
+NodeGui::paint(QPainter* painter,
                const QStyleOptionGraphicsItem* /*options*/,
                QWidget* /*parent*/)
 {
-    //nothing special
+    if (getIsSelected()) {
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        QRectF rect = _boundingBox->rect();
+        QRectF outlineRect = rect.adjusted(-1.0, -1.0, 1.0, 1.0);
+        QColor accentColor = QColor(56, 113, 204);
+        painter->setPen(QPen(accentColor, 2.0));
+        painter->setBrush(Qt::NoBrush);
+        painter->drawRoundedRect(outlineRect, 4.0, 4.0);
+        painter->restore();
+    }
 }
 
 const std::list<std::pair<KnobIWPtr, KnobGuiPtr> > &

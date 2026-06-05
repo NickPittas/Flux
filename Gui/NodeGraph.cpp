@@ -25,6 +25,7 @@
 
 #include "NodeGraph.h"
 #include "NodeGraphPrivate.h"
+#include "Gui/FluxStyleUtils.h"
 
 #include <cstdlib>
 #include <set>
@@ -86,6 +87,28 @@ NodeGraph::NodeGraph(Gui* gui,
     , PanelWidget(this, gui)
     , _imp( new NodeGraphPrivate(this, group) )
 {
+    scene->setBackgroundBrush(QBrush(QColor(17, 22, 28)));
+    viewport()->setStyleSheet(QStringLiteral("background-color: #11161c; border: none;"));
+    {
+        QWidget* p = parent;
+        while (p) {
+            QTabBar* tabBar = p->findChild<QTabBar*>();
+            if (tabBar) {
+                tabBar->setStyleSheet(QStringLiteral(
+                    "QTabBar { background-color: #0b0f13; border: none; }"
+                    "QTabBar::tab { background-color: transparent; color: #8a909a; border: none; padding: 8px 20px; margin: 0; }"
+                    "QTabBar::tab:selected { color: #ffffff; border-bottom: 2px solid #3871cc; background-color: transparent; }"
+                    "QTabBar::tab:hover { color: #ffffff; }"
+                    "QTabBar::close-button { image: none; }"
+                    "QTabBar::close-button:hover { image: url(:/Resources/Images/close.png); }"));
+            }
+            if (qobject_cast<QTabWidget*>(p)) {
+                QTabWidget* tabWidget = qobject_cast<QTabWidget*>(p);
+                tabWidget->setStyleSheet(QStringLiteral("QTabWidget::pane { border: none; background-color: #0b0f13; }"));
+            }
+            p = p->parentWidget();
+        }
+    }
     group->setNodeGraphPointer(this);
 
     setAttribute(Qt::WA_MacShowFocusRect, 0);
@@ -134,7 +157,7 @@ NodeGraph::NodeGraph(Gui* gui,
     _imp->_cacheSizeText = new NodeGraphSimpleTextItem(this, 0, true);
     scene->addItem(_imp->_cacheSizeText);
     _imp->_cacheSizeText->setFlag(QGraphicsItem::ItemIgnoresTransformations);
-    _imp->_cacheSizeText->setBrush( QColor(200, 200, 200) );
+    _imp->_cacheSizeText->setBrush( FluxStyle::text(this) );
     _imp->_cacheSizeText->setVisible(false);
 
     QObject::connect( &_imp->refreshRenderStateTimer, SIGNAL(timeout()), this, SLOT(onRefreshNodesRenderStateTimerTimeout()) );
@@ -148,11 +171,11 @@ NodeGraph::NodeGraph(Gui* gui,
     getGui()->registerNewUndoStack(_imp->_undoStack);
 
     _imp->_hintInputEdge = new Edge(0, 0, NodeGuiPtr(), _imp->_nodeRoot);
-    _imp->_hintInputEdge->setDefaultColor( QColor(0, 255, 0, 100) );
+    _imp->_hintInputEdge->setDefaultColor( FluxStyle::withAlpha(FluxStyle::accent(this), 0.65) );
     _imp->_hintInputEdge->hide();
 
     _imp->_hintOutputEdge = new Edge(0, 0, NodeGuiPtr(), _imp->_nodeRoot);
-    _imp->_hintOutputEdge->setDefaultColor( QColor(0, 255, 0, 100) );
+    _imp->_hintOutputEdge->setDefaultColor( FluxStyle::withAlpha(FluxStyle::accent(this), 0.65) );
     _imp->_hintOutputEdge->hide();
 
     _imp->_tL = new NodeGraphTextItem(this, 0, false);
@@ -319,8 +342,8 @@ NodeGraph::paintEvent(QPaintEvent* e)
     if (drawLockedMode) {
         ///Show a semi-opaque foreground indicating the PyPlug has not been edited
         QPainter p( viewport() );
-        p.setBrush( QColor(120, 120, 120) );
-        p.setOpacity(0.7);
+        p.setBrush( QColor(11, 15, 19, 200) );
+        p.setOpacity(1.0);
         p.drawRect( rect() );
 
         if (isGroupEditable) {
@@ -332,11 +355,11 @@ NodeGraph::paintEvent(QPaintEvent* e)
             pixRect.adjust(-2, -2, 2, 2);
             QRect selRect = pixRect;
             selRect.adjust(-3, -3, 3, 3);
-            p.setBrush( QColor(243, 137, 0) );
+            p.setBrush( QColor(30, 48, 80) );
             p.setOpacity(1.);
             p.setPen(Qt::NoPen);
             p.drawRoundedRect(selRect, 5, 5);
-            p.setBrush( QColor(100, 100, 100) );
+            p.setBrush( QColor(23, 29, 36) );
             p.drawRoundedRect(pixRect, 5, 5);
             p.drawPixmap(pixPos.x(), pixPos.y(), pixW, pixH, _imp->unlockIcon, 0, 0, pixW, pixH);
         }
@@ -345,11 +368,32 @@ NodeGraph::paintEvent(QPaintEvent* e)
     if ( (_imp->_evtState == eEventStateSelectionRect) && !isDoingNavigatorRender() ) {
         QPainter p( viewport() );
         const QRect r = mapFromScene(_imp->_selectionRect).boundingRect();
-        QColor color(16, 84, 200, 20);
+        QColor color = QColor(56, 113, 204, 38);
         p.setBrush(color);
+        p.setPen(QPen(QColor(56, 113, 204, 180), 1));
         p.drawRect(r);
-        double w = p.pen().widthF();
-        p.fillRect(QRect(r.x() + w, r.y() + w, r.width() - w, r.height() - w), color);
+    }
+
+    if (!property("tabsStyleApplied").toBool()) {
+        setProperty("tabsStyleApplied", true);
+        QWidget* p = this->parentWidget();
+        while (p) {
+            QTabBar* tabBar = p->findChild<QTabBar*>();
+            if (tabBar) {
+                tabBar->setStyleSheet(QStringLiteral(
+                    "QTabBar { background-color: #0b0f13; border: none; }"
+                    "QTabBar::tab { background-color: transparent; color: #8a909a; border: none; padding: 8px 20px; margin: 0; }"
+                    "QTabBar::tab:selected { color: #ffffff; border-bottom: 2px solid #3871cc; background-color: transparent; }"
+                    "QTabBar::tab:hover { color: #ffffff; }"
+                    "QTabBar::close-button { image: none; }"
+                    "QTabBar::close-button:hover { image: url(:/Resources/Images/close.png); }"));
+            }
+            if (qobject_cast<QTabWidget*>(p)) {
+                QTabWidget* tabWidget = qobject_cast<QTabWidget*>(p);
+                tabWidget->setStyleSheet(QStringLiteral("QTabWidget::pane { border: none; background-color: #0b0f13; }"));
+            }
+            p = p->parentWidget();
+        }
     }
 } // NodeGraph::paintEvent
 

@@ -127,13 +127,16 @@ private:
     QString itemPath(const QTreeWidgetItem* item) const;
     QPixmap generateThumbnail(const QString& filePath);
     FluxProjectBinMetadata probeMetadata(const QString& filePath) const;
+    void updateStatus();
 
     QLineEdit* _searchField;
     FluxProjectBinTreeWidget* _fileList;
     QLabel* _headerLabel;
-    QPushButton* _importButton;
-    QPushButton* _clearButton;
-    QToolButton* _viewModeButton;
+    QToolButton* _importButton;
+    QToolButton* _clearButton;
+    QToolButton* _gridViewButton;
+    QToolButton* _listViewButton;
+    QLabel* _statusLabel;
     QStringList _files;
     QMap<QString, QPixmap> _thumbnailCache;
     QMap<QString, FluxProjectBinMetadata> _metadataCache;

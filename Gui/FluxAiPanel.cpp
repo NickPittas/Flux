@@ -545,11 +545,13 @@ void FluxAiPanel::setSelectedSource(const QString& layerName, const QString& fil
 
 void FluxAiPanel::setupUi()
 {
+    setObjectName(QString::fromUtf8("FluxAiPanel"));
     QVBoxLayout* outerLayout = new QVBoxLayout(this);
     outerLayout->setContentsMargins(8, 8, 8, 8);
     outerLayout->setSpacing(6);
 
     QScrollArea* scrollArea = new QScrollArea(this);
+    scrollArea->setObjectName(QString::fromUtf8("FluxAiPanelScrollArea"));
     scrollArea->setWidgetResizable(true);
     scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -557,6 +559,7 @@ void FluxAiPanel::setupUi()
     outerLayout->addWidget(scrollArea);
 
     QWidget* content = new QWidget(scrollArea);
+    content->setObjectName(QString::fromUtf8("FluxAiPanelContent"));
     QVBoxLayout* layout = new QVBoxLayout(content);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(6);
@@ -566,6 +569,7 @@ void FluxAiPanel::setupUi()
     layout->addWidget(header);
 
     _taskCombo = new QComboBox();
+    _taskCombo->setObjectName(QString::fromUtf8("FluxAiTaskCombo"));
     _taskCombo->addItem(QString::fromUtf8("Base Matte"));
     _taskCombo->addItem(QString::fromUtf8("Refine Matte"));
     _taskCombo->addItem(QString::fromUtf8("Segment / Track"));
@@ -574,35 +578,42 @@ void FluxAiPanel::setupUi()
     layout->addWidget(_taskCombo);
 
     _modelCombo = new QComboBox();
+    _modelCombo->setObjectName(QString::fromUtf8("FluxAiModelCombo"));
     layout->addWidget(new QLabel(tr("Model")));
     layout->addWidget(_modelCombo);
 
     _workflowGuideLabel = new QLabel(QString::fromUtf8("Workflow: select a model to see required steps."));
+    _workflowGuideLabel->setProperty("fluxRole", QString::fromUtf8("sectionHeader"));
     _workflowGuideLabel->setWordWrap(true);
     _workflowGuideLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     layout->addWidget(_workflowGuideLabel);
 
     _runReasonLabel = new QLabel(QString::fromUtf8("Run unavailable because: no source selected."));
+    _runReasonLabel->setObjectName(QString::fromUtf8("FluxAiRunReasonLabel"));
     _runReasonLabel->setWordWrap(true);
     _runReasonLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     layout->addWidget(_runReasonLabel);
 
     _sourceLabel = new QLabel(QString::fromUtf8("Source: none selected"));
+    _sourceLabel->setObjectName(QString::fromUtf8("FluxAiSourceLabel"));
     _sourceLabel->setWordWrap(true);
     layout->addWidget(_sourceLabel);
 
     _frameRangeLabel = new QLabel(QString::fromUtf8("Frame Range: no source selected"));
+    _frameRangeLabel->setObjectName(QString::fromUtf8("FluxAiFrameRangeLabel"));
     _frameRangeLabel->setWordWrap(true);
     layout->addWidget(_frameRangeLabel);
     QHBoxLayout* frameRangeLayout = new QHBoxLayout();
     frameRangeLayout->setSpacing(6);
     frameRangeLayout->addWidget(new QLabel(tr("Start")));
     _frameRangeStartSpin = new QSpinBox();
+    _frameRangeStartSpin->setObjectName(QString::fromUtf8("FluxAiFrameRangeStartSpin"));
     _frameRangeStartSpin->setRange(0, 0);
     _frameRangeStartSpin->setEnabled(false);
     frameRangeLayout->addWidget(_frameRangeStartSpin);
     frameRangeLayout->addWidget(new QLabel(tr("End")));
     _frameRangeEndSpin = new QSpinBox();
+    _frameRangeEndSpin->setObjectName(QString::fromUtf8("FluxAiFrameRangeEndSpin"));
     _frameRangeEndSpin->setRange(0, 0);
     _frameRangeEndSpin->setEnabled(false);
     frameRangeLayout->addWidget(_frameRangeEndSpin);
@@ -614,12 +625,14 @@ void FluxAiPanel::setupUi()
     videoMamaOptionsLayout->setSpacing(6);
     _videoMamaBatchLabel = new QLabel(tr("Batch frames"));
     _videoMamaBatchCombo = new QComboBox();
+    _videoMamaBatchCombo->setObjectName(QString::fromUtf8("FluxAiBatchCombo"));
     _videoMamaBatchCombo->addItem(QString::fromUtf8("16"), 16);
     _videoMamaBatchCombo->addItem(QString::fromUtf8("32"), 32);
     _videoMamaBatchCombo->addItem(QString::fromUtf8("64"), 64);
     _videoMamaBatchCombo->addItem(QString::fromUtf8("128"), 128);
     _videoMamaOverlapLabel = new QLabel(tr("Blend overlap"));
     _videoMamaOverlapCombo = new QComboBox();
+    _videoMamaOverlapCombo->setObjectName(QString::fromUtf8("FluxAiOverlapCombo"));
     _videoMamaOverlapCombo->addItem(QString::fromUtf8("0"), 0);
     _videoMamaOverlapCombo->addItem(QString::fromUtf8("2"), 2);
     _videoMamaOverlapCombo->addItem(QString::fromUtf8("4"), 4);
@@ -631,14 +644,17 @@ void FluxAiPanel::setupUi()
     layout->addLayout(videoMamaOptionsLayout);
 
     _outputLabel = new QLabel(QString::fromUtf8("Output: project must be saved before AI generation"));
+    _outputLabel->setObjectName(QString::fromUtf8("FluxAiOutputLabel"));
     _outputLabel->setWordWrap(true);
     layout->addWidget(_outputLabel);
 
     _statusLabel = new QLabel(QString::fromUtf8("Status: idle"));
+    _statusLabel->setObjectName(QString::fromUtf8("FluxAiStatusLabel"));
     _statusLabel->setWordWrap(true);
     layout->addWidget(_statusLabel);
 
     _progressBar = new QProgressBar();
+    _progressBar->setObjectName(QString::fromUtf8("FluxAiProgressBar"));
     _progressBar->setRange(0, 100);
     _progressBar->setValue(0);
     _progressBar->setTextVisible(true);
@@ -646,19 +662,25 @@ void FluxAiPanel::setupUi()
     layout->addWidget(_progressBar);
 
     _aiLogPathLabel = new QLabel();
+    _aiLogPathLabel->setObjectName(QString::fromUtf8("FluxAiLogPathLabel"));
     _aiLogPathLabel->setWordWrap(true);
     layout->addWidget(_aiLogPathLabel);
     updateAiLogPathLabel();
 
     _promptLabel = new QLabel(QString::fromUtf8("Prompt summary: add AI Paint point/box prompts in the viewer toolbar"));
+    _promptLabel->setObjectName(QString::fromUtf8("FluxAiPromptSummaryLabel"));
     _promptLabel->setWordWrap(true);
     layout->addWidget(_promptLabel);
 
     QHBoxLayout* buttons = new QHBoxLayout();
     _runButton = new QPushButton(tr("Run"));
+    _runButton->setObjectName(QString::fromUtf8("FluxAiRunButton"));
     _addMaskButton = new QPushButton(tr("Add Mask"));
+    _addMaskButton->setObjectName(QString::fromUtf8("FluxAiAddMaskButton"));
     _replaceMaskButton = new QPushButton(tr("Replace Mask"));
+    _replaceMaskButton->setObjectName(QString::fromUtf8("FluxAiReplaceMaskButton"));
     _cancelButton = new QPushButton(tr("Cancel"));
+    _cancelButton->setObjectName(QString::fromUtf8("FluxAiCancelButton"));
     buttons->addWidget(_runButton);
     buttons->addWidget(_addMaskButton);
     buttons->addWidget(_replaceMaskButton);
@@ -671,11 +693,14 @@ void FluxAiPanel::setupUi()
 
     layout->addWidget(new QLabel(tr("Result History")));
     _resultHistoryList = new QListWidget();
+    _resultHistoryList->setObjectName(QString::fromUtf8("FluxAiHistoryList"));
     _resultHistoryList->setSelectionMode(QAbstractItemView::SingleSelection);
     layout->addWidget(_resultHistoryList);
     QHBoxLayout* historyButtons = new QHBoxLayout();
     _previewAgainButton = new QPushButton(tr("Preview Again"));
+    _previewAgainButton->setObjectName(QString::fromUtf8("FluxAiPreviewAgainButton"));
     _removeHistoryEntryButton = new QPushButton(tr("Remove Entry"));
+    _removeHistoryEntryButton->setObjectName(QString::fromUtf8("FluxAiRemoveHistoryButton"));
     historyButtons->addWidget(_previewAgainButton);
     historyButtons->addWidget(_removeHistoryEntryButton);
     layout->addLayout(historyButtons);
@@ -684,10 +709,12 @@ void FluxAiPanel::setupUi()
     QObject::connect(_removeHistoryEntryButton, SIGNAL(clicked(bool)), this, SLOT(onRemoveHistoryEntryClicked()));
 
     _logToggleButton = new QPushButton(tr("Show Log"));
+    _logToggleButton->setObjectName(QString::fromUtf8("FluxAiLogToggleButton"));
     layout->addWidget(_logToggleButton);
     QObject::connect(_logToggleButton, SIGNAL(clicked(bool)), this, SLOT(toggleLog()));
 
     _log = new QPlainTextEdit();
+    _log->setObjectName(QString::fromUtf8("FluxAiLogOutput"));
     _log->setReadOnly(true);
     _log->setVisible(false);
     layout->addWidget(_log, 1);

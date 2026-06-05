@@ -57,6 +57,7 @@ CLANG_DIAG_ON(deprecated-register)
 #include "Gui/GuiMacros.h"
 #include "Gui/KnobWidgetDnD.h"
 #include "Gui/Menu.h"
+#include "Gui/FluxStyleUtils.h"
 
 
 NATRON_NAMESPACE_ENTER
@@ -277,52 +278,43 @@ ComboBox::paintEvent(QPaintEvent* /*e*/)
         ///Now draw the frame
 
         QColor fillColor;
-        if (_clicked || _dirty) {
-            fillColor = Qt::black;
+        if (!_enabled) {
+            fillColor = FluxStyle::mix(FluxStyle::base(this), FluxStyle::window(this), 0.5);
+        } else if (_clicked) {
+            fillColor = FluxStyle::mix(FluxStyle::base(this), FluxStyle::accent(this), 0.15);
+        } else if (_dirty) {
+            fillColor = FluxStyle::mix(FluxStyle::base(this), FluxStyle::window(this), 0.35);
         } else {
-            double r, g, b;
             switch (_animation) {
+            case 1:
+                fillColor = FluxStyle::interpolatedColor();
+                break;
+            case 2:
+                fillColor = FluxStyle::keyframeColor();
+                break;
+            case 3:
+                fillColor = FluxStyle::expressionColor();
+                break;
             case 0:
-            default: {
-                appPTR->getCurrentSettings()->getRaisedColor(&r, &g, &b);
+            default:
+                fillColor = FluxStyle::base(this);
                 break;
             }
-            case 1: {
-                appPTR->getCurrentSettings()->getInterpolatedColor(&r, &g, &b);
-                break;
-            }
-            case 2: {
-                appPTR->getCurrentSettings()->getKeyframeColor(&r, &g, &b);
-                break;
-            }
-            case 3: {
-                appPTR->getCurrentSettings()->getExprColor(&r, &g, &b);
-                break;
-            }
-            }
-            fillColor.setRgb( Color::floatToInt<256>(r),
-                              Color::floatToInt<256>(g),
-                              Color::floatToInt<256>(b) );
         }
 
-        double fw = frameWidth();
+        double fw = 1.;
         QPen pen;
-        if ( !hasFocus() ) {
-            pen.setColor(Qt::black);
+        if (hasFocus()) {
+            pen.setColor(FluxStyle::focusOutline(this));
+            fw = 1.5;
         } else {
-            double r, g, b;
-            appPTR->getCurrentSettings()->getSelectionColor(&r, &g, &b);
-            QColor c;
-            c.setRgb( Color::floatToInt<256>(r),
-                      Color::floatToInt<256>(g),
-                      Color::floatToInt<256>(b) );
-            fw = 2;
+            pen.setColor(FluxStyle::mix(fillColor, FluxStyle::window(this), 0.3));
+            fw = 1.0;
         }
         p.setPen(pen);
 
-
         QRectF roundedRect = bRect.adjusted(fw / 2., fw / 2., -fw / 2., -fw / 2.);
-        double roundPixels = 3;
+        const double roundPixels = 4.;
         QPainterPath path;
         path.addRoundedRect(roundedRect, roundPixels, roundPixels);
         p.fillPath(path, fillColor);
@@ -330,20 +322,14 @@ ComboBox::paintEvent(QPaintEvent* /*e*/)
         bRect = roundedRect.adjusted(fw / 2., fw / 2., -fw / 2., -fw / 2.);
     }
     QColor textColor;
-    if (_readOnly) {
-        textColor.setRgb(100, 100, 100);
+    if (_readOnly || !_enabled) {
+        textColor = FluxStyle::disabledText(this);
     } else if (_altered) {
-        double aR, aG, aB;
-        appPTR->getCurrentSettings()->getAltTextColor(&aR, &aG, &aB);
-        textColor.setRgbF(aR, aG, aB);
-    } else if (!_enabled) {
-        textColor.setRgb(120, 124, 132);
+        textColor = FluxStyle::alteredColor(this);
+    } else if (_animation == 3) {
+        textColor = Qt::white;
     } else {
-        double r, g, b;
-        appPTR->getCurrentSettings()->getTextColor(&r, &g, &b);
-        textColor.setRgb( Color::floatToInt<256>(r),
-                          Color::floatToInt<256>(g),
-                          Color::floatToInt<256>(b) );
+        textColor = FluxStyle::text(this);
     }
     {
         Qt::Alignment align = QStyle::visualAlignment( Qt::LeftToRight, QFlag(_align) );
@@ -365,13 +351,21 @@ ComboBox::paintEvent(QPaintEvent* /*e*/)
 
     {
         ///Draw the dropdown icon
+        QColor iconColor;
+        if (_readOnly || !_enabled) {
+            iconColor = FluxStyle::disabledText(this);
+        } else if (hasFocus() || _clicked) {
+            iconColor = FluxStyle::accent(this);
+        } else {
+            iconColor = FluxStyle::mix(textColor, FluxStyle::disabledText(this), 0.5);
+        }
         QPainterPath path;
         QPolygonF poly;
-        poly.push_back( QPointF(bRect.right() - DROP_DOWN_ICON_SIZE * 3. / 2., bRect.height() / 2. - DROP_DOWN_ICON_SIZE / 2.) );
-        poly.push_back( QPointF(bRect.right() - DROP_DOWN_ICON_SIZE / 2., bRect.height() / 2. - DROP_DOWN_ICON_SIZE / 2.) );
-        poly.push_back( QPointF(bRect.right() - DROP_DOWN_ICON_SIZE, bRect.height() / 2. + DROP_DOWN_ICON_SIZE / 2.) );
+        poly.push_back( QPointF(bRect.right() - DROP_DOWN_ICON_SIZE * 1.3, bRect.height() / 2. - DROP_DOWN_ICON_SIZE * 0.25) );
+        poly.push_back( QPointF(bRect.right() - DROP_DOWN_ICON_SIZE * 0.7, bRect.height() / 2. - DROP_DOWN_ICON_SIZE * 0.25) );
+        poly.push_back( QPointF(bRect.right() - DROP_DOWN_ICON_SIZE * 1.0, bRect.height() / 2. + DROP_DOWN_ICON_SIZE * 0.25) );
         path.addPolygon(poly);
-        p.fillPath(path, textColor);
+        p.fillPath(path, iconColor);
     }
 } // ComboBox::paintEvent
 

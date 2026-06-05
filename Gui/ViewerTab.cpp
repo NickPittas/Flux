@@ -31,6 +31,7 @@
 
 #include <QDebug>
 #include <QTimer>
+#include <QImage>
 
 #include <QAction>
 #include <QVBoxLayout>
@@ -89,12 +90,55 @@ addSpacer(QBoxLayout* layout)
     QFrame* line = new QFrame( layout->parentWidget() );
     line->setFrameShape(QFrame::VLine);
     line->setFrameShadow(QFrame::Raised);
-    //line->setObjectName("LayoutSeparator");
     QPalette palette;
-    palette.setColor(QPalette::WindowText, Qt::black);
+    palette.setColor(QPalette::WindowText, QColor(43, 49, 58));
     line->setPalette(palette);
     layout->addWidget(line);
     layout->addSpacing(5);
+}
+static QPixmap
+tintPixmap(const QPixmap& pixmap,
+           const QColor& targetColor)
+{
+    if (pixmap.isNull()) {
+        return pixmap;
+    }
+    QImage img = pixmap.toImage();
+    if (img.isNull()) {
+        return pixmap;
+    }
+    if (img.format() != QImage::Format_ARGB32 && img.format() != QImage::Format_ARGB32_Premultiplied) {
+        img = img.convertToFormat(QImage::Format_ARGB32);
+    }
+    for (int y = 0; y < img.height(); ++y) {
+        QRgb* line = reinterpret_cast<QRgb*>(img.scanLine(y));
+        for (int x = 0; x < img.width(); ++x) {
+            const QRgb pixel = line[x];
+            const int alpha = qAlpha(pixel);
+            if (!alpha) {
+                continue;
+            }
+            const int r = qRed(pixel);
+            const int g = qGreen(pixel);
+            const int b = qBlue(pixel);
+            if (r < 175 && g < 175 && b < 175) {
+                line[x] = qRgba(targetColor.red(), targetColor.green(), targetColor.blue(), alpha);
+            }
+        }
+    }
+    return QPixmap::fromImage(img);
+}
+
+static QColor
+viewerGlyphColor()
+{
+    return QColor(184, 190, 198);
+}
+
+static QColor
+viewerActiveGlyphColor()
+{
+    return QColor(71, 127, 214);
 }
 
 ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
@@ -118,6 +162,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     std::string label;
     makeFullyQualifiedLabel(node->getNode().get(), &label);
     setLabel(label);
+    setObjectName(QString::fromUtf8("FluxViewerTab"));
 
     NodePtr internalNode = node->getNode();
     QObject::connect( internalNode.get(), SIGNAL(scriptNameChanged(QString)), this, SLOT(onInternalNodeScriptNameChanged(QString)) );
@@ -134,6 +179,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     QFontMetrics fm(font(), 0);
 
     _imp->firstSettingsRow = new QWidget(this);
+    _imp->firstSettingsRow->setObjectName(QString::fromUtf8("FluxViewerToolbar"));
     _imp->firstRowLayout = new QHBoxLayout(_imp->firstSettingsRow);
     _imp->firstSettingsRow->setLayout(_imp->firstRowLayout);
     _imp->firstRowLayout->setContentsMargins(0, 0, 0, 0);
@@ -141,6 +187,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     _imp->mainLayout->addWidget(_imp->firstSettingsRow);
 
     _imp->layerChoice = new ComboBox(_imp->firstSettingsRow);
+    _imp->layerChoice->setObjectName(QString::fromUtf8("FluxViewerLayerCombo"));
     _imp->layerChoice->setToolTip( QString::fromUtf8("<p><b>") + tr("Layer:") + QString::fromUtf8("</b></p><p>")
                                    + tr("The layer that the Viewer node will fetch upstream in the tree. "
                                         "The channels of the layer will be mapped to the RGBA channels of the viewer according to "
@@ -151,6 +198,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     _imp->firstRowLayout->addWidget(_imp->layerChoice);
 
     _imp->alphaChannelChoice = new ComboBox(_imp->firstSettingsRow);
+    _imp->alphaChannelChoice->setObjectName(QString::fromUtf8("FluxViewerAlphaCombo"));
     _imp->alphaChannelChoice->setToolTip( QString::fromUtf8("<p><b>") + tr("Alpha channel:") + QString::fromUtf8("</b></p><p>")
                                           + tr("Select here a channel of any layer that will be used when displaying the "
                                                "alpha channel with the <b>Channels</b> choice on the right.") + QString::fromUtf8("</p>") );
@@ -160,6 +208,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     _imp->firstRowLayout->addWidget(_imp->alphaChannelChoice);
 
     _imp->viewerChannels = new ChannelsComboBox(_imp->firstSettingsRow);
+    _imp->viewerChannels->setObjectName(QString::fromUtf8("FluxViewerChannelCombo"));
     _imp->viewerChannels->setToolTip( QString::fromUtf8("<p><b>") + tr("Display Channels:") + QString::fromUtf8("</b></p><p>")
                                       + tr("The channels to display on the viewer.") + QString::fromUtf8("</p>") );
     _imp->firstRowLayout->addWidget(_imp->viewerChannels);
@@ -187,6 +236,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     QObject::connect( _imp->viewerChannels, SIGNAL(currentIndexChanged(int)), this, SLOT(onViewerChannelsChanged(int)) );
 
     _imp->zoomCombobox = new ComboBox(_imp->firstSettingsRow);
+    _imp->zoomCombobox->setObjectName(QString::fromUtf8("FluxViewerZoomCombo"));
     _imp->zoomCombobox->setToolTip( QString::fromUtf8("<p><b>") + tr("Zoom:") + QString::fromUtf8("</b></p>")
                                     + tr("The zoom applied to the image on the viewer.") + QString::fromUtf8("</p>") );
 
@@ -219,13 +269,15 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
 
     _imp->firstRowLayout->addWidget(_imp->zoomCombobox);
 
+
     const int pixmapIconSize = TO_DPIX(NATRON_MEDIUM_BUTTON_SIZE);
     const QSize buttonSize( TO_DPIX(NATRON_MEDIUM_BUTTON_SIZE), TO_DPIY(NATRON_MEDIUM_BUTTON_SIZE) );
     const QSize buttonIconSize( TO_DPIX(NATRON_MEDIUM_BUTTON_ICON_SIZE), TO_DPIY(NATRON_MEDIUM_BUTTON_ICON_SIZE) );
     QPixmap lockEnabled, lockDisabled;
     appPTR->getIcon(NATRON_PIXMAP_LOCKED, pixmapIconSize, &lockEnabled);
     appPTR->getIcon(NATRON_PIXMAP_UNLOCKED, pixmapIconSize, &lockDisabled);
-
+    lockEnabled = tintPixmap(lockEnabled, viewerActiveGlyphColor());
+    lockDisabled = tintPixmap(lockDisabled, viewerGlyphColor());
     QIcon lockIcon;
     lockIcon.addPixmap(lockEnabled, QIcon::Normal, QIcon::On);
     lockIcon.addPixmap(lockDisabled, QIcon::Normal, QIcon::Off);
@@ -295,6 +347,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     _imp->firstRowLayout->addWidget(_imp->activateRenderScale);
 
     _imp->renderScaleCombo = new ComboBox(_imp->firstSettingsRow);
+    _imp->renderScaleCombo->setObjectName(QString::fromUtf8("FluxViewerRenderScaleCombo"));
     _imp->renderScaleCombo->setFocusPolicy(Qt::NoFocus);
     _imp->renderScaleCombo->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("When proxy mode is activated, it scales down the rendered image by this factor "
                                                                           "to accelerate the rendering."), NATRON_NAMESPACE::WhiteSpaceNormal) );
@@ -359,6 +412,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     _imp->firstRowLayout->addWidget(_imp->firstInputLabel);
 
     _imp->firstInputImage = new ComboBox(_imp->firstSettingsRow);
+    _imp->firstInputImage->setObjectName(QString::fromUtf8("FluxViewerInputACombo"));
     _imp->firstInputImage->setToolTip( _imp->firstInputLabel->toolTip() );
     _imp->firstInputImage->setFixedWidth(fm.horizontalAdvance( QString::fromUtf8("ColorCorrect1") ) + 3 * DROP_DOWN_ICON_SIZE);
     _imp->firstInputImage->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
@@ -368,6 +422,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
 
     QPixmap pixMerge;
     appPTR->getIcon(NATRON_PIXMAP_MERGE_GROUPING, pixmapIconSize, &pixMerge);
+    pixMerge = tintPixmap(pixMerge, viewerGlyphColor());
     _imp->compositingOperatorLabel = new Label(QString(), _imp->firstSettingsRow);
     _imp->compositingOperatorLabel->setPixmap(pixMerge);
     _imp->compositingOperatorLabel->setToolTip( NATRON_NAMESPACE::convertFromPlainText(tr("Operation applied between viewer inputs A and B. a and b are the alpha components of each input. d is the wipe dissolve factor, controlled by the arc handle."), NATRON_NAMESPACE::WhiteSpaceNormal) );
@@ -375,6 +430,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
 
 
     _imp->compositingOperator = new ComboBox(_imp->firstSettingsRow);
+    _imp->compositingOperator->setObjectName(QString::fromUtf8("FluxViewerCompositeCombo"));
     QObject::connect( _imp->compositingOperator, SIGNAL(currentIndexChanged(int)), this, SLOT(onCompositingOperatorIndexChanged(int)) );
     _imp->compositingOperator->setFixedWidth(fm.horizontalAdvance( QString::fromUtf8("W-OnionSkin") ) + 3 * DROP_DOWN_ICON_SIZE);
     _imp->compositingOperator->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
@@ -398,6 +454,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     _imp->firstRowLayout->addWidget(_imp->secondInputLabel);
 
     _imp->secondInputImage = new ComboBox(_imp->firstSettingsRow);
+    _imp->secondInputImage->setObjectName(QString::fromUtf8("FluxViewerInputBCombo"));
     _imp->secondInputImage->setToolTip( _imp->secondInputLabel->toolTip() );
     _imp->secondInputImage->setFixedWidth(fm.horizontalAdvance( QString::fromUtf8("ColorCorrect1") )  + 3 * DROP_DOWN_ICON_SIZE);
     _imp->secondInputImage->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
@@ -409,6 +466,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
 
     /*2nd row of buttons*/
     _imp->secondSettingsRow = new QWidget(this);
+    _imp->secondSettingsRow->setObjectName(QString::fromUtf8("FluxViewerInfoBar"));
     _imp->secondRowLayout = new QHBoxLayout(_imp->secondSettingsRow);
     _imp->secondSettingsRow->setLayout(_imp->secondRowLayout);
     _imp->secondRowLayout->setSpacing(0);
@@ -418,6 +476,8 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     QPixmap gainEnabled, gainDisabled;
     appPTR->getIcon(NATRON_PIXMAP_VIEWER_GAIN_ENABLED, pixmapIconSize, &gainEnabled);
     appPTR->getIcon(NATRON_PIXMAP_VIEWER_GAIN_DISABLED, pixmapIconSize, &gainDisabled);
+    gainEnabled = tintPixmap(gainEnabled, viewerActiveGlyphColor());
+    gainDisabled = tintPixmap(gainDisabled, viewerGlyphColor());
     QIcon gainIc;
     gainIc.addPixmap(gainEnabled, QIcon::Normal, QIcon::On);
     gainIc.addPixmap(gainDisabled, QIcon::Normal, QIcon::Off);
@@ -451,6 +511,8 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     QPixmap acOn, acOff;
     appPTR->getIcon(NATRON_PIXMAP_VIEWER_AUTOCONTRAST_DISABLED, pixmapIconSize, &acOff);
     appPTR->getIcon(NATRON_PIXMAP_VIEWER_AUTOCONTRAST_ENABLED, pixmapIconSize, &acOn);
+    acOn = tintPixmap(acOn, viewerActiveGlyphColor());
+    acOff = tintPixmap(acOff, viewerGlyphColor());
     QIcon acIc;
     acIc.addPixmap(acOn, QIcon::Normal, QIcon::On);
     acIc.addPixmap(acOff, QIcon::Normal, QIcon::Off);
@@ -462,10 +524,11 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     _imp->autoContrast->setFixedSize(buttonSize);
     _imp->autoContrast->setToolTip(autoContrastToolTip);
     _imp->secondRowLayout->addWidget(_imp->autoContrast);
-
     QPixmap gammaEnabled, gammaDisabled;
     appPTR->getIcon(NATRON_PIXMAP_VIEWER_GAMMA_ENABLED, &gammaEnabled);
     appPTR->getIcon(NATRON_PIXMAP_VIEWER_GAMMA_DISABLED, &gammaDisabled);
+    gammaEnabled = tintPixmap(gammaEnabled, viewerActiveGlyphColor());
+    gammaDisabled = tintPixmap(gammaDisabled, viewerGlyphColor());
     QIcon gammaIc;
     gammaIc.addPixmap(gammaEnabled, QIcon::Normal, QIcon::On);
     gammaIc.addPixmap(gammaDisabled, QIcon::Normal, QIcon::Off);
@@ -510,6 +573,8 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     QPixmap pixCheckerboardEnabled, pixCheckerboardDisabld;
     appPTR->getIcon(NATRON_PIXMAP_VIEWER_CHECKERBOARD_ENABLED, pixmapIconSize, &pixCheckerboardEnabled);
     appPTR->getIcon(NATRON_PIXMAP_VIEWER_CHECKERBOARD_DISABLED, pixmapIconSize, &pixCheckerboardDisabld);
+    pixCheckerboardEnabled = tintPixmap(pixCheckerboardEnabled, viewerActiveGlyphColor());
+    pixCheckerboardDisabld = tintPixmap(pixCheckerboardDisabld, viewerGlyphColor());
     QIcon icCk;
     icCk.addPixmap(pixCheckerboardEnabled, QIcon::Normal, QIcon::On);
     icCk.addPixmap(pixCheckerboardDisabld, QIcon::Normal, QIcon::Off);
@@ -536,7 +601,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
 
     QPixmap colorPickerpix;
     appPTR->getIcon(NATRON_PIXMAP_COLOR_PICKER, pixmapIconSize, &colorPickerpix);
-
+    colorPickerpix = tintPixmap(colorPickerpix, viewerGlyphColor());
     _imp->pickerButton = new Button(QIcon(colorPickerpix), QString(), _imp->secondSettingsRow);
     _imp->pickerButton->setFocusPolicy(Qt::NoFocus);
     _imp->pickerButton->setCheckable(true);
@@ -607,12 +672,14 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
 
     /*Player buttons*/
     _imp->playerButtonsContainer = new QWidget(this);
+    _imp->playerButtonsContainer->setObjectName(QString::fromUtf8("FluxViewerTransport"));
     _imp->playerLayout = new QHBoxLayout(_imp->playerButtonsContainer);
     _imp->playerLayout->setSpacing(0);
     _imp->playerLayout->setContentsMargins(0, 0, 0, 0);
     _imp->playerButtonsContainer->setLayout(_imp->playerLayout);
 
     _imp->currentFrameBox = new SpinBox(_imp->playerButtonsContainer, SpinBox::eSpinBoxTypeInt);
+    _imp->currentFrameBox->setObjectName(QString::fromUtf8("FluxViewerCurrentFrameSpin"));
     _imp->currentFrameBox->setValue(0);
     _imp->currentFrameBox->setAlignment(Qt::AlignVCenter | Qt::AlignHCenter);
     _imp->currentFrameBox->setToolTip( QString::fromUtf8("<p><b>") + tr("Current frame number") + QString::fromUtf8("</b></p>") );
@@ -705,6 +772,7 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
 
 
     _imp->incrementSpinBox = new SpinBox(_imp->playerButtonsContainer);
+    _imp->incrementSpinBox->setObjectName(QString::fromUtf8("FluxViewerIncrementSpin"));
     _imp->incrementSpinBox->setValue(10);
     _imp->incrementSpinBox->setAlignment(Qt::AlignVCenter | Qt::AlignHCenter);
     _imp->incrementSpinBox->setToolTip( QString::fromUtf8("<p><b>") + tr("Frame increment:") + QString::fromUtf8("</b></p>") + tr(
@@ -732,10 +800,12 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     setToolTipWithShortcut(kShortcutGroupPlayer, kShortcutIDActionPlayerPlaybackOut, "<p>" + tr("Set the playback out point at the current frame.").toStdString() + "</p>" + "<p><b>" + tr("Keyboard shortcut: %1").toStdString() + "</b></p>", _imp->playBackOutputButton);
 
     _imp->playBackInputSpinbox = new SpinBox(_imp->playerButtonsContainer);
+    _imp->playBackInputSpinbox->setObjectName(QString::fromUtf8("FluxViewerPlaybackInSpin"));
     _imp->playBackInputSpinbox->setToolTip( tr("The playback in point") );
     _imp->playBackInputSpinbox->setAlignment(Qt::AlignVCenter | Qt::AlignHCenter);
 
     _imp->playBackOutputSpinbox = new SpinBox(_imp->playerButtonsContainer);
+    _imp->playBackOutputSpinbox->setObjectName(QString::fromUtf8("FluxViewerPlaybackOutSpin"));
     _imp->playBackOutputSpinbox->setToolTip( tr("The playback out point") );
     _imp->playBackOutputSpinbox->setAlignment(Qt::AlignVCenter | Qt::AlignHCenter);
 
@@ -750,6 +820,8 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     QPixmap tripleSyncUnlockPix, tripleSyncLockedPix;
     appPTR->getIcon(NATRON_PIXMAP_UNLOCKED, pixmapIconSize, &tripleSyncUnlockPix);
     appPTR->getIcon(NATRON_PIXMAP_LOCKED, pixmapIconSize, &tripleSyncLockedPix);
+    tripleSyncUnlockPix = tintPixmap(tripleSyncUnlockPix, viewerGlyphColor());
+    tripleSyncLockedPix = tintPixmap(tripleSyncLockedPix, viewerActiveGlyphColor());
 
     QIcon tripleSyncIc;
     tripleSyncIc.addPixmap(tripleSyncUnlockPix, QIcon::Normal, QIcon::Off);
@@ -873,10 +945,37 @@ ViewerTab::ViewerTab(const std::list<NodeGuiPtr> & existingNodesContext,
     appPTR->getIcon(NATRON_PIXMAP_PLAYER_PAUSE_ENABLED, &pixPauseEnabled);
     appPTR->getIcon(NATRON_PIXMAP_VIEWER_FULL_FRAME_OFF, &pixFullFrameOff);
     appPTR->getIcon(NATRON_PIXMAP_VIEWER_FULL_FRAME_ON, &pixFullFrameOn);
-
+    pixFreezeEnabled = tintPixmap(pixFreezeEnabled, viewerActiveGlyphColor());
+    pixFreezeDisabled = tintPixmap(pixFreezeDisabled, viewerGlyphColor());
+    pixFirst = tintPixmap(pixFirst, viewerGlyphColor());
+    pixPrevKF = tintPixmap(pixPrevKF, viewerGlyphColor());
+    pixRewindDisabled = tintPixmap(pixRewindDisabled, viewerGlyphColor());
+    pixBack1 = tintPixmap(pixBack1, viewerGlyphColor());
+    pixStop = tintPixmap(pixStop, viewerActiveGlyphColor());
+    pixForward1 = tintPixmap(pixForward1, viewerGlyphColor());
+    pixPlayDisabled = tintPixmap(pixPlayDisabled, viewerGlyphColor());
+    pixNextKF = tintPixmap(pixNextKF, viewerGlyphColor());
+    pixLast = tintPixmap(pixLast, viewerGlyphColor());
+    pixPrevIncr = tintPixmap(pixPrevIncr, viewerGlyphColor());
+    pixNextIncr = tintPixmap(pixNextIncr, viewerGlyphColor());
+    pixRefresh = tintPixmap(pixRefresh, viewerGlyphColor());
+    pixRefreshActive = tintPixmap(pixRefreshActive, viewerActiveGlyphColor());
+    pixCenterViewer = tintPixmap(pixCenterViewer, viewerGlyphColor());
+    pixLoopMode = tintPixmap(pixLoopMode, viewerGlyphColor());
+    pixClipToProjectEnabled = tintPixmap(pixClipToProjectEnabled, viewerActiveGlyphColor());
+    pixClipToProjectDisabled = tintPixmap(pixClipToProjectDisabled, viewerGlyphColor());
+    pixViewerRoIEnabled = tintPixmap(pixViewerRoIEnabled, viewerActiveGlyphColor());
+    pixViewerRoIDisabled = tintPixmap(pixViewerRoIDisabled, viewerGlyphColor());
+    pixViewerRs = tintPixmap(pixViewerRs, viewerGlyphColor());
+    pixViewerRsChecked = tintPixmap(pixViewerRsChecked, viewerActiveGlyphColor());
+    pixInpoint = tintPixmap(pixInpoint, viewerGlyphColor());
+    pixOutPoint = tintPixmap(pixOutPoint, viewerGlyphColor());
+    pixPauseEnabled = tintPixmap(pixPauseEnabled, viewerActiveGlyphColor());
+    pixPauseDisabled = tintPixmap(pixPauseDisabled, viewerGlyphColor());
+    pixFullFrameOn = tintPixmap(pixFullFrameOn, viewerActiveGlyphColor());
+    pixFullFrameOff = tintPixmap(pixFullFrameOff, viewerGlyphColor());
     _imp->firstFrame_Button->setIcon( QIcon(pixFirst) );
     _imp->previousKeyFrame_Button->setIcon( QIcon(pixPrevKF) );
-
     QIcon icRewind;
     icRewind.addPixmap(pixStop, QIcon::Normal, QIcon::On);
     icRewind.addPixmap(pixRewindDisabled, QIcon::Normal, QIcon::Off);
