@@ -252,6 +252,10 @@ PyObject* initializePython3(const std::vector<wchar_t*>& commandLineArgsWide)
     PyConfig config;
     PyConfig_InitPythonConfig(&config);
 
+    // Natron/Flux owns command-line parsing. Do not let embedded Python parse
+    // application flags such as --clear-cache as Python interpreter options.
+    config.parse_argv = 0;
+
     // Set program name
     PyStatus status = PyConfig_SetString(&config, &config.program_name, commandLineArgsWide[0]);
     if (PyStatus_Exception(status)) {
