@@ -41,33 +41,21 @@ if(FLUX_ENABLE_CORRIDORKEY_TENSORRT)
         list(APPEND _FLUX_CUDA_HINTS "$ENV{CUDA_PATH}")
     endif()
 
-    if(CUDAToolkit_FOUND)
-        set(FLUX_CUDA_CUDART_LINK CUDA::cudart)
-    else()
-        find_path(FLUX_CUDA_INCLUDE_DIR
-            NAMES cuda_runtime_api.h
-            HINTS ${_FLUX_CUDA_HINTS}
-            PATH_SUFFIXES include targets/x86_64-linux/include
-            DOC "CUDA Toolkit include directory containing cuda_runtime_api.h")
-        find_library(FLUX_CUDA_CUDART_LIBRARY
-            NAMES cudart
-            HINTS ${_FLUX_CUDA_HINTS}
-            PATH_SUFFIXES lib lib64 targets/x86_64-linux/lib
-            DOC "CUDA runtime library")
-        if(NOT FLUX_CUDA_INCLUDE_DIR OR NOT FLUX_CUDA_CUDART_LIBRARY)
-            message(FATAL_ERROR
-                "FLUX_ENABLE_CORRIDORKEY_TENSORRT=ON requires CUDA Toolkit development files.\n"
-                "Missing: cuda_runtime_api.h and/or libcudart.so.\n"
-                "Install the CUDA Toolkit and configure with -DCUDAToolkit_ROOT=<cuda-prefix> "
-                "when it is not in a standard location. The NVIDIA driver/runtime alone is not sufficient.\n"
-                "Current detection:\n"
-                "  CUDAToolkit_ROOT='${CUDAToolkit_ROOT}'\n"
-                "  FLUX_CUDA_INCLUDE_DIR='${FLUX_CUDA_INCLUDE_DIR}'\n"
-                "  FLUX_CUDA_CUDART_LIBRARY='${FLUX_CUDA_CUDART_LIBRARY}'")
-        endif()
-        set(FLUX_CUDA_INCLUDE_DIRS ${FLUX_CUDA_INCLUDE_DIR})
-        set(FLUX_CUDA_CUDART_LINK ${FLUX_CUDA_CUDART_LIBRARY})
+    find_path(FLUX_CUDA_INCLUDE_DIR
+        NAMES cuda_runtime_api.h
+        HINTS ${_FLUX_CUDA_HINTS}
+        PATH_SUFFIXES include targets/x86_64-linux/include
+        DOC "CUDA Toolkit include directory containing cuda_runtime_api.h")
+    if(NOT FLUX_CUDA_INCLUDE_DIR)
+        message(FATAL_ERROR
+            "FLUX_ENABLE_CORRIDORKEY_TENSORRT=ON requires CUDA Toolkit development headers.\n"
+            "Missing: cuda_runtime_api.h.\n"
+            "Install the CUDA Toolkit and configure with -DCUDAToolkit_ROOT=<cuda-prefix> when it is not in a standard location.\n"
+            "Current detection:\n"
+            "  CUDAToolkit_ROOT='${CUDAToolkit_ROOT}'\n"
+            "  FLUX_CUDA_INCLUDE_DIR='${FLUX_CUDA_INCLUDE_DIR}'")
     endif()
+    set(FLUX_CUDA_INCLUDE_DIRS ${FLUX_CUDA_INCLUDE_DIR})
 
     set(_FLUX_TENSORRT_HINTS)
     if(TENSORRT_ROOT)
@@ -104,21 +92,16 @@ if(FLUX_ENABLE_CORRIDORKEY_TENSORRT)
         PATH_SUFFIXES ${_FLUX_TENSORRT_LIBRARY_SUFFIXES}
         DOC "TensorRT plugin runtime library")
 
-    if(NOT TENSORRT_INCLUDE_DIR OR NOT TENSORRT_NVINFER_LIBRARY)
+    if(NOT TENSORRT_INCLUDE_DIR)
         message(FATAL_ERROR
-            "FLUX_ENABLE_CORRIDORKEY_TENSORRT=ON requires TensorRT development files.\n"
-            "Missing: NvInfer.h and/or libnvinfer.so.\n"
-            "Install NVIDIA TensorRT development packages (for RPM-based systems: "
-            "tensorrt-devel or libnvinfer-devel plus libnvinfer-plugin-devel), or unpack "
-            "the TensorRT tarball and configure Flux with -DTENSORRT_ROOT=<TensorRT-prefix>.\n"
-            "Expected layouts:\n"
+            "FLUX_ENABLE_CORRIDORKEY_TENSORRT=ON requires TensorRT development headers.\n"
+            "Missing: NvInfer.h.\n"
+            "Install NVIDIA TensorRT development packages or unpack the TensorRT tarball and configure Flux with -DTENSORRT_ROOT=<TensorRT-prefix>.\n"
+            "Expected layout:\n"
             "  <TensorRT-prefix>/include/NvInfer.h\n"
-            "  <TensorRT-prefix>/lib/libnvinfer.so or <TensorRT-prefix>/lib64/libnvinfer.so\n"
             "Current detection:\n"
             "  TENSORRT_ROOT='${TENSORRT_ROOT}'\n"
-            "  TENSORRT_INCLUDE_DIR='${TENSORRT_INCLUDE_DIR}'\n"
-            "  TENSORRT_NVINFER_LIBRARY='${TENSORRT_NVINFER_LIBRARY}'\n"
-            "  TENSORRT_NVINFER_PLUGIN_LIBRARY='${TENSORRT_NVINFER_PLUGIN_LIBRARY}'")
+            "  TENSORRT_INCLUDE_DIR='${TENSORRT_INCLUDE_DIR}'")
     endif()
 
     if(EXISTS "${TENSORRT_INCLUDE_DIR}/NvInferVersion.h")
@@ -149,12 +132,12 @@ if(FLUX_ENABLE_CORRIDORKEY_TENSORRT)
             "FLUX_ENABLE_CORRIDORKEY_TENSORRT=ON requires TensorRT 8.6+ for name-based tensor APIs; "
             "found TensorRT ${_FLUX_TENSORRT_VERSION_MAJOR}.${_FLUX_TENSORRT_VERSION_MINOR}.${_FLUX_TENSORRT_VERSION_PATCH}.")
     endif()
-    message(STATUS "Found TensorRT ${_FLUX_TENSORRT_VERSION_MAJOR}.${_FLUX_TENSORRT_VERSION_MINOR}.${_FLUX_TENSORRT_VERSION_PATCH}: ${TENSORRT_NVINFER_LIBRARY}")
-
+    message(STATUS "Found TensorRT ${_FLUX_TENSORRT_VERSION_MAJOR}.${_FLUX_TENSORRT_VERSION_MINOR}.${_FLUX_TENSORRT_VERSION_PATCH}: headers=${TENSORRT_INCLUDE_DIR}")
+    if(TENSORRT_NVINFER_LIBRARY)
+        message(STATUS "Found TensorRT core library for developer diagnostics only: ${TENSORRT_NVINFER_LIBRARY}")
+    endif()
     if(TENSORRT_NVINFER_PLUGIN_LIBRARY)
-        message(STATUS "Found TensorRT plugin library: ${TENSORRT_NVINFER_PLUGIN_LIBRARY}")
-    else()
-        message(STATUS "TensorRT plugin library not found; Flux will link only TensorRT core for CorridorKey.")
+        message(STATUS "Found TensorRT plugin library for developer diagnostics only: ${TENSORRT_NVINFER_PLUGIN_LIBRARY}")
     endif()
 
     mark_as_advanced(FLUX_CUDA_INCLUDE_DIR FLUX_CUDA_CUDART_LIBRARY TENSORRT_INCLUDE_DIR TENSORRT_NVINFER_LIBRARY TENSORRT_NVINFER_PLUGIN_LIBRARY)
@@ -238,10 +221,7 @@ target_link_libraries(NatronEngine
 
 if(FLUX_ENABLE_CORRIDORKEY_TENSORRT)
     target_include_directories(NatronEngine SYSTEM PRIVATE ${FLUX_CUDA_INCLUDE_DIRS} ${TENSORRT_INCLUDE_DIR})
-    target_link_libraries(NatronEngine PRIVATE ${FLUX_CUDA_CUDART_LINK} ${TENSORRT_NVINFER_LIBRARY})
-    if(TENSORRT_NVINFER_PLUGIN_LIBRARY)
-        target_link_libraries(NatronEngine PRIVATE ${TENSORRT_NVINFER_PLUGIN_LIBRARY})
-    endif()
+    target_link_libraries(NatronEngine PRIVATE dl)
     target_compile_definitions(NatronEngine PRIVATE FLUX_ENABLE_CORRIDORKEY_TENSORRT=1)
 endif()
 

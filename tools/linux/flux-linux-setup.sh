@@ -1030,6 +1030,7 @@ package_runtime_artifact() {
   [[ -d "${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs" ]] || die "Installed PyPlug directory missing: ${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs"
   [[ -d "${FLUX_INSTALL_PREFIX}/tools/ai" ]] || die "Installed Flux AI tools missing: ${FLUX_INSTALL_PREFIX}/tools/ai"
   ensure_ocio_configs || return
+  validate_ldd || die 'Runtime artifact packaging refused because binary/plugin dependency validation failed.'
   command -v tar >/dev/null 2>&1 || die 'tar is required to package a runtime artifact.'
   if [[ -z "$output" ]]; then
     commit="$(git -C "$FLUX_ROOT" rev-parse --short HEAD 2>/dev/null || printf unknown)"
@@ -1441,23 +1442,53 @@ ofx_binary_path() {
   esac
 }
 
+ldd_with_flux_paths() {
+  local binary="$1"
+  LD_LIBRARY_PATH="${FLUX_INSTALL_PREFIX}/Plugins/OFX/SeExpr.ofx.bundle/Contents/Linux-x86-64/seexpr-deps/lib:${FLUX_INSTALL_PREFIX}/Plugins/OFX/Magick.ofx.bundle/Contents/Linux-x86-64/magick-deps/lib:${LD_LIBRARY_PATH:-}" ldd "$binary" 2>&1 || true
+}
+
+validate_binary_ldd() {
+  local binary="$1" output
+  if [[ ! -f "$binary" ]]; then
+    warn "Missing binary for ldd validation: ${binary}"
+    return 1
+  fi
+  output="$(ldd_with_flux_paths "$binary")"
+  if [[ "$output" == *'not found'* ]]; then
+    warn "Missing shared library for ${binary}:"
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+  log "ldd clean: ${binary}"
+  return 0
+}
+
+validate_no_tensorrt_hard_link() {
+  local binary="$1" output
+  [[ -f "$binary" ]] || return 1
+  output="$(ldd_with_flux_paths "$binary")"
+  if [[ "$output" == *libnvinfer* || "$output" == *nvinfer_plugin* ]]; then
+    warn "Base Flux runtime binary must not hard-link TensorRT: ${binary}"
+    printf '%s\n' "$output" >&2
+    return 1
+  fi
+}
+
+validate_app_runtime_ldd() {
+  local failed=0
+  validate_binary_ldd "$FLUX_APP_BIN" || failed=1
+  validate_binary_ldd "$FLUX_RENDERER_BIN" || failed=1
+  validate_no_tensorrt_hard_link "$FLUX_APP_BIN" || failed=1
+  validate_no_tensorrt_hard_link "$FLUX_RENDERER_BIN" || failed=1
+  return "$failed"
+}
+
 validate_ldd() {
-  local bundle binary output failed=0
+  local bundle binary failed=0
+  validate_app_runtime_ldd || failed=1
   for bundle in "${OFX_CORE_BUNDLES[@]}" "${OFX_EXTRA_BUNDLES[@]}"; do
     binary="$(ofx_binary_path "$bundle")"
-    if [[ ! -f "$binary" ]]; then
-      warn "Missing OFX binary: ${binary}"
-      failed=1
-      continue
-    fi
-    output="$(LD_LIBRARY_PATH="${USER_OFX_DIR}/SeExpr.ofx.bundle/Contents/Linux-x86-64/seexpr-deps/lib:${USER_OFX_DIR}/Magick.ofx.bundle/Contents/Linux-x86-64/magick-deps/lib:${LD_LIBRARY_PATH:-}" ldd "$binary" 2>&1 || true)"
-    if [[ "$output" == *'not found'* ]]; then
-      warn "Missing shared library for ${binary}:"
-      printf '%s\n' "$output" >&2
-      failed=1
-    else
-      log "ldd clean: ${binary}"
-    fi
+    validate_binary_ldd "$binary" || failed=1
   done
   return "$failed"
 }

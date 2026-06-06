@@ -24,6 +24,7 @@
 
 #ifdef FLUX_ENABLE_CORRIDORKEY_TENSORRT
 #include <cuda_runtime_api.h>
+#include <dlfcn.h>
 #include <NvInferRuntime.h>
 #endif
 
@@ -515,6 +516,183 @@ writeCorridorKeyOutput(const std::vector<float>& alpha,
 
 #ifdef FLUX_ENABLE_CORRIDORKEY_TENSORRT
 
+
+class CorridorKeyTensorRtDso
+{
+public:
+    typedef void* (*CreateInferRuntimeInternalFn)(void*, int32_t);
+
+    CorridorKeyTensorRtDso()
+        : _core(nullptr)
+        , _plugin(nullptr)
+        , _createInferRuntimeInternal(nullptr)
+    {
+    }
+
+    ~CorridorKeyTensorRtDso()
+    {
+        if (_plugin) {
+            dlclose(_plugin);
+        }
+        if (_core) {
+            dlclose(_core);
+        }
+    }
+
+    bool ensureLoaded(std::string* error)
+    {
+        if (_createInferRuntimeInternal) {
+            return true;
+        }
+        _plugin = dlopen("libnvinfer_plugin.so.10", RTLD_LAZY | RTLD_LOCAL);
+        _core = dlopen("libnvinfer.so.10", RTLD_NOW | RTLD_LOCAL);
+        if (!_core) {
+            if (error) {
+                const char* dlErr = dlerror();
+                *error = "TensorRT runtime library libnvinfer.so.10 is unavailable. Install/stage the CorridorKey TensorRT toolkit before using this node";
+                if (dlErr && *dlErr) {
+                    *error += ": ";
+                    *error += dlErr;
+                }
+            }
+            return false;
+        }
+        dlerror();
+        _createInferRuntimeInternal = reinterpret_cast<CreateInferRuntimeInternalFn>(dlsym(_core, "createInferRuntime_INTERNAL"));
+        const char* symErr = dlerror();
+        if (!_createInferRuntimeInternal || symErr) {
+            if (error) {
+                *error = "TensorRT symbol createInferRuntime_INTERNAL is unavailable in libnvinfer.so.10";
+                if (symErr && *symErr) {
+                    *error += ": ";
+                    *error += symErr;
+                }
+            }
+            return false;
+        }
+        return true;
+    }
+
+    nvinfer1::IRuntime* createInferRuntime(nvinfer1::ILogger& logger)
+    {
+        if (!_createInferRuntimeInternal) {
+            return nullptr;
+        }
+        return static_cast<nvinfer1::IRuntime*>(_createInferRuntimeInternal(&logger, NV_TENSORRT_VERSION));
+    }
+
+private:
+    void* _core;
+    void* _plugin;
+    CreateInferRuntimeInternalFn _createInferRuntimeInternal;
+};
+
+static CorridorKeyTensorRtDso&
+corridorKeyTensorRtDso()
+{
+    static CorridorKeyTensorRtDso dso;
+    return dso;
+}
+
+class CorridorKeyCudaDso
+{
+public:
+    typedef const char* (*GetErrorStringFn)(cudaError_t);
+    typedef cudaError_t (*MemGetInfoFn)(std::size_t*, std::size_t*);
+    typedef cudaError_t (*FreeFn)(void*);
+    typedef cudaError_t (*StreamDestroyFn)(cudaStream_t);
+    typedef cudaError_t (*SetDeviceFn)(int);
+    typedef cudaError_t (*StreamCreateFn)(cudaStream_t*);
+    typedef cudaError_t (*MallocFn)(void**, std::size_t);
+    typedef cudaError_t (*MemcpyAsyncFn)(void*, const void*, std::size_t, cudaMemcpyKind, cudaStream_t);
+    typedef cudaError_t (*StreamSynchronizeFn)(cudaStream_t);
+
+    CorridorKeyCudaDso()
+        : _handle(nullptr), getErrorStringFn(nullptr), memGetInfoFn(nullptr), freeFn(nullptr),
+          streamDestroyFn(nullptr), setDeviceFn(nullptr), streamCreateFn(nullptr), mallocFn(nullptr),
+          memcpyAsyncFn(nullptr), streamSynchronizeFn(nullptr)
+    {
+    }
+
+    ~CorridorKeyCudaDso()
+    {
+        if (_handle) {
+            dlclose(_handle);
+        }
+    }
+
+    bool ensureLoaded(std::string* error)
+    {
+        if (_handle) {
+            return true;
+        }
+        const char* candidates[] = {"libcudart.so.13", "libcudart.so.12", "libcudart.so"};
+        for (const char* candidate : candidates) {
+            _handle = dlopen(candidate, RTLD_NOW | RTLD_LOCAL);
+            if (_handle) {
+                break;
+            }
+        }
+        if (!_handle) {
+            if (error) {
+                const char* dlErr = dlerror();
+                *error = "CUDA runtime library libcudart is unavailable. Install/stage CUDA runtime before using CorridorKey";
+                if (dlErr && *dlErr) {
+                    *error += ": ";
+                    *error += dlErr;
+                }
+            }
+            return false;
+        }
+        getErrorStringFn = reinterpret_cast<GetErrorStringFn>(dlsym(_handle, "cudaGetErrorString"));
+        memGetInfoFn = reinterpret_cast<MemGetInfoFn>(dlsym(_handle, "cudaMemGetInfo"));
+        freeFn = reinterpret_cast<FreeFn>(dlsym(_handle, "cudaFree"));
+        streamDestroyFn = reinterpret_cast<StreamDestroyFn>(dlsym(_handle, "cudaStreamDestroy"));
+        setDeviceFn = reinterpret_cast<SetDeviceFn>(dlsym(_handle, "cudaSetDevice"));
+        streamCreateFn = reinterpret_cast<StreamCreateFn>(dlsym(_handle, "cudaStreamCreate"));
+        mallocFn = reinterpret_cast<MallocFn>(dlsym(_handle, "cudaMalloc"));
+        memcpyAsyncFn = reinterpret_cast<MemcpyAsyncFn>(dlsym(_handle, "cudaMemcpyAsync"));
+        streamSynchronizeFn = reinterpret_cast<StreamSynchronizeFn>(dlsym(_handle, "cudaStreamSynchronize"));
+        if (!getErrorStringFn || !memGetInfoFn || !freeFn || !streamDestroyFn || !setDeviceFn ||
+            !streamCreateFn || !mallocFn || !memcpyAsyncFn || !streamSynchronizeFn) {
+            if (error) {
+                *error = "CUDA runtime library is missing one or more required CorridorKey symbols.";
+            }
+            return false;
+        }
+        return true;
+    }
+
+    const char* errorString(cudaError_t err) const { return getErrorStringFn ? getErrorStringFn(err) : "CUDA runtime unavailable"; }
+    cudaError_t memGetInfo(std::size_t* freeBytes, std::size_t* totalBytes) const { return memGetInfoFn(freeBytes, totalBytes); }
+    cudaError_t freeDevice(void* ptr) const { return freeFn ? freeFn(ptr) : cudaSuccess; }
+    cudaError_t streamDestroy(cudaStream_t stream) const { return streamDestroyFn ? streamDestroyFn(stream) : cudaSuccess; }
+    cudaError_t setDevice(int gpu) const { return setDeviceFn(gpu); }
+    cudaError_t streamCreate(cudaStream_t* stream) const { return streamCreateFn(stream); }
+    cudaError_t mallocDevice(void** ptr, std::size_t bytes) const { return mallocFn(ptr, bytes); }
+    cudaError_t memcpyAsync(void* dst, const void* src, std::size_t bytes, cudaMemcpyKind kind, cudaStream_t stream) const { return memcpyAsyncFn(dst, src, bytes, kind, stream); }
+    cudaError_t streamSynchronize(cudaStream_t stream) const { return streamSynchronizeFn(stream); }
+
+private:
+    void* _handle;
+    GetErrorStringFn getErrorStringFn;
+    MemGetInfoFn memGetInfoFn;
+    FreeFn freeFn;
+    StreamDestroyFn streamDestroyFn;
+    SetDeviceFn setDeviceFn;
+    StreamCreateFn streamCreateFn;
+    MallocFn mallocFn;
+    MemcpyAsyncFn memcpyAsyncFn;
+    StreamSynchronizeFn streamSynchronizeFn;
+};
+
+static CorridorKeyCudaDso&
+corridorKeyCudaDso()
+{
+    static CorridorKeyCudaDso dso;
+    return dso;
+}
+
 class CorridorKeyTensorRtLogger
     : public nvinfer1::ILogger
 {
@@ -579,7 +757,7 @@ shapeHasDynamicDim(const nvinfer1::Dims& dims)
 static std::string
 cudaErrorString(cudaError_t err)
 {
-    return std::string(cudaGetErrorString(err));
+    return std::string(corridorKeyCudaDso().errorString(err));
 }
 
 static bool
@@ -601,7 +779,7 @@ cudaMemorySummary()
 {
     std::size_t freeBytes = 0;
     std::size_t totalBytes = 0;
-    const cudaError_t err = cudaMemGetInfo(&freeBytes, &totalBytes);
+    const cudaError_t err = corridorKeyCudaDso().memGetInfo(&freeBytes, &totalBytes);
     if (err != cudaSuccess) {
         return std::string("cudaMemGetInfo failed: ") + cudaErrorString(err);
     }
@@ -636,19 +814,19 @@ struct CorridorKeyTensorRtCache
     void reset()
     {
         if (inputDevice) {
-            cudaFree(inputDevice);
+            corridorKeyCudaDso().freeDevice(inputDevice);
             inputDevice = nullptr;
         }
         if (alphaDevice) {
-            cudaFree(alphaDevice);
+            corridorKeyCudaDso().freeDevice(alphaDevice);
             alphaDevice = nullptr;
         }
         if (fgDevice) {
-            cudaFree(fgDevice);
+            corridorKeyCudaDso().freeDevice(fgDevice);
             fgDevice = nullptr;
         }
         if (stream) {
-            cudaStreamDestroy(stream);
+            corridorKeyCudaDso().streamDestroy(stream);
             stream = nullptr;
         }
         context.reset();
@@ -698,7 +876,7 @@ struct CorridorKeyTensorRtCache
         requestedH = requestedModelH;
         enginePath = requestedEnginePath;
 
-        if (!ensureCudaOk(cudaSetDevice(gpu), "cudaSetDevice", error)) {
+        if (!corridorKeyCudaDso().ensureLoaded(error) || !ensureCudaOk(corridorKeyCudaDso().setDevice(gpu), "cudaSetDevice", error)) {
             reset();
             return false;
         }
@@ -729,7 +907,11 @@ struct CorridorKeyTensorRtCache
             return false;
         }
 
-        runtime.reset(nvinfer1::createInferRuntime(logger));
+        if (!corridorKeyTensorRtDso().ensureLoaded(error)) {
+            reset();
+            return false;
+        }
+        runtime.reset(corridorKeyTensorRtDso().createInferRuntime(logger));
         if (!runtime) {
             if (error) {
                 *error = "TensorRT createInferRuntime failed.";
@@ -811,10 +993,10 @@ struct CorridorKeyTensorRtCache
         alphaBytes = alphaFloats * sizeof(float);
         fgBytes = fgFloats * sizeof(float);
 
-        if (!ensureCudaOk(cudaStreamCreate(&stream), "cudaStreamCreate", error) ||
-            !ensureCudaOk(cudaMalloc(&inputDevice, inputBytes), "cudaMalloc(input)", error) ||
-            !ensureCudaOk(cudaMalloc(&alphaDevice, alphaBytes), "cudaMalloc(alpha)", error) ||
-            !ensureCudaOk(cudaMalloc(&fgDevice, fgBytes), "cudaMalloc(fg)", error)) {
+        if (!ensureCudaOk(corridorKeyCudaDso().streamCreate(&stream), "cudaStreamCreate", error) ||
+            !ensureCudaOk(corridorKeyCudaDso().mallocDevice(&inputDevice, inputBytes), "cudaMalloc(input)", error) ||
+            !ensureCudaOk(corridorKeyCudaDso().mallocDevice(&alphaDevice, alphaBytes), "cudaMalloc(alpha)", error) ||
+            !ensureCudaOk(corridorKeyCudaDso().mallocDevice(&fgDevice, fgBytes), "cudaMalloc(fg)", error)) {
             reset();
             return false;
         }
@@ -832,7 +1014,7 @@ struct CorridorKeyTensorRtCache
             }
             return false;
         }
-        if (!ensureCudaOk(cudaSetDevice(gpu), "cudaSetDevice", error)) {
+        if (!corridorKeyCudaDso().ensureLoaded(error) || !ensureCudaOk(corridorKeyCudaDso().setDevice(gpu), "cudaSetDevice", error)) {
             return false;
         }
 
@@ -847,7 +1029,7 @@ struct CorridorKeyTensorRtCache
             return false;
         }
 
-        if (!ensureCudaOk(cudaMemcpyAsync(inputDevice, hostInput.data(), inputBytes, cudaMemcpyHostToDevice, stream), "cudaMemcpyAsync(input)", error)) {
+        if (!ensureCudaOk(corridorKeyCudaDso().memcpyAsync(inputDevice, hostInput.data(), inputBytes, cudaMemcpyHostToDevice, stream), "cudaMemcpyAsync(input)", error)) {
             return false;
         }
         if (!context->enqueueV3(stream)) {
@@ -856,9 +1038,9 @@ struct CorridorKeyTensorRtCache
             }
             return false;
         }
-        if (!ensureCudaOk(cudaMemcpyAsync(hostAlpha.data(), alphaDevice, alphaBytes, cudaMemcpyDeviceToHost, stream), "cudaMemcpyAsync(alpha)", error) ||
-            !ensureCudaOk(cudaMemcpyAsync(hostFg.data(), fgDevice, fgBytes, cudaMemcpyDeviceToHost, stream), "cudaMemcpyAsync(fg)", error) ||
-            !ensureCudaOk(cudaStreamSynchronize(stream), "cudaStreamSynchronize", error)) {
+        if (!ensureCudaOk(corridorKeyCudaDso().memcpyAsync(hostAlpha.data(), alphaDevice, alphaBytes, cudaMemcpyDeviceToHost, stream), "cudaMemcpyAsync(alpha)", error) ||
+            !ensureCudaOk(corridorKeyCudaDso().memcpyAsync(hostFg.data(), fgDevice, fgBytes, cudaMemcpyDeviceToHost, stream), "cudaMemcpyAsync(fg)", error) ||
+            !ensureCudaOk(corridorKeyCudaDso().streamSynchronize(stream), "cudaStreamSynchronize", error)) {
             return false;
         }
         return true;
