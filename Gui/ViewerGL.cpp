@@ -1428,17 +1428,9 @@ ViewerGL::initShaderGLSL()
     assert( QOpenGLContext::currentContext() == context() );
 
     if (!_imp->shaderLoaded) {
-        const QOpenGLContext* glContext = context();
-        const QSurfaceFormat ctxFormat = glContext ? glContext->format() : QSurfaceFormat();
-        const bool useGlesShaders = glContext && glContext->isOpenGLES();
-        const bool useModernShaders = useGlesShaders ||
-            ctxFormat.profile() == QSurfaceFormat::CoreProfile ||
-            ctxFormat.majorVersion() >= 3;
-        const char* viewerVertexShader = useGlesShaders ? vertRGBGles : (useModernShaders ? vertRGBModern : vertRGB);
-        const char* viewerFragmentShader = useGlesShaders ? fragRGBGles : (useModernShaders ? fragRGBModern : fragRGB);
-        const char* blackFragmentShader = useGlesShaders ? blackFragGles : (useModernShaders ? blackFragModern : blackFrag);
-
-        _imp->shaderRGBUsesModernPipeline = useModernShaders;
+        const char* viewerVertexShader = vertRGB;
+        const char* viewerFragmentShader = fragRGB;
+        const char* blackFragmentShader = blackFrag;
         _imp->shaderBlack.reset( new QOpenGLShaderProgram( context() ) );
         if ( !_imp->shaderBlack->addShaderFromSourceCode(QOpenGLShader::Vertex, viewerVertexShader) ) {
             qDebug() << qPrintable( _imp->shaderBlack->log() );

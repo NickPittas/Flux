@@ -8,29 +8,37 @@ SCRIPT = Path(__file__).with_name("flux-linux-setup.sh")
 ENV = dict(os.environ, FLUX_SETUP_INTERNAL_DISPATCH="1")
 
 ACTIONS = [
-    ("full-bootstrap", "Full setup from runtime artifact", "Install runtime deps, extract a prebuilt Flux artifact, write launchers, and validate.", True),
-    ("install-artifact", "Install selected runtime artifact", "Extract a local/remote Flux runtime artifact and write launchers.", True),
-    ("runtime-deps", "Install runtime dependencies", "Install Fedora packages required to run a prebuilt Flux artifact.", True),
-    ("ai-install-menu", "Install or update AI models", "Choose models in this curses checklist, then run concrete model installs.", False),
-    ("ai-runtime-install-menu", "Install or update AI runtimes", "Choose provider runtimes in this curses checklist, then repair/create their isolated venvs.", False),
-    ("ai-token", "Hugging Face token", "Hidden token prompt; optional persistence only in accepted secure keyring.", True),
-    ("ai-status", "AI model status", "Show model/cache/config paths and installed/missing model state.", False),
-    ("ai-runtime-status-menu", "AI runtime status / self-check", "Choose provider runtimes and run status or self-check.", False),
-    ("ai-remove-menu", "Remove installed AI model", "Choose installed models in this curses picker, then remove by explicit model id.", False),
-    ("ai-host-prereqs-install", "Install AI host packages (Fedora)", "Install git, python3/pip, cargo, rust with privileged Fedora package install.", True),
-    ("ai-user-tools-install", "Install user tools (uv, bun)", "Install uv and bun into the user environment.", True),
-    ("corridorkey-builder-prereqs", "Install CorridorKey builder toolkit", "Install AI host packages, uv/bun, and local TensorRT toolkit staging.", True),
-    ("cuda-toolkit-install", "Install CUDA toolkit (Fedora)", "Enable NVIDIA CUDA repo and install the CUDA toolkit packages needed for CorridorKey engine builds.", True),
-    ("deploy-runtime", "Developer: repair runtime from build tree", "Repair installed app, Python runtime, plugins, launcher from local build outputs; no rebuild.", True),
-    ("installer-self-test", "Installer self-test", "Fresh-clone configure and stale-submodule repair verification without host install mutation.", False),
-    ("source-bootstrap", "Developer: build/install from source", "Install build deps, configure/build Flux, deploy runtime, and validate.", True),
-    ("build-all", "Developer: build Flux from source", "Compile Flux/Natron and Flux OFX targets from the configured build tree.", True),
-    ("configure", "Developer: configure build", "Run CMake configuration for current source/build settings.", True),
-    ("fedora-deps", "Developer: install build dependencies", "Install Fedora packages required to build Flux from source.", True),
-    ("rpmfusion", "Enable RPM Fusion", "Enable RPM Fusion free for FFmpeg-related Fedora packages.", True),
-    ("checks", "Validate installation", "Run dependency, build, PyPlug, OFX, cache, and install checks.", False),
-    ("launch", "Launch Flux", "Start the installed launcher or build-tree Flux binary.", True),
-    ("uninstall", "Uninstall Flux", "Remove files recorded in the Flux install manifest.", True),
+    # Artifact-based Installation and Validation
+    ("full-bootstrap", "[Artifact] Full setup from runtime artifact", "Install runtime deps, extract prebuilt Flux, write launchers, and validate.", True),
+    ("install-artifact", "[Artifact] Install selected runtime artifact", "Extract a local/remote prebuilt Flux runtime artifact and write launchers.", True),
+    ("runtime-deps", "[Artifact] Install runtime dependencies (Fedora)", "Install Fedora packages required to run a prebuilt Flux artifact.", True),
+    ("artifact-checks", "[Artifact] Validate artifact installation", "Run runtime dependency, PyPlug, OFX, and install validation checks.", False),
+
+    # AI Model and Runtime Management
+    ("ai-install-menu", "[AI Tools] Install or update AI models", "Choose models to install or update via curses checklist.", False),
+    ("ai-runtime-install-menu", "[AI Tools] Install or update AI runtimes", "Choose provider runtimes to repair or create isolated venvs.", False),
+    ("ai-token", "[AI Tools] Hugging Face token", "Set or update secure Hugging Face API token.", True),
+    ("ai-status", "[AI Tools] AI model status", "Show models, configuration paths, and cache status.", False),
+    ("ai-runtime-status-menu", "[AI Tools] AI runtime status / self-check", "Check status or run diagnostic self-checks on runtimes.", False),
+    ("ai-remove-menu", "[AI Tools] Remove installed AI model", "Remove installed models by explicit model ID.", False),
+
+    # Common Utilities
+    ("launch", "Launch Flux", "Start the installed launcher or binary.", True),
+    ("uninstall", "Uninstall Flux", "Remove files recorded in the install manifest.", True),
+
+    # Developer-only Build and Staging Actions
+    ("deploy-runtime", "[Developer] Repair runtime from build tree", "Repair installed app, plugins, launcher from local build outputs.", True),
+    ("source-bootstrap", "[Developer] Build/install from source", "Install build deps, configure, build Flux from source, and validate.", True),
+    ("build-all", "[Developer] Compile Flux from source", "Compile Flux/Natron and Flux OFX targets from build tree.", True),
+    ("configure", "[Developer] Configure CMake build", "Run CMake configuration for current source/build settings.", True),
+    ("fedora-deps", "[Developer] Install build dependencies (Fedora)", "Install Fedora packages required to compile Flux from source.", True),
+    ("rpmfusion", "[Developer] Enable RPM Fusion", "Enable RPM Fusion free repo for FFmpeg-related packages.", True),
+    ("checks", "[Developer] Validate build tree and installation", "Run full dependency, build, PyPlug, OFX, and cache checks.", False),
+    ("ai-host-prereqs-install", "[Developer] Install AI build packages (Fedora)", "Install git, pip, cargo, and rust for building models.", True),
+    ("ai-user-tools-install", "[Developer] Install user tools (uv, bun)", "Install uv and bun into user environment.", True),
+    ("corridorkey-builder-prereqs", "[Developer] Install CorridorKey builder toolkit", "Install build packages, uv/bun, and TensorRT staging.", True),
+    ("cuda-toolkit-install", "[Developer] Install CUDA toolkit (Fedora)", "Install CUDA toolkit required to compile CorridorKey engine.", True),
+    ("installer-self-test", "[Developer] Installer self-test", "Fresh-clone configure and submodule repair verification.", False),
 ]
 
 def call(action, *args, capture=False):
@@ -53,7 +61,7 @@ def model_rows(installed_only=False):
     args = ["--include-unimplemented"] if installed_only else []
     p = call("ai-list", *args, capture=True)
     if p.returncode != 0:
-        return [], p.stderr or p.stdout or "AI model list unavailable. Deploy runtime/AI tools first."
+        return [], p.stderr or p.stdout or "AI model list unavailable. Install runtime artifact or dependencies first."
     try:
         data = json.loads(p.stdout)
     except json.JSONDecodeError as e:

@@ -116,6 +116,7 @@ FEDORA_RUNTIME_PACKAGES=(
   qt6-qtbase-gui
   mesa-libGL
   glx-utils
+  xorg-x11-server-Xwayland
   OpenColorIO
   OpenImageIO
   LibRaw
@@ -1001,6 +1002,253 @@ artifact_payload_root() {
   die 'Runtime artifact did not contain artifact-manifest.json and executable bin/flux at its root.'
 }
 
+verify_artifact_manifest_integrity() {
+  local target_dir="$1"
+  python3 -c '
+import os
+import sys
+import json
+import hashlib
+
+target_dir = sys.argv[1]
+manifest_path = os.path.join(target_dir, "artifact-manifest.json")
+if not os.path.exists(manifest_path):
+    print("ERROR: artifact-manifest.json not found in target directory.", file=sys.stderr)
+    sys.exit(1)
+
+with open(manifest_path, "r") as fp:
+    try:
+        manifest = json.load(fp)
+    except Exception as e:
+        print(f"ERROR: Failed to parse artifact-manifest.json: {e}", file=sys.stderr)
+        sys.exit(1)
+
+if manifest.get("schema") != "org.flux.runtime-artifact.v1":
+    print("ERROR: Unsupported manifest schema in artifact-manifest.json", file=sys.stderr)
+    sys.exit(1)
+
+file_hashes = manifest.get("file_hashes", {})
+if not file_hashes:
+    print("ERROR: No file hashes found in artifact-manifest.json", file=sys.stderr)
+    sys.exit(1)
+
+failed = False
+
+# Validate declared required runtime paths and binaries
+required_paths = list(manifest.get("binaries", []))
+for b in ["bin/flux", "bin/FluxRenderer"]:
+    if b not in required_paths:
+        required_paths.append(b)
+
+required_paths.extend([
+    "Plugins/PyPlugs/FluxLayer.py",
+    "Plugins/PyPlugs/FluxSolid.py",
+    "Plugins/PyPlugs/FluxText.py",
+    "Plugins/PyPlugs/FluxMotionText.py",
+    "Plugins/OFX/IO.ofx.bundle/Contents/Linux-x86-64/IO.ofx",
+    "Plugins/OFX/Misc.ofx.bundle/Contents/Linux-x86-64/Misc.ofx",
+    "Plugins/OFX/FluxTextRender.ofx.bundle/Contents/Linux-x86-64/FluxTextRender.ofx",
+    "Plugins/OFX/CImg.ofx.bundle/Contents/Linux-x86-64/CImg.ofx",
+    "Plugins/OFX/SeExpr.ofx.bundle/Contents/Linux-x86-64/SeExpr.ofx",
+    "Plugins/OFX/Text.ofx.bundle/Contents/Linux-x86-64/Text.ofx",
+    "Plugins/OFX/Magick.ofx.bundle/Contents/Linux-x86-64/Magick.ofx",
+    "Plugins/OFX/ResolveMath.ofx.bundle/Contents/Linux-x86-64/ResolveMath.ofx",
+    "share/OpenColorIO-Configs/blender/config.ocio",
+    "share/OpenColorIO-Configs/natron/config.ocio",
+    "share/OpenColorIO-Configs/nuke-default/config.ocio",
+])
+
+required_roots = ["bin", "Plugins", "Resources", "share", "tools"]
+for root in required_roots:
+    abs_root = os.path.join(target_dir, root)
+    if not os.path.isdir(abs_root):
+        print(f"ERROR: Required root directory missing: {root}", file=sys.stderr)
+        failed = True
+
+for rel_path in required_paths:
+    if rel_path not in file_hashes:
+        print(f"ERROR: Required path {rel_path} has no hash declared in manifest", file=sys.stderr)
+        failed = True
+        continue
+    abs_path = os.path.join(target_dir, rel_path)
+    if not os.path.exists(abs_path):
+        print(f"ERROR: Required file missing: {rel_path}", file=sys.stderr)
+        failed = True
+
+for rel_path, expected_hash in file_hashes.items():
+    abs_path = os.path.join(target_dir, rel_path)
+    if not os.path.exists(abs_path):
+        print(f"ERROR: Key file missing: {rel_path}", file=sys.stderr)
+        failed = True
+        continue
+
+    h = hashlib.sha256()
+    try:
+        with open(abs_path, "rb") as fp:
+            for chunk in iter(lambda: fp.read(65536), b""):
+                h.update(chunk)
+    except Exception as e:
+        print(f"ERROR: Failed to read key file {rel_path}: {e}", file=sys.stderr)
+        failed = True
+        continue
+
+    actual_hash = h.hexdigest()
+    if actual_hash != expected_hash:
+        print(f"ERROR: Integrity check failed for {rel_path}: expected {expected_hash}, got {actual_hash}", file=sys.stderr)
+        failed = True
+
+if failed:
+    sys.exit(1)
+else:
+    print("Integrity verification passed.")
+    sys.exit(0)
+' "$target_dir"
+}
+
+verify_artifact_compatibility() {
+  local target_dir="$1"
+  python3 -c '
+import os
+import sys
+import json
+import subprocess
+
+target_dir = sys.argv[1]
+flux_root = sys.argv[2] if len(sys.argv) > 2 else ""
+
+manifest_path = os.path.join(target_dir, "artifact-manifest.json")
+if not os.path.exists(manifest_path):
+    sys.exit(0)
+
+with open(manifest_path, "r") as fp:
+    try:
+        manifest = json.load(fp)
+    except Exception:
+        sys.exit(0)
+
+dirty = manifest.get("dirty", False)
+artifact_commit = manifest.get("commit", "")
+
+if dirty:
+    print("WARNING: Artifact was built from a DIRTY git tree. Behavior may be non-reproducible.", file=sys.stderr)
+
+installer_commit = ""
+if flux_root:
+    try:
+        installer_commit = subprocess.check_output(
+            ["git", "-C", flux_root, "rev-parse", "HEAD"],
+            stderr=subprocess.DEVNULL
+        ).decode().strip()
+    except Exception:
+        pass
+
+if not dirty and artifact_commit and artifact_commit != "unknown":
+    if installer_commit and installer_commit != artifact_commit:
+        print(f"WARNING: Artifact commit ({artifact_commit}) differs from installer repo commit ({installer_commit}).", file=sys.stderr)
+        print("WARNING: This mismatch might cause incompatibility issues.", file=sys.stderr)
+' "$target_dir" "$FLUX_ROOT"
+}
+
+verify_installed_artifact_payload() {
+  local status=0
+
+  if [[ ! -x "$FLUX_APP_BIN" ]]; then
+    warn "Flux app binary missing or not executable: ${FLUX_APP_BIN}"
+    status=1
+  fi
+
+  if [[ ! -x "$FLUX_RENDERER_BIN" ]]; then
+    warn "Flux renderer binary missing or not executable: ${FLUX_RENDERER_BIN}"
+    status=1
+  fi
+
+  if [[ ! -d "${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs" ]]; then
+    warn "PyPlugs directory missing: ${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs"
+    status=1
+  else
+    for pyplug in "${REQUIRED_PYPLUG_FILES[@]}"; do
+      if [[ ! -f "${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs/${pyplug}" ]]; then
+        warn "Missing installed PyPlug: ${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs/${pyplug}"
+        status=1
+      fi
+    done
+    local manifest_path="${FLUX_INSTALL_PREFIX}/artifact-manifest.json"
+    if [[ -f "$manifest_path" ]]; then
+      if grep -q '"Plugins/PyPlugs/natron-plugins/README.md"' "$manifest_path"; then
+        if [[ ! -f "${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs/natron-plugins/README.md" ]]; then
+          warn "Missing installed community PyPlug README: ${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs/natron-plugins/README.md"
+          status=1
+        fi
+      fi
+    fi
+  fi
+
+  for bundle in "${OFX_CORE_BUNDLES[@]}" "${OFX_EXTRA_BUNDLES[@]}"; do
+    local binary="${FLUX_INSTALL_PREFIX}/Plugins/OFX/${bundle}/Contents/Linux-x86-64"
+    case "$bundle" in
+      CImg.ofx.bundle) binary+="/CImg.ofx" ;;
+      SeExpr.ofx.bundle) binary+="/SeExpr.ofx" ;;
+      Text.ofx.bundle) binary+="/Text.ofx" ;;
+      Magick.ofx.bundle) binary+="/Magick.ofx" ;;
+      ResolveMath.ofx.bundle) binary+="/ResolveMath.ofx" ;;
+      IO.ofx.bundle) binary+="/IO.ofx" ;;
+      Misc.ofx.bundle) binary+="/Misc.ofx" ;;
+      FluxTextRender.ofx.bundle) binary+="/FluxTextRender.ofx" ;;
+      *) binary+="/${bundle%.ofx.bundle}.ofx" ;;
+    esac
+    if [[ ! -f "$binary" ]]; then
+      warn "Missing installed OFX binary: ${binary}"
+      status=1
+    fi
+  done
+
+  if [[ ! -d "${FLUX_INSTALL_PREFIX}/Resources" || ! -d "${FLUX_INSTALL_PREFIX}/Resources/etc/fonts" ]]; then
+    warn "Missing installed GUI resources under ${FLUX_INSTALL_PREFIX}/Resources"
+    status=1
+  fi
+
+  local configs_dir="${FLUX_INSTALL_PREFIX}/share/OpenColorIO-Configs"
+  for config in blender natron nuke-default; do
+    if [[ ! -f "${configs_dir}/${config}/config.ocio" ]]; then
+      warn "Missing installed OpenColorIO config: ${configs_dir}/${config}/config.ocio"
+      status=1
+    fi
+  done
+
+  if [[ ! -f "$LAUNCHER_PATH" ]]; then
+    warn "Launcher not found: ${LAUNCHER_PATH}"
+    status=1
+  else
+    if ! grep -q "FLUX_INSTALL_PREFIX=\"${FLUX_INSTALL_PREFIX}\"" "$LAUNCHER_PATH"; then
+      warn "Launcher ${LAUNCHER_PATH} does not define correct FLUX_INSTALL_PREFIX=${FLUX_INSTALL_PREFIX}"
+      status=1
+    fi
+    if ! grep -q "exec \"\${FLUX_INSTALL_PREFIX}/bin/flux\"" "$LAUNCHER_PATH"; then
+      warn "Launcher ${LAUNCHER_PATH} does not execute expected installed app bin/flux"
+      status=1
+    fi
+    if ! grep -q "export QT_QPA_PLATFORM=\"xcb\"" "$LAUNCHER_PATH"; then
+      warn "Launcher ${LAUNCHER_PATH} does not contain QT_QPA_PLATFORM=\"xcb\""
+      status=1
+    fi
+  fi
+
+  local resolved_flux
+  resolved_flux="$(command -v flux || true)"
+  if [[ -n "$resolved_flux" ]]; then
+    local launcher_canonical resolved_canonical
+    launcher_canonical="$(readlink -f "$LAUNCHER_PATH" 2>/dev/null || echo "$LAUNCHER_PATH")"
+    resolved_canonical="$(readlink -f "$resolved_flux" 2>/dev/null || echo "$resolved_flux")"
+    if [[ "$resolved_canonical" != "$launcher_canonical" ]]; then
+      warn "command -v flux resolves to ${resolved_flux} (${resolved_canonical}) instead of installed launcher ${LAUNCHER_PATH} (${launcher_canonical}). Ensure your PATH is configured correctly."
+    fi
+  else
+    warn "flux is not found in your PATH. Ensure $(dirname "$LAUNCHER_PATH") is in your PATH."
+  fi
+
+  return "$status"
+}
+
 install_runtime_artifact() {
   local source_arg archive tmp payload
   source_arg="$(artifact_source_required "${1:-}")"
@@ -1009,6 +1257,16 @@ install_runtime_artifact() {
   tmp="$(mktemp -d /tmp/flux-runtime-artifact.XXXXXX)"
   extract_runtime_artifact "$archive" "$tmp"
   payload="$(artifact_payload_root "$tmp")"
+
+  # Compatibility checks (warnings only, do not fail)
+  verify_artifact_compatibility "$payload"
+
+  # Integrity checks (fail on mismatch or missing key files)
+  if ! verify_artifact_manifest_integrity "$payload"; then
+    rm -rf "$tmp"
+    die "Artifact verification failed after extraction. Aborting installation."
+  fi
+
   FORCE=1
   manifest_reset || return
   copy_dir_contents_filtered "$payload" "$FLUX_INSTALL_PREFIX"
@@ -1046,16 +1304,69 @@ package_runtime_artifact() {
   cp -aL "${FLUX_ROOT}/Gui/Resources" "${stage}/Resources"
   [[ -d "${FLUX_INSTALL_PREFIX}/onnxruntime-sdk" ]] && cp -aL "${FLUX_INSTALL_PREFIX}/onnxruntime-sdk" "${stage}/onnxruntime-sdk"
   cp -aL "${FLUX_ROOT}/OpenColorIO-Configs" "${stage}/share/OpenColorIO-Configs"
-  manifest="${stage}/artifact-manifest.json"
-  cat > "$manifest" <<EOF
-{
-  "schema": "org.flux.runtime-artifact.v1",
-  "commit": "$(git -C "$FLUX_ROOT" rev-parse HEAD 2>/dev/null || printf unknown)",
-  "platform": "linux-x86_64",
-  "qt": "6",
-  "binaries": ["bin/flux", "bin/FluxRenderer"]
+  local is_dirty=false
+  commit="$(git -C "$FLUX_ROOT" rev-parse HEAD 2>/dev/null || printf '')"
+  if [[ -z "$commit" ]]; then
+    is_dirty=true
+    commit="unknown"
+  elif [[ -n "$(git -C "$FLUX_ROOT" status --porcelain 2>/dev/null)" ]]; then
+    is_dirty=true
+  fi
+
+  python3 -c '
+import os
+import sys
+import json
+import time
+import hashlib
+
+stage_dir = sys.argv[1]
+commit = sys.argv[2]
+is_dirty = sys.argv[3].lower() == "true"
+
+manifest = {
+    "schema": "org.flux.runtime-artifact.v1",
+    "platform": "linux-x86_64",
+    "qt": "6",
+    "timestamp": int(time.time()),
+    "dirty": is_dirty,
+    "binaries": ["bin/flux", "bin/FluxRenderer"],
+    "file_hashes": {}
 }
-EOF
+if not is_dirty and commit and commit != "unknown":
+    manifest["commit"] = commit
+
+key_files = []
+for root, dirs, files in os.walk(stage_dir):
+    for f in files:
+        rel_path = os.path.relpath(os.path.join(root, f), stage_dir)
+        is_key = False
+        if rel_path.startswith("bin/"):
+            is_key = True
+        elif rel_path.startswith("Plugins/PyPlugs/") and rel_path.endswith(".py"):
+            is_key = True
+        elif rel_path == "Plugins/PyPlugs/natron-plugins/README.md":
+            is_key = True
+        elif rel_path.startswith("Plugins/OFX/") and rel_path.endswith(".ofx"):
+            is_key = True
+        elif rel_path.endswith(".ocio"):
+            is_key = True
+
+        if is_key:
+            key_files.append(rel_path)
+
+for rel_path in sorted(key_files):
+    abs_path = os.path.join(stage_dir, rel_path)
+    if os.path.isfile(abs_path) and not os.path.islink(abs_path):
+        h = hashlib.sha256()
+        with open(abs_path, "rb") as fp:
+            for chunk in iter(lambda: fp.read(65536), b""):
+                h.update(chunk)
+        manifest["file_hashes"][rel_path] = h.hexdigest()
+
+with open(os.path.join(stage_dir, "artifact-manifest.json"), "w") as fp:
+    json.dump(manifest, fp, indent=2)
+' "$stage" "$commit" "$is_dirty"
   [[ -f "${stage}/share/OpenColorIO-Configs/blender/config.ocio" ]] || die 'Artifact staging failed: blender OCIO config missing.'
   [[ -f "${stage}/share/OpenColorIO-Configs/natron/config.ocio" ]] || die 'Artifact staging failed: natron OCIO config missing.'
   [[ -f "${stage}/share/OpenColorIO-Configs/nuke-default/config.ocio" ]] || die 'Artifact staging failed: nuke-default OCIO config missing.'
@@ -1361,7 +1672,7 @@ if [[ -z "\${QT_PLUGIN_PATH:-}" ]]; then
   done
 fi
 export QT_PLUGIN_PATH="\${QT_PLUGIN_PATH:-/usr/lib64/qt6/plugins}"
-export QT_QPA_PLATFORM="\${QT_QPA_PLATFORM:-xcb}"
+export QT_QPA_PLATFORM="xcb"
 export NATRON_PLUGIN_PATH="\${NATRON_PLUGIN_PATH:-\${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs:\${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs/natron-plugins}"
 export OFX_PLUGIN_PATH="\${OFX_PLUGIN_PATH:-\${FLUX_INSTALL_PREFIX}/Plugins/OFX}"
 export FLUX_OFX_STRICT_PATH="\${FLUX_OFX_STRICT_PATH:-1}"
@@ -1539,7 +1850,7 @@ PY
     NATRON_DISK_CACHE_PATH="${temp_dir}/disk-cache" \
     OFX_PLUGIN_PATH="${temp_dir}/plugins" \
     QT_PLUGIN_PATH="${QT_PLUGIN_PATH:-/usr/lib64/qt6/plugins}" \
-    QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-xcb}" \
+    QT_QPA_PLATFORM="xcb" \
     "$renderer" -b "$script" 2>&1)" || status=$?
 
   if [[ "$output" != *'FLUX_OFX_DISCOVERY_CREATE_OK: net.flux.openfx.TextRender'* ]]; then
@@ -1684,10 +1995,15 @@ run_artifact_checks() {
   else
     warn 'Non-Fedora Linux detected; package check is not implemented yet.'
   fi
-  check_build_output || status=1
-  check_pyplugs || status=1
-  check_ofx_bundles || status=1
-  check_ocio_configs || status=1
+  # Perform compatibility checks (warnings only)
+  verify_artifact_compatibility "$FLUX_INSTALL_PREFIX"
+
+  # Verify manifest integrity of the installed files
+  verify_artifact_manifest_integrity "$FLUX_INSTALL_PREFIX" || status=1
+
+  # Verify the installed artifact payload
+  verify_installed_artifact_payload || status=1
+
   check_cache_ids || warn 'OFX cache will be generated after first successful Flux/renderer launch.'
   if corridorkey_assets_required; then
     check_corridorkey_assets || status=1

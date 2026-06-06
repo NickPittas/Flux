@@ -177,6 +177,7 @@ def env_for_backend() -> dict[str, str]:
     env = os.environ.copy()
     env["FLUX_SETUP_INTERNAL_DISPATCH"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
+    env["QT_QPA_PLATFORM"] = "xcb"
     return env
 
 
@@ -218,6 +219,8 @@ class FluxInstallerWindow(QMainWindow):
         self.repair_checks: dict[str, QCheckBox] = {}
         self.buttons: list[QPushButton] = []
         self.last_diagnostics: dict[str, Any] | None = None
+        self.last_install_success = True
+        self.launch_button = None
 
         self._build_ui()
         self._apply_theme()
@@ -469,6 +472,8 @@ class FluxInstallerWindow(QMainWindow):
         button = self._button(text, lambda _checked=False, a=action: self.run_action(a, select_logs=True))
         button.setObjectName("PrimaryButton" if action != "launch" else "LaunchButton")
         layout.addWidget(button)
+        if action == "launch":
+            self.launch_button = button
 
     def _button(self, text: str, callback) -> QPushButton:
         button = QPushButton(text)
@@ -521,13 +526,68 @@ class FluxInstallerWindow(QMainWindow):
             self.append_log("\n=== Refusing to start new action; another action is running ===\n")
             return
         if action == "launch":
+            if not getattr(self, "last_install_success", True):
+                QMessageBox.critical(
+                    self,
+                    "Launch Blocked",
+                    "Cannot launch Flux because the last bootstrap, install, or check action failed. "
+                    "Please ensure a successful install or check before attempting to launch."
+                )
+                self.append_log("ERROR: Launch blocked because the last bootstrap/install/check action failed.\n")
+                return
             self.launch_flux_detached()
             return
-        if action in {"full-bootstrap", "install-artifact"} and not args:
-            artifact = getattr(self, "artifact_edit", None)
-            artifact_text = artifact.text().strip() if artifact is not None else ""
-            if artifact_text:
-                args = (artifact_text,)
+
+        self.last_run_action_name = action
+        self.status.setStyleSheet(f"color: {COLORS['muted']};")
+
+        if action in {"full-bootstrap", "install-artifact"}:
+            if not args:
+                artifact = getattr(self, "artifact_edit", None)
+                artifact_text = artifact.text().strip() if artifact is not None else ""
+                if not artifact_text:
+                    env_val = os.environ.get("FLUX_RUNTIME_ARTIFACT", "").strip()
+                    if env_val:
+                        args = (env_val,)
+                        if not (env_val.startswith("http://") or env_val.startswith("https://")):
+                            path_obj = Path(env_val)
+                            if not path_obj.is_file():
+                                QMessageBox.critical(
+                                    self,
+                                    "Artifact Not Found",
+                                    f"The specified artifact file from FLUX_RUNTIME_ARTIFACT does not exist:\n\n{env_val}\n\nPlease choose a valid file."
+                                )
+                                return
+                    else:
+                        QMessageBox.critical(
+                            self,
+                            "Missing Artifact",
+                            "A runtime artifact path or URL is required for this action.\n\n"
+                            "Please enter a path/URL in the artifact field or set the FLUX_RUNTIME_ARTIFACT environment variable."
+                        )
+                        return
+                else:
+                    args = (artifact_text,)
+                    if not (artifact_text.startswith("http://") or artifact_text.startswith("https://")):
+                        path_obj = Path(artifact_text)
+                        if not path_obj.is_file():
+                            QMessageBox.critical(
+                                self,
+                                "Artifact Not Found",
+                                f"The specified artifact file does not exist:\n\n{artifact_text}\n\nPlease choose a valid file."
+                            )
+                            return
+            else:
+                artifact_path = args[0]
+                if not (artifact_path.startswith("http://") or artifact_path.startswith("https://")):
+                    path_obj = Path(artifact_path)
+                    if not path_obj.is_file():
+                        QMessageBox.critical(
+                            self,
+                            "Artifact Not Found",
+                            f"The specified artifact file does not exist:\n\n{artifact_path}\n\nPlease choose a valid file."
+                        )
+                        return
         token_payload = ""
         if action in {"ai-token", "ai-install"}:
             token = getattr(self, "token_edit", None)
@@ -581,12 +641,79 @@ class FluxInstallerWindow(QMainWindow):
             process.closeWriteChannel()
 
     def launch_flux_detached(self) -> None:
-        cmd = [str(SETUP_SCRIPT), "__flux_setup_action", "launch"]
+        if not getattr(self, "last_install_success", True):
+            QMessageBox.critical(
+                self,
+                "Launch Blocked",
+                "Cannot launch Flux because the last bootstrap, install, or check action failed. "
+                "Please ensure a successful install or check before attempting to launch."
+            )
+            self.append_log("ERROR: Launch blocked because the last bootstrap/install/check action failed.\n")
+            return
+
+        launcher_path = ""
+        build_app_path = ""
+        installed_available = False
+        if self.last_diagnostics is None:
+            self.refresh_diagnostics(show_log=False)
+        if self.last_diagnostics is None:
+            QMessageBox.critical(
+                self,
+                "Launch Blocked",
+                "Cannot determine whether an installed Flux runtime is present. Run checks, then launch again."
+            )
+            self.append_log("ERROR: Launch blocked because diagnostics are unavailable.\n")
+            self.status.setText("Launch blocked: diagnostics unavailable")
+            return
+
+        if self.last_diagnostics:
+            app_info = self.last_diagnostics.get("app", {})
+            launcher = app_info.get("launcher", {})
+            installed = app_info.get("installed_app", {})
+            build_binary = app_info.get("build_binary", {})
+            launcher_ok = bool(launcher.get("exists")) and bool(launcher.get("executable"))
+            installed_available = bool(installed.get("exists"))
+            if launcher_ok:
+                launcher_path = launcher.get("path") or ""
+            if (not installed_available) and bool(build_binary.get("exists")) and bool(build_binary.get("executable")):
+                build_app_path = build_binary.get("path") or ""
+
+        if installed_available and not launcher_path:
+            QMessageBox.critical(
+                self,
+                "Launch Blocked",
+                "Cannot launch the installed Flux runtime because its launcher is missing or not executable.\n\n"
+                "Run deploy-runtime or the launcher/plugin repair action, then refresh checks before launching."
+            )
+            self.append_log("ERROR: Launch blocked because the installed runtime launcher is missing or not executable. Run deploy-runtime/repair.\n")
+            self.status.setText("Launch blocked: repair launcher")
+            return
+
+        env = env_for_backend()
+        env["QT_QPA_PLATFORM"] = "xcb"
+
+        if launcher_path:
+            cmd = [launcher_path]
+            self.append_log(f"Launching Flux via installed launcher: {launcher_path}\n")
+        elif build_app_path:
+            cmd = [build_app_path]
+            self.append_log(f"Launching Flux developer build binary: {build_app_path}\n")
+        else:
+            QMessageBox.critical(
+                self,
+                "Launch Blocked",
+                "No installed Flux launcher is executable, and no developer build binary is available.\n\n"
+                "Run deploy-runtime/repair for an installed runtime, or build Flux from source for the developer fallback."
+            )
+            self.append_log("ERROR: Launch blocked because no executable launcher or developer build binary is available.\n")
+            self.status.setText("Launch blocked: no executable")
+            return
+
         try:
             subprocess.Popen(
                 cmd,
                 cwd=str(FLUX_ROOT),
-                env=env_for_backend(),
+                env=env,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -639,6 +766,15 @@ class FluxInstallerWindow(QMainWindow):
     def _process_finished(self, code: int, _status) -> None:
         ok = code == 0
         self.append_log(f"=== {self.current_action} {'completed' if ok else f'failed with exit code {code}'} ===\n")
+
+        action_base = getattr(self, "last_run_action_name", "")
+        if ok:
+            if action_base in {"full-bootstrap", "deploy-runtime", "install-artifact", "source-bootstrap", "update-installed", "checks", "artifact-checks"}:
+                self.last_install_success = True
+        else:
+            if action_base in MUTATING_ACTIONS or action_base in {"checks", "artifact-checks"}:
+                self.last_install_success = False
+
         queued = bool(self.repair_queue)
         self._finish_action(ok, "completed" if ok else f"failed with exit code {code}")
         if queued and ok:
@@ -651,6 +787,20 @@ class FluxInstallerWindow(QMainWindow):
         self.progress.setRange(0, 100)
         self.progress.setValue(100 if ok else 0)
         self.status.setText(f"{self.current_action}: {message}" if self.current_action else message)
+
+        action_base = getattr(self, "last_run_action_name", "")
+        if ok:
+            if action_base in {"full-bootstrap", "deploy-runtime", "install-artifact", "source-bootstrap", "update-installed", "checks", "artifact-checks"}:
+                self.last_install_success = True
+        else:
+            if action_base in MUTATING_ACTIONS or action_base in {"checks", "artifact-checks"}:
+                self.last_install_success = False
+
+        if not ok:
+            self.status.setStyleSheet(f"color: {COLORS['danger']}; font-weight: bold;")
+        else:
+            self.status.setStyleSheet(f"color: {COLORS['muted']};")
+
         self.set_buttons_enabled(True)
         self.cancel_button.setEnabled(False)
         if self.process is not None:
@@ -678,7 +828,11 @@ class FluxInstallerWindow(QMainWindow):
             self.last_diagnostics = None
             self._replace_status_rows([("Diagnostics", "FAIL", f"{exc}: {raw[:500]}", COLORS["danger"])])
             self.append_log(f"Diagnostics failed: {exc}\n{raw}\n")
+            self.last_install_success = False
+            self.set_buttons_enabled(True)
             return
+
+
         self.last_diagnostics = data
         self._render_status(data)
         self._render_repairs(data)
@@ -688,7 +842,8 @@ class FluxInstallerWindow(QMainWindow):
     def _render_status(self, data: dict[str, Any]) -> None:
         rows: list[tuple[str, str, str, str]] = []
         app = data.get("app", {})
-        build_ok = bool(app.get("build_binary", {}).get("exists"))
+        build_binary = app.get("build_binary", {})
+        build_ok = bool(build_binary.get("exists")) and bool(build_binary.get("executable"))
         installed = app.get("installed_app", {})
         installed_ok = bool(installed.get("exists")) and bool(installed.get("executable"))
         launcher_ok = bool(app.get("launcher", {}).get("exists")) and bool(app.get("launcher", {}).get("executable"))
@@ -745,6 +900,14 @@ class FluxInstallerWindow(QMainWindow):
             self.recommendation.setStyleSheet(f"color: {COLORS['success']};")
         self._render_plugins_summary(data)
 
+        installed_available = bool(installed.get("exists"))
+        has_runnable = launcher_ok or (build_ok and not installed_available)
+        if not has_runnable:
+            self.last_install_success = False
+
+        if getattr(self, "launch_button", None) is not None:
+            self.launch_button.setEnabled(self.last_install_success)
+
     def _set_card(self, card: StatusCard, ok: bool, text: str) -> None:
         card.set_state(text, COLORS["success"] if ok else COLORS["warning"])
 
@@ -797,7 +960,7 @@ class FluxInstallerWindow(QMainWindow):
         plugins = data.get("plugins", {})
         if not app.get("installed_app", {}).get("exists"):
             suggestions.append("Install selected Flux runtime artifact")
-        elif not app.get("launcher", {}).get("exists"):
+        elif not (app.get("launcher", {}).get("exists") and app.get("launcher", {}).get("executable")):
             suggestions.append("Install/repair the app, bundled Python tools, PyPlugs, OFX bundles, launcher, and OFX cache")
         if any(not x.get("installed") for x in plugins.get("required_pyplugs", [])) or any(not x.get("installed") for x in plugins.get("required_ofx", [])):
             suggestions.append("Install/repair the app, bundled Python tools, PyPlugs, OFX bundles, launcher, and OFX cache")
@@ -888,7 +1051,10 @@ class FluxInstallerWindow(QMainWindow):
     def set_buttons_enabled(self, enabled: bool) -> None:
         for button in self.buttons:
             if button is not self.cancel_button:
-                button.setEnabled(enabled)
+                if button is getattr(self, "launch_button", None):
+                    button.setEnabled(enabled and self.last_install_success)
+                else:
+                    button.setEnabled(enabled)
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override name.
         if self.process is not None:
