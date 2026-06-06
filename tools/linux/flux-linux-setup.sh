@@ -1006,7 +1006,6 @@ install_runtime_artifact() {
   source_arg="$(artifact_source_required "${1:-}")"
   archive="$(fetch_runtime_artifact "$source_arg")"
   validate_install_prefix || return
-  confirm_default_yes "Install Flux runtime artifact into ${FLUX_INSTALL_PREFIX}?" || die 'Runtime artifact install cancelled.'
   tmp="$(mktemp -d /tmp/flux-runtime-artifact.XXXXXX)"
   extract_runtime_artifact "$archive" "$tmp"
   payload="$(artifact_payload_root "$tmp")"
@@ -1023,16 +1022,28 @@ install_runtime_artifact() {
 }
 
 package_runtime_artifact() {
-  local output="${1:-}" package_root manifest commit
+  local output="${1:-}" manifest commit stage
   validate_install_prefix || return
   [[ -x "$FLUX_APP_BIN" ]] || die "Installed Flux runtime binary missing: ${FLUX_APP_BIN}. Deploy runtime before packaging an artifact."
+  [[ -x "$FLUX_RENDERER_BIN" ]] || die "Installed Flux renderer binary missing: ${FLUX_RENDERER_BIN}. Deploy runtime before packaging an artifact."
+  [[ -d "${FLUX_INSTALL_PREFIX}/Plugins/OFX" ]] || die "Installed OFX plugin directory missing: ${FLUX_INSTALL_PREFIX}/Plugins/OFX"
+  [[ -d "${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs" ]] || die "Installed PyPlug directory missing: ${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs"
+  [[ -d "${FLUX_INSTALL_PREFIX}/tools/ai" ]] || die "Installed Flux AI tools missing: ${FLUX_INSTALL_PREFIX}/tools/ai"
+  ensure_ocio_configs || return
   command -v tar >/dev/null 2>&1 || die 'tar is required to package a runtime artifact.'
   if [[ -z "$output" ]]; then
     commit="$(git -C "$FLUX_ROOT" rev-parse --short HEAD 2>/dev/null || printf unknown)"
     output="${FLUX_ROOT}/dist/flux-linux-x86_64-${commit}.tar.gz"
   fi
   mkdir -p "$(dirname "$output")"
-  manifest="${FLUX_INSTALL_PREFIX}/artifact-manifest.json"
+  stage="$(mktemp -d /tmp/flux-runtime-package.XXXXXX)"
+  mkdir -p "${stage}/share"
+  cp -aL "${FLUX_INSTALL_PREFIX}/bin" "${stage}/bin"
+  cp -aL "${FLUX_INSTALL_PREFIX}/Plugins" "${stage}/Plugins"
+  cp -aL "${FLUX_INSTALL_PREFIX}/tools" "${stage}/tools"
+  [[ -d "${FLUX_INSTALL_PREFIX}/onnxruntime-sdk" ]] && cp -aL "${FLUX_INSTALL_PREFIX}/onnxruntime-sdk" "${stage}/onnxruntime-sdk"
+  cp -aL "${FLUX_ROOT}/OpenColorIO-Configs" "${stage}/share/OpenColorIO-Configs"
+  manifest="${stage}/artifact-manifest.json"
   cat > "$manifest" <<EOF
 {
   "schema": "org.flux.runtime-artifact.v1",
@@ -1042,7 +1053,11 @@ package_runtime_artifact() {
   "binaries": ["bin/flux", "bin/FluxRenderer"]
 }
 EOF
-  tar -czf "$output" -C "$FLUX_INSTALL_PREFIX" .
+  [[ -f "${stage}/share/OpenColorIO-Configs/blender/config.ocio" ]] || die 'Artifact staging failed: blender OCIO config missing.'
+  [[ -f "${stage}/share/OpenColorIO-Configs/natron/config.ocio" ]] || die 'Artifact staging failed: natron OCIO config missing.'
+  [[ -f "${stage}/share/OpenColorIO-Configs/nuke-default/config.ocio" ]] || die 'Artifact staging failed: nuke-default OCIO config missing.'
+  tar -czf "$output" -C "$stage" .
+  rm -rf "$stage"
   log "Packaged Flux runtime artifact: ${output}"
 }
 
@@ -1615,6 +1630,27 @@ run_checks() {
   return "$status"
 }
 
+run_artifact_checks() {
+  local status=0
+  check_commands || status=1
+  if [[ "$(detect_os)" == "fedora" ]]; then
+    check_fedora_runtime_packages || status=1
+  else
+    warn 'Non-Fedora Linux detected; package check is not implemented yet.'
+  fi
+  check_build_output || status=1
+  check_pyplugs || status=1
+  check_ofx_bundles || status=1
+  check_ocio_configs || status=1
+  check_cache_ids || warn 'OFX cache will be generated after first successful Flux/renderer launch.'
+  if corridorkey_assets_required; then
+    check_corridorkey_assets || status=1
+  else
+    warn 'CorridorKey engine asset check skipped; optional CorridorKey model is not installed.'
+  fi
+  return "$status"
+}
+
 status_word() {
   if "$@" >/dev/null 2>&1; then
     printf 'ok'
@@ -1802,7 +1838,7 @@ run_full_bootstrap() {
   artifact="$(artifact_source_required "${1:-}")"
   install_fedora_runtime_packages || return
   install_runtime_artifact "$artifact" || return
-  run_checks || return
+  run_artifact_checks || return
 }
 
 run_update_installed() {
@@ -2070,6 +2106,7 @@ run_private_action() {
     fedora-deps) install_fedora_packages ;;
     rpmfusion) enable_rpmfusion_free ;;
     checks) run_checks ;;
+    artifact-checks) run_artifact_checks ;;
     installer-self-test) run_installer_self_test ;;
     launch) launch_flux ;;
     uninstall) uninstall_flux ;;
