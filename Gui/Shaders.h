@@ -32,11 +32,17 @@ NATRON_NAMESPACE_ENTER
 
 extern const char* fragRGB;
 extern const char* vertRGB;
+extern const char* fragRGBModern;
+extern const char* vertRGBModern;
+extern const char* fragRGBGles;
+extern const char* vertRGBGles;
 
 /*There's a black texture used for when the user disconnect the viewer
    It's not just a shader,because we still need coordinates feedback.
  */
 extern const char* blackFrag;
+extern const char* blackFragModern;
+extern const char* blackFragGles;
 extern const char *histogramComputation_frag;
 extern const char *histogramComputationVertex_vert;
 extern const char *histogramRendering_frag;

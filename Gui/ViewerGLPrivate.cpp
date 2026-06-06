@@ -35,6 +35,7 @@
 #include <QApplication> // qApp
 
 #include <QOpenGLShaderProgram>
+#include <QMatrix4x4>
 
 #include "Engine/Lut.h" // Color
 #include "Engine/Settings.h"
@@ -75,6 +76,7 @@ ViewerGL::Implementation::Implementation(ViewerGL* this_,
     , shaderRGB()
     , shaderBlack()
     , shaderLoaded(false)
+    , shaderRGBUsesModernPipeline(false)
     , infoViewer()
     , viewerTab(parent)
     , zoomOrPannedSinceLastFit(false)
@@ -401,16 +403,30 @@ ViewerGL::Implementation::drawRenderingVAO(unsigned int mipmapLevel,
 
         glBindBuffer(GL_ARRAY_BUFFER, this->vboVerticesId);
         glBufferSubData(GL_ARRAY_BUFFER, 0, 32 * sizeof(GLfloat), vertices);
-        glEnableClientState(GL_VERTEX_ARRAY);
-        glVertexPointer(2, GL_FLOAT, 0, 0);
 
         glBindBuffer(GL_ARRAY_BUFFER, this->vboTexturesId);
         glBufferSubData(GL_ARRAY_BUFFER, 0, 32 * sizeof(GLfloat), renderingTextureCoordinates);
-        glClientActiveTexture(GL_TEXTURE0);
-        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-        glTexCoordPointer(2, GL_FLOAT, 0, 0);
 
-        glDisableClientState(GL_COLOR_ARRAY);
+        if (useShader && this->shaderRGBUsesModernPipeline) {
+            glBindBuffer(GL_ARRAY_BUFFER, this->vboVerticesId);
+            shaderRGB->enableAttributeArray("vertexCoord");
+            shaderRGB->setAttributeBuffer("vertexCoord", GL_FLOAT, 0, 2);
+
+            glBindBuffer(GL_ARRAY_BUFFER, this->vboTexturesId);
+            shaderRGB->enableAttributeArray("texCoord");
+            shaderRGB->setAttributeBuffer("texCoord", GL_FLOAT, 0, 2);
+        } else {
+            glBindBuffer(GL_ARRAY_BUFFER, this->vboVerticesId);
+            glEnableClientState(GL_VERTEX_ARRAY);
+            glVertexPointer(2, GL_FLOAT, 0, 0);
+
+            glBindBuffer(GL_ARRAY_BUFFER, this->vboTexturesId);
+            glClientActiveTexture(GL_TEXTURE0);
+            glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+            glTexCoordPointer(2, GL_FLOAT, 0, 0);
+
+            glDisableClientState(GL_COLOR_ARRAY);
+        }
 
         glBindBuffer(GL_ARRAY_BUFFER, 0);
 
@@ -419,10 +435,14 @@ ViewerGL::Implementation::drawRenderingVAO(unsigned int mipmapLevel,
         glCheckErrorIgnoreOSXBug();
 
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-        glDisableClientState(GL_VERTEX_ARRAY);
-        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+        if (useShader && this->shaderRGBUsesModernPipeline) {
+            shaderRGB->disableAttributeArray("vertexCoord");
+            shaderRGB->disableAttributeArray("texCoord");
+        } else {
+            glDisableClientState(GL_VERTEX_ARRAY);
+            glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+        }
         glCheckError();
-
         this->unbindTextureAndReleaseShader(useShader);
     }
 } // drawRenderingVAO
@@ -854,6 +874,19 @@ ViewerGL::Implementation::activateShaderRGB(int texIndex)
     shaderRGB->setUniformValue("lut", (GLint)displayingImageLut);
     float gamma = displayTextures[texIndex].gamma;
     shaderRGB->setUniformValue("gamma", gamma);
+    if (shaderRGBUsesModernPipeline) {
+        double zoomLeft, zoomRight, zoomBottom, zoomTop;
+        {
+            QMutexLocker l(&zoomCtxMutex);
+            zoomLeft = zoomCtx.left();
+            zoomRight = zoomCtx.right();
+            zoomBottom = zoomCtx.bottom();
+            zoomTop = zoomCtx.top();
+        }
+        QMatrix4x4 projectionMatrix;
+        projectionMatrix.ortho((float)zoomLeft, (float)zoomRight, (float)zoomBottom, (float)zoomTop, -1.f, 1.f);
+        shaderRGB->setUniformValue("projectionMatrix", projectionMatrix);
+    }
 }
 
 bool

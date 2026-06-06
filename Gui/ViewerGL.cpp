@@ -124,6 +124,13 @@ ViewerGL::ViewerGL(ViewerTab* parent,
     Q_UNUSED(shareWidget);
     // always running in the main thread
     assert( qApp && qApp->thread() == QThread::currentThread() );
+    QSurfaceFormat fmt = format();
+    if (fmt.majorVersion() < 2) {
+        fmt.setMajorVersion(2);
+        fmt.setMinorVersion(1);
+    }
+    fmt.setProfile(QSurfaceFormat::CompatibilityProfile);
+    QOpenGLWidget::setFormat(fmt);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     //setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
@@ -1421,11 +1428,22 @@ ViewerGL::initShaderGLSL()
     assert( QOpenGLContext::currentContext() == context() );
 
     if (!_imp->shaderLoaded) {
+        const QOpenGLContext* glContext = context();
+        const QSurfaceFormat ctxFormat = glContext ? glContext->format() : QSurfaceFormat();
+        const bool useGlesShaders = glContext && glContext->isOpenGLES();
+        const bool useModernShaders = useGlesShaders ||
+            ctxFormat.profile() == QSurfaceFormat::CoreProfile ||
+            ctxFormat.majorVersion() >= 3;
+        const char* viewerVertexShader = useGlesShaders ? vertRGBGles : (useModernShaders ? vertRGBModern : vertRGB);
+        const char* viewerFragmentShader = useGlesShaders ? fragRGBGles : (useModernShaders ? fragRGBModern : fragRGB);
+        const char* blackFragmentShader = useGlesShaders ? blackFragGles : (useModernShaders ? blackFragModern : blackFrag);
+
+        _imp->shaderRGBUsesModernPipeline = useModernShaders;
         _imp->shaderBlack.reset( new QOpenGLShaderProgram( context() ) );
-        if ( !_imp->shaderBlack->addShaderFromSourceCode(QOpenGLShader::Vertex, vertRGB) ) {
+        if ( !_imp->shaderBlack->addShaderFromSourceCode(QOpenGLShader::Vertex, viewerVertexShader) ) {
             qDebug() << qPrintable( _imp->shaderBlack->log() );
         }
-        if ( !_imp->shaderBlack->addShaderFromSourceCode(QOpenGLShader::Fragment, blackFrag) ) {
+        if ( !_imp->shaderBlack->addShaderFromSourceCode(QOpenGLShader::Fragment, blackFragmentShader) ) {
             qDebug() << qPrintable( _imp->shaderBlack->log() );
         }
         if ( !_imp->shaderBlack->link() ) {
@@ -1433,10 +1451,10 @@ ViewerGL::initShaderGLSL()
         }
 
         _imp->shaderRGB.reset( new QOpenGLShaderProgram( context() ) );
-        if ( !_imp->shaderRGB->addShaderFromSourceCode(QOpenGLShader::Vertex, vertRGB) ) {
+        if ( !_imp->shaderRGB->addShaderFromSourceCode(QOpenGLShader::Vertex, viewerVertexShader) ) {
             qDebug() << qPrintable( _imp->shaderRGB->log() );
         }
-        if ( !_imp->shaderRGB->addShaderFromSourceCode(QOpenGLShader::Fragment, fragRGB) ) {
+        if ( !_imp->shaderRGB->addShaderFromSourceCode(QOpenGLShader::Fragment, viewerFragmentShader) ) {
             qDebug() << qPrintable( _imp->shaderRGB->log() );
         }
 
