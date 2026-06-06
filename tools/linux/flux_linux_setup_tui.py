@@ -8,8 +8,9 @@ SCRIPT = Path(__file__).with_name("flux-linux-setup.sh")
 ENV = dict(os.environ, FLUX_SETUP_INTERNAL_DISPATCH="1")
 
 ACTIONS = [
-    ("full-bootstrap", "Full setup / update Flux", "Build, install app/runtime/plugins/launcher, validate, and offer default AI setup.", True),
-    ("update-installed", "Update installed Flux", "Fast-forward source, refresh submodules, configure/build/deploy, clear OFX cache, and validate.", True),
+    ("full-bootstrap", "Full setup from runtime artifact", "Install runtime deps, extract a prebuilt Flux artifact, write launchers, and validate.", True),
+    ("install-artifact", "Install selected runtime artifact", "Extract a local/remote Flux runtime artifact and write launchers.", True),
+    ("runtime-deps", "Install runtime dependencies", "Install Fedora packages required to run a prebuilt Flux artifact.", True),
     ("ai-install-menu", "Install or update AI models", "Choose models in this curses checklist, then run concrete model installs.", False),
     ("ai-runtime-install-menu", "Install or update AI runtimes", "Choose provider runtimes in this curses checklist, then repair/create their isolated venvs.", False),
     ("ai-token", "Hugging Face token", "Hidden token prompt; optional persistence only in accepted secure keyring.", True),
@@ -20,11 +21,12 @@ ACTIONS = [
     ("ai-user-tools-install", "Install user tools (uv, bun)", "Install uv and bun into the user environment.", True),
     ("corridorkey-builder-prereqs", "Install CorridorKey builder toolkit", "Install AI host packages, uv/bun, and local TensorRT toolkit staging.", True),
     ("cuda-toolkit-install", "Install CUDA toolkit (Fedora)", "Enable NVIDIA CUDA repo and install the CUDA toolkit packages needed for CorridorKey engine builds.", True),
-    ("deploy-runtime", "Install/repair runtime only", "Repair installed app, Python runtime, plugins, launcher; no rebuild.", True),
+    ("deploy-runtime", "Developer: repair runtime from build tree", "Repair installed app, Python runtime, plugins, launcher from local build outputs; no rebuild.", True),
     ("installer-self-test", "Installer self-test", "Fresh-clone configure and stale-submodule repair verification without host install mutation.", False),
-    ("build-all", "Build Flux from source", "Compile Flux/Natron and Flux OFX targets from the configured build tree.", True),
-    ("configure", "Configure build", "Run CMake configuration for current source/build settings.", True),
-    ("fedora-deps", "Install Fedora dependencies", "Install Fedora build/runtime packages with sudo dnf.", True),
+    ("source-bootstrap", "Developer: build/install from source", "Install build deps, configure/build Flux, deploy runtime, and validate.", True),
+    ("build-all", "Developer: build Flux from source", "Compile Flux/Natron and Flux OFX targets from the configured build tree.", True),
+    ("configure", "Developer: configure build", "Run CMake configuration for current source/build settings.", True),
+    ("fedora-deps", "Developer: install build dependencies", "Install Fedora packages required to build Flux from source.", True),
     ("rpmfusion", "Enable RPM Fusion", "Enable RPM Fusion free for FFmpeg-related Fedora packages.", True),
     ("checks", "Validate installation", "Run dependency, build, PyPlug, OFX, cache, and install checks.", False),
     ("launch", "Launch Flux", "Start the installed launcher or build-tree Flux binary.", True),
@@ -78,7 +80,7 @@ def draw(stdscr, selected, msg=""):
     for k, v in status_rows()[: max(3, min(10, h // 3))]:
         stdscr.addnstr(y, 0, f"{k:16} {v}", w - 1); y += 1
     y += 1; stdscr.addnstr(y, 0, "Actions", w - 1, curses.A_UNDERLINE); y += 1
-    list_top = y; list_h = max(1, h - y - 6); start = max(0, selected - list_h + 1)
+    list_h = max(1, h - y - 6); start = max(0, selected - list_h + 1)
     for i, (_, title, _, _) in enumerate(ACTIONS[start:start+list_h], start):
         attr = curses.A_REVERSE if i == selected else curses.A_NORMAL
         stdscr.addnstr(y, 0, f"{'>' if i == selected else ' '} {title}", w - 1, attr); y += 1
@@ -88,6 +90,17 @@ def draw(stdscr, selected, msg=""):
     stdscr.addnstr(h-3, 0, msg, w - 1)
     stdscr.addnstr(h-2, 0, "Keys: Up/Down move  Enter run  q/Esc quit", w - 1, curses.A_DIM)
     stdscr.refresh()
+
+def text_prompt(stdscr, prompt):
+    curses.echo()
+    h, w = stdscr.getmaxyx()
+    stdscr.erase()
+    stdscr.addnstr(0, 0, prompt, w-1, curses.A_BOLD)
+    stdscr.addnstr(2, 0, "Artifact path or URL: ", w-1)
+    stdscr.refresh()
+    value = stdscr.getstr(2, min(22, w-1), 4096).decode("utf-8", errors="replace").strip()
+    curses.noecho()
+    return value
 
 def confirm(stdscr, text):
     stdscr.addnstr(curses.LINES-3, 0, text + "  y/N", curses.COLS-1, curses.A_BOLD); stdscr.clrtoeol(); stdscr.refresh()
@@ -184,6 +197,14 @@ def main(stdscr):
             for mid in ids:
                 if confirm(stdscr, f"Remove {mid}?"):
                     suspend_run(stdscr, "ai-remove", mid)
+        elif action in ("full-bootstrap", "install-artifact"):
+            artifact = os.environ.get("FLUX_RUNTIME_ARTIFACT", "")
+            if not artifact:
+                artifact = text_prompt(stdscr, title)
+            if artifact and confirm(stdscr, f"Run {title} using {artifact}?"):
+                suspend_run(stdscr, action, artifact)
+            elif not artifact:
+                msg = "Artifact path or URL is required."
         else:
             if (not mutating) or confirm(stdscr, f"Run {title}?"):
                 suspend_run(stdscr, action)

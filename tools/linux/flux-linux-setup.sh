@@ -104,6 +104,25 @@ FEDORA_PACKAGES=(
   OpenImageIO-devel
 )
 
+FEDORA_RUNTIME_PACKAGES=(
+  curl
+  tar
+  gzip
+  git
+  python3
+  python3-pip
+  python3-pyside6
+  qt6-qtbase
+  qt6-qtbase-gui
+  mesa-libGL
+  glx-utils
+  OpenColorIO
+  OpenImageIO
+  LibRaw
+  ffmpeg-libs
+)
+
+
 FEDORA_AI_HOST_PACKAGES=(
   git
   python3
@@ -344,9 +363,9 @@ detect_os() {
 check_commands() {
   local missing=0
   local cmd
-  for cmd in cmake c++ python3 ldd curl tar; do
+  for cmd in python3 ldd curl tar; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
-      warn "Missing command: ${cmd}"
+      warn "Missing runtime command: ${cmd}"
       missing=1
     fi
   done
@@ -376,6 +395,30 @@ check_fedora_packages() {
   fi
 
   log 'Fedora package check passed.'
+}
+
+check_fedora_runtime_packages() {
+  local missing=()
+  local pkg
+
+  if ! command -v rpm >/dev/null 2>&1; then
+    warn 'rpm not found; skipping Fedora runtime package check.'
+    return 0
+  fi
+
+  for pkg in "${FEDORA_RUNTIME_PACKAGES[@]}"; do
+    if ! rpm -q "$pkg" >/dev/null 2>&1; then
+      missing+=("$pkg")
+    fi
+  done
+
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    warn 'Missing Fedora runtime packages:'
+    printf '  %s\n' "${missing[@]}" >&2
+    return 1
+  fi
+
+  log 'Fedora runtime package check passed.'
 }
 
 verify_fedora_repos() {
@@ -459,6 +502,18 @@ install_fedora_cuda_toolkit() {
   run_privileged dnf clean all
   run_privileged dnf config-manager setopt "cuda-fedora*".exclude="nvidia-driver,nvidia-modprobe,nvidia-persistenced,nvidia-settings,nvidia-libXNVCtrl,nvidia-xconfig" || true
   run_privileged dnf install -y --setopt=install_weak_deps=False cuda-toolkit xorg-x11-drv-nvidia-cuda
+}
+
+install_fedora_runtime_packages() {
+  local os_id
+  os_id="$(detect_os)"
+  [[ "$os_id" == "fedora" ]] || die "Runtime dependency installation currently supports Fedora only; detected '${os_id}'."
+  require_privilege_or_guidance 'runtime dependency installation' || die 'sudo or pkexec is required to install runtime dependencies.'
+  command -v dnf >/dev/null 2>&1 || die 'dnf is required for runtime dependency installation.'
+
+  enable_rpmfusion_free || return
+  log 'Installing Fedora runtime packages required by prebuilt Flux artifacts.'
+  run_privileged dnf install -y --setopt=install_weak_deps=False --allowerasing "${FEDORA_RUNTIME_PACKAGES[@]}"
 }
 
 install_fedora_packages() {
@@ -893,6 +948,104 @@ install_app() {
   fi
 }
 
+artifact_source_required() {
+  local artifact="${1:-${FLUX_RUNTIME_ARTIFACT:-}}"
+  [[ -n "$artifact" ]] || die 'Runtime artifact path or URL is required. Set FLUX_RUNTIME_ARTIFACT or choose an artifact in the GUI.'
+  printf '%s\n' "$artifact"
+}
+
+fetch_runtime_artifact() {
+  local artifact="$1" cache_dir target
+  case "$artifact" in
+    http://*|https://*)
+      command -v curl >/dev/null 2>&1 || die 'curl is required to download a runtime artifact.'
+      cache_dir="${XDG_CACHE_HOME:-${HOME}/.cache}/Flux/artifacts"
+      mkdir -p "$cache_dir"
+      target="${cache_dir}/$(basename "${artifact%%\?*}")"
+      [[ -n "$(basename "$target")" ]] || target="${cache_dir}/flux-runtime-artifact.tar.gz"
+      log "Downloading Flux runtime artifact to ${target}."
+      curl -L --fail --output "$target" "$artifact"
+      printf '%s\n' "$target"
+      ;;
+    *)
+      [[ -f "$artifact" ]] || die "Runtime artifact not found: ${artifact}"
+      printf '%s\n' "$artifact"
+      ;;
+  esac
+}
+
+extract_runtime_artifact() {
+  local archive="$1" dest="$2"
+  command -v tar >/dev/null 2>&1 || die 'tar is required to extract a runtime artifact.'
+  mkdir -p "$dest"
+  case "$archive" in
+    *.tar.gz|*.tgz) tar -xzf "$archive" -C "$dest" ;;
+    *.tar.zst) tar --zstd -xf "$archive" -C "$dest" ;;
+    *.tar) tar -xf "$archive" -C "$dest" ;;
+    *) die "Unsupported runtime artifact format: ${archive}. Expected .tar, .tar.gz, .tgz, or .tar.zst." ;;
+  esac
+}
+
+artifact_payload_root() {
+  local extract_dir="$1" candidate
+  if [[ -f "${extract_dir}/artifact-manifest.json" && -x "${extract_dir}/bin/flux" ]]; then
+    printf '%s\n' "$extract_dir"
+    return 0
+  fi
+  for candidate in "${extract_dir}"/*; do
+    if [[ -d "$candidate" && -f "${candidate}/artifact-manifest.json" && -x "${candidate}/bin/flux" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  die 'Runtime artifact did not contain artifact-manifest.json and executable bin/flux at its root.'
+}
+
+install_runtime_artifact() {
+  local source_arg archive tmp payload
+  source_arg="$(artifact_source_required "${1:-}")"
+  archive="$(fetch_runtime_artifact "$source_arg")"
+  validate_install_prefix || return
+  confirm_default_yes "Install Flux runtime artifact into ${FLUX_INSTALL_PREFIX}?" || die 'Runtime artifact install cancelled.'
+  tmp="$(mktemp -d /tmp/flux-runtime-artifact.XXXXXX)"
+  extract_runtime_artifact "$archive" "$tmp"
+  payload="$(artifact_payload_root "$tmp")"
+  FORCE=1
+  manifest_reset || return
+  copy_dir_contents_filtered "$payload" "$FLUX_INSTALL_PREFIX"
+  chmod 0755 "$FLUX_APP_BIN"
+  [[ -f "$FLUX_RENDERER_BIN" ]] && chmod 0755 "$FLUX_RENDERER_BIN"
+  manifest_add_tree "$FLUX_INSTALL_PREFIX"
+  write_launcher
+  clear_ofx_cache
+  rm -rf "$tmp"
+  log "Installed Flux runtime artifact from ${archive}."
+}
+
+package_runtime_artifact() {
+  local output="${1:-}" package_root manifest commit
+  validate_install_prefix || return
+  [[ -x "$FLUX_APP_BIN" ]] || die "Installed Flux runtime binary missing: ${FLUX_APP_BIN}. Deploy runtime before packaging an artifact."
+  command -v tar >/dev/null 2>&1 || die 'tar is required to package a runtime artifact.'
+  if [[ -z "$output" ]]; then
+    commit="$(git -C "$FLUX_ROOT" rev-parse --short HEAD 2>/dev/null || printf unknown)"
+    output="${FLUX_ROOT}/dist/flux-linux-x86_64-${commit}.tar.gz"
+  fi
+  mkdir -p "$(dirname "$output")"
+  manifest="${FLUX_INSTALL_PREFIX}/artifact-manifest.json"
+  cat > "$manifest" <<EOF
+{
+  "schema": "org.flux.runtime-artifact.v1",
+  "commit": "$(git -C "$FLUX_ROOT" rev-parse HEAD 2>/dev/null || printf unknown)",
+  "platform": "linux-x86_64",
+  "qt": "6",
+  "binaries": ["bin/flux", "bin/FluxRenderer"]
+}
+EOF
+  tar -czf "$output" -C "$FLUX_INSTALL_PREFIX" .
+  log "Packaged Flux runtime artifact: ${output}"
+}
+
 install_runtime_payloads() {
   mkdir -p "$USER_PYPLUG_DIR" "$USER_OFX_DIR"
   manifest_add_path "${FLUX_INSTALL_PREFIX}/Plugins"
@@ -1283,11 +1436,14 @@ validate_ldd() {
 }
 
 validate_ofx_discovery() {
-  local renderer="${BUILD_DIR}/Renderer/NatronRenderer"
+  local renderer="${FLUX_RENDERER_BIN}"
   local temp_dir script output status=0 source_bundle
 
   if [[ ! -x "$renderer" ]]; then
-    die "NatronRenderer not found; cannot validate OFX discovery: ${renderer}. Choose the build action first."
+    renderer="${BUILD_DIR}/Renderer/NatronRenderer"
+  fi
+  if [[ ! -x "$renderer" ]]; then
+    die "NatronRenderer not found; cannot validate OFX discovery. Install a runtime artifact or use the developer source-build action."
   fi
 
   temp_dir="$(mktemp -d /tmp/flux-ofx-discovery.XXXXXX)"
@@ -1425,19 +1581,24 @@ check_cache_ids() {
 }
 
 check_build_output() {
-  if [[ ! -x "${BUILD_DIR}/App/Natron" ]]; then
-    warn "Flux binary missing: ${BUILD_DIR}/App/Natron"
-    warn "Build from the interactive installer menu."
-    return 1
+  if [[ -x "$FLUX_APP_BIN" ]]; then
+    log 'Installed Flux binary exists.'
+    return 0
   fi
-  log 'Flux binary exists.'
+  if [[ -x "${BUILD_DIR}/App/Natron" ]]; then
+    log 'Flux build binary exists.'
+    return 0
+  fi
+  warn "Flux binary missing: installed=${FLUX_APP_BIN}, build=${BUILD_DIR}/App/Natron"
+  warn "Install a runtime artifact, or use the developer source-build action."
+  return 1
 }
 
 run_checks() {
   local status=0
   check_commands || status=1
   if [[ "$(detect_os)" == "fedora" ]]; then
-    check_fedora_packages || status=1
+    check_fedora_runtime_packages || status=1
   else
     warn 'Non-Fedora Linux detected; package check is not implemented yet.'
   fi
@@ -1614,7 +1775,7 @@ confirm_default_yes() {
   [[ -z "$answer" || "$answer" == "y" || "$answer" == "Y" || "$answer" == "yes" || "$answer" == "YES" ]]
 }
 
-run_full_bootstrap() {
+run_source_bootstrap() {
   DO_BUILD=1
   confirm_default_yes "Refresh/replace existing Flux-managed install files if present?" && FORCE=1 || FORCE=0
   validate_install_prefix || return
@@ -1630,11 +1791,18 @@ run_full_bootstrap() {
   install_app || return
   bootstrap_python_runtime || return
   install_runtime_payloads || return
-  setup_default_ai_models || return
   clear_ofx_cache || return
   write_launcher || return
   validate_ldd || return
   validate_ofx_discovery || return
+}
+
+run_full_bootstrap() {
+  local artifact
+  artifact="$(artifact_source_required "${1:-}")"
+  install_fedora_runtime_packages || return
+  install_runtime_artifact "$artifact" || return
+  run_checks || return
 }
 
 run_update_installed() {
@@ -1890,9 +2058,13 @@ run_private_action() {
   shift
   local action="${1:-}"; shift || true
   case "$action" in
-    full-bootstrap) run_full_bootstrap ;;
+    full-bootstrap) run_full_bootstrap "$@" ;;
+    source-bootstrap) run_source_bootstrap ;;
     update-installed) run_update_installed ;;
     deploy-runtime) run_deploy_runtime ;;
+    install-artifact) install_runtime_artifact "$@" ;;
+    package-artifact) package_runtime_artifact "$@" ;;
+    runtime-deps) install_fedora_runtime_packages ;;
     build-all) run_build_all ;;
     configure) configure_flux ;;
     fedora-deps) install_fedora_packages ;;

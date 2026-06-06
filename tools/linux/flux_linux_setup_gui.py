@@ -71,15 +71,26 @@ MUTATING_ACTIONS = {
     "full-bootstrap",
     "update-installed",
     "deploy-runtime",
+    "install-artifact",
+    "runtime-deps",
+    "source-bootstrap",
+    "package-artifact",
+    "build-all",
+    "configure",
     "fedora-deps",
     "rpmfusion",
     "uninstall",
+    "ai-host-prereqs-install",
+    "ai-user-tools-install",
+    "cuda-toolkit-install",
+    "corridorkey-builder-prereqs",
     "ai-install",
     "ai-remove",
     "ai-runtime-install",
 }
 
 REPAIR_ACTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "Install selected Flux runtime artifact": ("install-artifact", ()),
     "Install/repair the app, bundled Python tools, PyPlugs, OFX bundles, launcher, and OFX cache": ("deploy-runtime", ()),
     "Build Flux and bundled OFX plugins": ("build-all", ()),
     "Run installer checks and dependency validation": ("checks", ()),
@@ -128,6 +139,7 @@ def _model_repair_label(model_id: str, runtime_id: str) -> str:
     return "Install/repair CorridorKey engine set" if not runtime_id else f"Install/repair {model_id} model"
 
 REPAIR_ORDER = {
+    "Install selected Flux runtime artifact": 5,
     "Install/repair AI host packages (Fedora)": 10,
     "Install/repair user tools (uv, bun)": 20,
     "Install/repair CUDA toolkit (Fedora)": 30,
@@ -315,15 +327,24 @@ class FluxInstallerWindow(QMainWindow):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(14, 14, 14, 14)
-        layout.addWidget(self._section_label("Install / Update", "Bootstrap, update, build, deploy, and validate Flux."))
+        layout.addWidget(self._section_label("Install / Update", "Install a prebuilt Flux runtime artifact by default. Source builds are developer-only."))
+        artifact_row = QHBoxLayout()
+        artifact_label = QLabel("Runtime artifact path or URL")
+        self.artifact_edit = QLineEdit()
+        self.artifact_edit.setPlaceholderText("Set FLUX_RUNTIME_ARTIFACT, paste URL, or choose local .tar.gz/.tgz/.tar/.tar.zst")
+        artifact_row.addWidget(artifact_label)
+        artifact_row.addWidget(self.artifact_edit, 1)
+        artifact_row.addWidget(self._button("Browse…", self.choose_artifact))
+        layout.addLayout(artifact_row)
         actions = (
-            ("Full bootstrap", "Deps → configure → build → deploy → checks", "full-bootstrap", ()),
-            ("Update installed Flux", "Update checkout, configure, build, deploy, and clear scoped OFX cache", "update-installed", ()),
-            ("Deploy runtime", "Install app runtime, PyPlugs, OFX bundles, launcher, and OFX cache", "deploy-runtime", ()),
-            ("Configure CMake", "Configure the Flux build tree", "configure", ()),
-            ("Build Flux + OFX", "Build the app and bundled OpenFX plugins", "build-all", ()),
-            ("Install Fedora dependencies", "Install Fedora packages required by the build", "fedora-deps", ()),
-            ("Enable RPM Fusion free", "Enable RPM Fusion repository required by media dependencies", "rpmfusion", ()),
+            ("Full bootstrap from artifact", "Runtime deps → extract artifact → launcher → checks", "full-bootstrap", ()),
+            ("Install runtime dependencies", "Install Fedora packages required to run a prebuilt Flux artifact", "runtime-deps", ()),
+            ("Install selected artifact", "Extract selected/downloaded Flux runtime artifact and write launchers", "install-artifact", ()),
+            ("Update installed Flux from artifact", "Reinstall the selected artifact over the Flux-managed runtime prefix", "full-bootstrap", ()),
+            ("Package installed runtime artifact", "Developer helper: tar the current installed runtime for upload", "package-artifact", ()),
+            ("Developer: build from source", "Build deps → configure → build → deploy → checks", "source-bootstrap", ()),
+            ("Developer: configure CMake", "Configure the Flux build tree", "configure", ()),
+            ("Developer: build Flux + OFX", "Build the app and bundled OpenFX plugins", "build-all", ()),
             ("Installer self-test", "Validate fresh clone and stale submodule repair paths", "installer-self-test", ()),
             ("Check install", "Run installer checks and dependency validation", "checks", ()),
             ("Uninstall Flux runtime", "Remove installed app runtime and launcher", "uninstall", ()),
@@ -427,7 +448,7 @@ class FluxInstallerWindow(QMainWindow):
         self.tabs.addTab(tab, "Logs")
 
     def _rail_button(self, layout: QVBoxLayout, text: str, action: str) -> None:
-        button = self._button(text, lambda a=action: self.run_action(a, select_logs=True))
+        button = self._button(text, lambda _checked=False, a=action: self.run_action(a, select_logs=True))
         button.setObjectName("PrimaryButton" if action != "launch" else "LaunchButton")
         layout.addWidget(button)
 
@@ -439,7 +460,7 @@ class FluxInstallerWindow(QMainWindow):
         return button
 
     def _small_action(self, text: str, action: str, *args: str) -> QPushButton:
-        button = self._button(text, lambda: self.run_action(action, *args, select_logs=True))
+        button = self._button(text, lambda _checked=False, a=action, bound_args=args: self.run_action(a, *bound_args, select_logs=True))
         button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         return button
 
@@ -458,6 +479,11 @@ class FluxInstallerWindow(QMainWindow):
         layout.addLayout(text, 1)
         layout.addWidget(self._small_action("Run", action, *args))
         return frame
+
+    def choose_artifact(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Choose Flux runtime artifact", str(FLUX_ROOT / "dist"), "Flux artifacts (*.tar.gz *.tgz *.tar *.tar.zst);;All files (*)")
+        if path:
+            self.artifact_edit.setText(path)
 
     def _section_label(self, title: str, detail: str) -> QWidget:
         box = QWidget()
@@ -479,6 +505,11 @@ class FluxInstallerWindow(QMainWindow):
         if action == "launch":
             self.launch_flux_detached()
             return
+        if action in {"full-bootstrap", "install-artifact"} and not args:
+            artifact = getattr(self, "artifact_edit", None)
+            artifact_text = artifact.text().strip() if artifact is not None else ""
+            if artifact_text:
+                args = (artifact_text,)
         command_text = f"{SETUP_SCRIPT} __flux_setup_action {action} {' '.join(args)}".strip()
         if action in MUTATING_ACTIONS and not auto_yes:
             if QMessageBox.question(self, "Confirm repair/install action", f"Run this action?\n\n{command_text}") != QMessageBox.Yes:
@@ -734,11 +765,11 @@ class FluxInstallerWindow(QMainWindow):
     def _suggest_repairs(self, data: dict[str, Any]) -> list[str]:
         suggestions: list[str] = []
         app = data.get("app", {})
-        if not app.get("build_binary", {}).get("exists"):
-            suggestions.append("Build Flux and bundled OFX plugins")
-        if not app.get("installed_app", {}).get("exists") or not app.get("launcher", {}).get("exists"):
-            suggestions.append("Install/repair the app, bundled Python tools, PyPlugs, OFX bundles, launcher, and OFX cache")
         plugins = data.get("plugins", {})
+        if not app.get("installed_app", {}).get("exists"):
+            suggestions.append("Install selected Flux runtime artifact")
+        elif not app.get("launcher", {}).get("exists"):
+            suggestions.append("Install/repair the app, bundled Python tools, PyPlugs, OFX bundles, launcher, and OFX cache")
         if any(not x.get("installed") for x in plugins.get("required_pyplugs", [])) or any(not x.get("installed") for x in plugins.get("required_ofx", [])):
             suggestions.append("Install/repair the app, bundled Python tools, PyPlugs, OFX bundles, launcher, and OFX cache")
         ai = data.get("ai", {})
