@@ -35,6 +35,7 @@
 #include <QThreadPool>
 #include <QThread>
 #include <QTextStream>
+#include <QTemporaryFile>
 
 #ifdef WINDOWS
 #include <tchar.h>
@@ -43,6 +44,7 @@
 #include "Global/StrUtils.h"
 
 #include "Engine/AppManager.h"
+#include "Engine/CreateNodeArgs.h"
 #include "Engine/AppInstance.h"
 #include "Engine/KnobFactory.h"
 #include "Engine/KnobFile.h"
@@ -67,16 +69,128 @@
 #include <ofxhPluginCache.h>
 #endif
 
-#define NATRON_DEFAULT_OCIO_CONFIG_NAME "blender"
+#define NATRON_DEFAULT_OCIO_CONFIG_NAME "nuke-default"
 
 
 #define NATRON_CUSTOM_OCIO_CONFIG_NAME "Custom config"
+
+
 
 #define NATRON_DEFAULT_APPEARANCE_VERSION 1
 
 #define NATRON_CUSTOM_HOST_NAME_ENTRY "Custom..."
 
 NATRON_NAMESPACE_ENTER
+
+namespace {
+
+static const char* kReadColorspaceChoiceKnob = "ocioInputSpaceIndex";
+
+static int
+findChoiceIndexByIDOrLabel(const std::vector<ChoiceOption>& entries,
+                           const std::string& idOrLabel)
+{
+    if (idOrLabel.empty()) {
+        return -1;
+    }
+    const QString needle = QString::fromStdString(idOrLabel).trimmed();
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const QString id = QString::fromStdString(entries[i].id).trimmed();
+        const QString label = QString::fromStdString(entries[i].label).trimmed();
+        if (id == needle || label == needle) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static int
+findDefaultColorspaceChoiceIndex(const std::vector<ChoiceOption>& entries,
+                                 const QStringList& preferredIDs)
+{
+    for (const QString& id : preferredIDs) {
+        const int index = findChoiceIndexByIDOrLabel(entries, id.toStdString());
+        if (index >= 0) {
+            return index;
+        }
+    }
+    return entries.empty() ? -1 : 0;
+}
+
+static void
+populateReadColorspacePreferenceKnob(const KnobChoicePtr& knob,
+                                     const KnobStringPtr& persistedIDKnob,
+                                     const std::vector<ChoiceOption>& entries,
+                                     const QStringList& defaultIDs)
+{
+    if (!knob || !persistedIDKnob) {
+        return;
+    }
+    const std::string persistedID = persistedIDKnob->getValue();
+    std::vector<ChoiceOption> populatedEntries(entries);
+    int selectedIndex = findChoiceIndexByIDOrLabel(populatedEntries, persistedID);
+    const int defaultIndex = findDefaultColorspaceChoiceIndex(populatedEntries, defaultIDs);
+    const bool persistedLooksLikeFactoryDefault = defaultIDs.contains(QString::fromStdString(persistedID));
+    if (selectedIndex < 0 && !persistedID.empty() && !persistedLooksLikeFactoryDefault) {
+        populatedEntries.insert(populatedEntries.begin(), ChoiceOption(persistedID, std::string("Missing: ") + persistedID, ""));
+        selectedIndex = 0;
+    } else if (selectedIndex < 0) {
+        selectedIndex = defaultIndex;
+    }
+
+    knob->blockValueChanges();
+    knob->populateChoices(populatedEntries);
+    if (selectedIndex >= 0) {
+        knob->setValue(selectedIndex);
+        const std::string selectedID = knob->getActiveEntry().id;
+        persistedIDKnob->blockValueChanges();
+        persistedIDKnob->setValue(selectedID);
+        persistedIDKnob->unblockValueChanges();
+    }
+    knob->unblockValueChanges();
+}
+
+static std::vector<ChoiceOption>
+getReadColorspaceChoicesFromApp(const AppInstancePtr& app)
+{
+    std::vector<ChoiceOption> entries;
+    if (!app) {
+        return entries;
+    }
+    QTemporaryFile probeFile(QDir::tempPath() + QString::fromUtf8("/flux_read_colorspace_probeXXXXXX.png"));
+    probeFile.setAutoRemove(true);
+    if (!probeFile.open()) {
+        return entries;
+    }
+    static const unsigned char kTinyPng[] = {
+        0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A,0x00,0x00,0x00,0x0D,0x49,0x48,0x44,0x52,
+        0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x01,0x08,0x06,0x00,0x00,0x00,0x1F,0x15,0xC4,
+        0x89,0x00,0x00,0x00,0x0D,0x49,0x44,0x41,0x54,0x78,0x9C,0x63,0xF8,0xCF,0xC0,0xF0,
+        0x1F,0x00,0x05,0x00,0x01,0xFF,0x89,0x99,0x3D,0x1D,0x00,0x00,0x00,0x00,0x49,0x45,
+        0x4E,0x44,0xAE,0x42,0x60,0x82
+    };
+    probeFile.write((const char*)kTinyPng, sizeof(kTinyPng));
+    probeFile.flush();
+
+    CreateNodeArgs args(PLUGINID_NATRON_READ, NodeCollectionPtr());
+    args.setProperty<bool>(kCreateNodeArgsPropOutOfProject, true);
+    args.setProperty<bool>(kCreateNodeArgsPropNoNodeGUI, true);
+    args.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+    args.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+    args.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+    args.setProperty<bool>(kCreateNodeArgsPropSilent, true);
+    NodePtr readNode = app->createReader(probeFile.fileName().toStdString(), args);
+    if (!readNode) {
+        return entries;
+    }
+    KnobChoicePtr inputSpaceChoice = std::dynamic_pointer_cast<KnobChoice>(readNode->getKnobByName(kReadColorspaceChoiceKnob));
+    if (!inputSpaceChoice) {
+        return entries;
+    }
+    return inputSpaceChoice->getEntries_mt_safe();
+}
+
+} // namespace
 
 Settings::Settings()
     : KnobHolder( AppInstancePtr() ) // < Settings are process wide and do not belong to a single AppInstance
@@ -698,6 +812,55 @@ Settings::initializeKnobsColorManagement()
     _ocioStartupCheck = AppManager::createKnob<KnobBool>( this, tr("Warn on startup if OpenColorIO config is not the default") );
     _ocioStartupCheck->setName("startupCheckOCIO");
     _ocioTab->addKnob(_ocioStartupCheck);
+
+    _readColorspaceWarnOnMismatch = AppManager::createKnob<KnobBool>( this, tr("Warn when a preferred Read File Colorspace is unavailable") );
+    _readColorspaceWarnOnMismatch->setName("readColorspaceWarnOnMismatch");
+    _readColorspaceWarnOnMismatch->setHintToolTip( tr("If the selected File Colorspace for a file category is not present in the active OCIO config, keep the reader default and post a warning on the created Read node. This only drives the Read node File Colorspace knob; it does not change any conversion math.") );
+    _ocioTab->addKnob(_readColorspaceWarnOnMismatch);
+
+    _readColorspace8Bit = AppManager::createKnob<KnobChoice>( this, tr("8-bit files") );
+    _readColorspace8Bit->setName("readColorspace8Bit");
+    _readColorspace8Bit->setAnimationEnabled(false);
+    _readColorspace8Bit->setHintToolTip( tr("Sets the Read node File Colorspace for new 8-bit files such as JPG, PNG, WEBP and most video decodes. Does not change conversion math.") );
+    _ocioTab->addKnob(_readColorspace8Bit);
+
+    _readColorspace16Bit = AppManager::createKnob<KnobChoice>( this, tr("16-bit files") );
+    _readColorspace16Bit->setName("readColorspace16Bit");
+    _readColorspace16Bit->setAnimationEnabled(false);
+    _readColorspace16Bit->setHintToolTip( tr("Sets the Read node File Colorspace for new 16-bit integer files such as TIFF/PNG when the reader reports 16-bit integer output. Does not change conversion math.") );
+    _ocioTab->addKnob(_readColorspace16Bit);
+
+    _readColorspaceLog = AppManager::createKnob<KnobChoice>( this, tr("Log files") );
+    _readColorspaceLog->setName("readColorspaceLog");
+    _readColorspaceLog->setAnimationEnabled(false);
+    _readColorspaceLog->setHintToolTip( tr("Sets the Read node File Colorspace for new log/scanned formats such as DPX and Cineon. Does not change conversion math.") );
+    _ocioTab->addKnob(_readColorspaceLog);
+
+    _readColorspaceFloat = AppManager::createKnob<KnobChoice>( this, tr("Float files") );
+    _readColorspaceFloat->setName("readColorspaceFloat");
+    _readColorspaceFloat->setAnimationEnabled(false);
+    _readColorspaceFloat->setHintToolTip( tr("Sets the Read node File Colorspace for new floating-point formats such as EXR and HDR. Does not change conversion math.") );
+    _ocioTab->addKnob(_readColorspaceFloat);
+
+    _readColorspace8BitID = AppManager::createKnob<KnobString>( this, tr("8-bit colorspace ID") );
+    _readColorspace8BitID->setName("readColorspace8BitID");
+    _readColorspace8BitID->setSecretByDefault(true);
+    _ocioTab->addKnob(_readColorspace8BitID);
+
+    _readColorspace16BitID = AppManager::createKnob<KnobString>( this, tr("16-bit colorspace ID") );
+    _readColorspace16BitID->setName("readColorspace16BitID");
+    _readColorspace16BitID->setSecretByDefault(true);
+    _ocioTab->addKnob(_readColorspace16BitID);
+
+    _readColorspaceLogID = AppManager::createKnob<KnobString>( this, tr("log colorspace ID") );
+    _readColorspaceLogID->setName("readColorspaceLogID");
+    _readColorspaceLogID->setSecretByDefault(true);
+    _ocioTab->addKnob(_readColorspaceLogID);
+
+    _readColorspaceFloatID = AppManager::createKnob<KnobString>( this, tr("float colorspace ID") );
+    _readColorspaceFloatID->setName("readColorspaceFloatID");
+    _readColorspaceFloatID->setSecretByDefault(true);
+    _ocioTab->addKnob(_readColorspaceFloatID);
 } // Settings::initializeKnobsColorManagement
 
 void
@@ -1528,8 +1691,11 @@ Settings::setDefaultValues()
     //_ocioConfigKnob
     _warnOcioConfigKnobChanged->setDefaultValue(true);
     _ocioStartupCheck->setDefaultValue(true);
-    //_customOcioConfigFile
-
+    _readColorspaceWarnOnMismatch->setDefaultValue(true);
+    _readColorspace8BitID->setDefaultValue("sRGB");
+    _readColorspace16BitID->setDefaultValue("sRGB");
+    _readColorspaceLogID->setDefaultValue("Cineon");
+    _readColorspaceFloatID->setDefaultValue("linear");
     // Caching
     _aggressiveCaching->setDefaultValue(false);
     _maxRAMPercent->setDefaultValue(50, 0);
@@ -2335,6 +2501,14 @@ Settings::onKnobValueChanged(KnobI* k,
                 }
             }
         }
+    } else if ( k == _readColorspace8Bit.get() ) {
+        _readColorspace8BitID->setValue(_readColorspace8Bit->getActiveEntry().id);
+    } else if ( k == _readColorspace16Bit.get() ) {
+        _readColorspace16BitID->setValue(_readColorspace16Bit->getActiveEntry().id);
+    } else if ( k == _readColorspaceLog.get() ) {
+        _readColorspaceLogID->setValue(_readColorspaceLog->getActiveEntry().id);
+    } else if ( k == _readColorspaceFloat.get() ) {
+        _readColorspaceFloatID->setValue(_readColorspaceFloat->getActiveEntry().id);
     } else if ( k == _maxUndoRedoNodeGraph.get() ) {
         appPTR->setUndoRedoStackLimit( _maxUndoRedoNodeGraph->getValue() );
     } else if ( k == _maxPanelsOpened.get() ) {
@@ -3308,6 +3482,67 @@ bool
 Settings::notifyOnFileChange() const
 {
     return _notifyOnFileChange->getValue();
+}
+
+bool
+Settings::isReadColorspaceMismatchWarningEnabled() const
+{
+    return _readColorspaceWarnOnMismatch->getValue();
+}
+
+bool
+Settings::areReadFileColorspaceChoicesPopulated() const
+{
+    return _readColorspaceFloat && !_readColorspaceFloat->getEntries_mt_safe().empty();
+}
+
+std::string
+Settings::getReadColorspace8BitID() const
+{
+    return _readColorspace8BitID->getValue();
+}
+
+std::string
+Settings::getReadColorspace16BitID() const
+{
+    return _readColorspace16BitID->getValue();
+}
+
+std::string
+Settings::getReadColorspaceLogID() const
+{
+    return _readColorspaceLogID->getValue();
+}
+
+std::string
+Settings::getReadColorspaceFloatID() const
+{
+    return _readColorspaceFloatID->getValue();
+}
+
+void
+Settings::refreshReadFileColorspaceChoicesFromEntries(const std::vector<ChoiceOption>& entries)
+{
+    if (entries.empty()) {
+        return;
+    }
+    populateReadColorspacePreferenceKnob(_readColorspace8Bit, _readColorspace8BitID, entries, QStringList() << QString::fromUtf8("sRGB") << QString::fromUtf8("srgb") << QString::fromUtf8("Utility - sRGB - Texture"));
+    populateReadColorspacePreferenceKnob(_readColorspace16Bit, _readColorspace16BitID, entries, QStringList() << QString::fromUtf8("sRGB") << QString::fromUtf8("srgb") << QString::fromUtf8("Utility - sRGB - Texture"));
+    populateReadColorspacePreferenceKnob(_readColorspaceLog, _readColorspaceLogID, entries, QStringList() << QString::fromUtf8("Cineon") << QString::fromUtf8("cineon") << QString::fromUtf8("LogC"));
+    populateReadColorspacePreferenceKnob(_readColorspaceFloat, _readColorspaceFloatID, entries, QStringList() << QString::fromUtf8("linear") << QString::fromUtf8("scene_linear") << QString::fromUtf8("scene-linear") << QString::fromUtf8("Linear"));
+}
+
+void
+Settings::refreshReadFileColorspaceChoices(const AppInstancePtr& app)
+{
+    static bool s_refreshing = false;
+    if (s_refreshing) {
+        return;
+    }
+    s_refreshing = true;
+    const std::vector<ChoiceOption> entries = getReadColorspaceChoicesFromApp(app);
+    refreshReadFileColorspaceChoicesFromEntries(entries);
+    s_refreshing = false;
 }
 
 bool

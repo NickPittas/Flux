@@ -12,6 +12,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QProcess>
 #include <QTextStream>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -35,6 +36,7 @@
 #include "Engine/Lut.h"
 #include "Engine/ParallelRenderArgs.h"
 #include "Engine/Project.h"
+#include "Engine/OutputEffectInstance.h"
 #include "Engine/Node.h"
 #include "Engine/ImagePlaneDesc.h"
 #include "Gui/Gui.h"
@@ -216,6 +218,9 @@ FluxAiPanel::FluxAiPanel(Gui* gui, QWidget* parent)
     , _runButton(nullptr)
     , _addMaskButton(nullptr)
     , _replaceMaskButton(nullptr)
+    , _createCorridorKeyNodeButton(nullptr)
+    , _importCorridorKeyRgbaButton(nullptr)
+    , _bakeCorridorKeyRgbaButton(nullptr)
     , _cancelButton(nullptr)
     , _resultHistoryList(nullptr)
     , _previewAgainButton(nullptr)
@@ -679,16 +684,31 @@ void FluxAiPanel::setupUi()
     _addMaskButton->setObjectName(QString::fromUtf8("FluxAiAddMaskButton"));
     _replaceMaskButton = new QPushButton(tr("Replace Mask"));
     _replaceMaskButton->setObjectName(QString::fromUtf8("FluxAiReplaceMaskButton"));
+    _createCorridorKeyNodeButton = new QPushButton(tr("Create CorridorKey Node"));
+    _createCorridorKeyNodeButton->setObjectName(QString::fromUtf8("FluxAiCreateCorridorKeyNodeButton"));
+    _importCorridorKeyRgbaButton = new QPushButton(tr("Import CorridorKey RGBA"));
+    _importCorridorKeyRgbaButton->setObjectName(QString::fromUtf8("FluxAiImportCorridorKeyRgbaButton"));
+    _bakeCorridorKeyRgbaButton = new QPushButton(tr("Bake / Import CorridorKey RGBA"));
+    _bakeCorridorKeyRgbaButton->setObjectName(QString::fromUtf8("FluxAiBakeCorridorKeyRgbaButton"));
     _cancelButton = new QPushButton(tr("Cancel"));
     _cancelButton->setObjectName(QString::fromUtf8("FluxAiCancelButton"));
     buttons->addWidget(_runButton);
     buttons->addWidget(_addMaskButton);
     buttons->addWidget(_replaceMaskButton);
     buttons->addWidget(_cancelButton);
+    QHBoxLayout* corridorButtons = new QHBoxLayout();
+    corridorButtons->setSpacing(6);
+    corridorButtons->addWidget(_createCorridorKeyNodeButton);
+    corridorButtons->addWidget(_bakeCorridorKeyRgbaButton);
+    corridorButtons->addWidget(_importCorridorKeyRgbaButton);
+    layout->addLayout(corridorButtons);
     layout->addLayout(buttons);
     QObject::connect(_runButton, SIGNAL(clicked(bool)), this, SLOT(onRunClicked()));
     QObject::connect(_addMaskButton, SIGNAL(clicked(bool)), this, SLOT(onAddMaskClicked()));
     QObject::connect(_replaceMaskButton, SIGNAL(clicked(bool)), this, SLOT(onReplaceMaskClicked()));
+    QObject::connect(_createCorridorKeyNodeButton, SIGNAL(clicked(bool)), this, SLOT(onCreateCorridorKeyNodeClicked()));
+    QObject::connect(_importCorridorKeyRgbaButton, SIGNAL(clicked(bool)), this, SLOT(onImportCorridorKeyRgbaClicked()));
+    QObject::connect(_bakeCorridorKeyRgbaButton, SIGNAL(clicked(bool)), this, SLOT(onBakeCorridorKeyRgbaClicked()));
     QObject::connect(_cancelButton, SIGNAL(clicked(bool)), this, SLOT(cancelSam3()));
 
     layout->addWidget(new QLabel(tr("Result History")));
@@ -788,6 +808,9 @@ void FluxAiPanel::loadModelManifest()
     const QJsonArray models = doc.object().value(QString::fromUtf8("models")).toArray();
     for (const QJsonValue& value : models) {
         const QJsonObject model = value.toObject();
+        if (!model.value(QString::fromUtf8("implemented")).toBool(false)) {
+            continue;
+        }
         const QString id = model.value(QString::fromUtf8("id")).toString();
         const QString display = model.value(QString::fromUtf8("display_name")).toString(id);
         const QString policy = model.value(QString::fromUtf8("install_policy")).toString();
@@ -1275,8 +1298,13 @@ void FluxAiPanel::updateUiState()
     }
     const bool running = (_worker && _worker->isRunning()) || sam3ControllerBusy || sam3PersistentInferencePending || _sam3Exporting || matAnyone2InferencePending || _matAnyone2Exporting || videoMamaInferencePending || _videoMamaExporting;
     const bool projectSaved = _gui && _gui->getApp() && _gui->getApp()->getProject() && _gui->getApp()->getProject()->hasProjectBeenSavedByUser();
+    const QString currentModelId = _modelCombo ? _modelCombo->currentData().toString() : QString();
+    FluxTimeline* currentTimeline = _gui ? _gui->getFluxTimeline() : nullptr;
+    const bool hasSelectedCorridorKeyNode = currentTimeline && currentTimeline->getCorridorKeyNodeForSelectedLayer();
+    const bool showCorridorKeyAction = currentModelId == QString::fromUtf8("corridorkey") || hasSelectedCorridorKeyNode;
+    const bool standardActionsVisible = currentModelId != QString::fromUtf8("corridorkey");
     if (_runButton) {
-        const QString modelId = _modelCombo ? _modelCombo->currentData().toString() : QString();
+        const QString modelId = currentModelId;
         bool matAnyone2Ready = false;
         if (modelId == QString::fromUtf8("matanyone2") && !running && !sam3Running && !matAnyone2Running && !videoMamaRunning && hasSelectedSource()) {
             int rs = 0, re = 0;
@@ -1352,6 +1380,15 @@ void FluxAiPanel::updateUiState()
         const QString modelId = _modelCombo ? _modelCombo->currentData().toString() : QString();
         updateWorkflowGuide(modelId, QString::fromUtf8("run button is not available."));
     }
+    if (_runButton) {
+        _runButton->setVisible(standardActionsVisible);
+    }
+    if (_addMaskButton) {
+        _addMaskButton->setVisible(standardActionsVisible);
+    }
+    if (_replaceMaskButton) {
+        _replaceMaskButton->setVisible(standardActionsVisible);
+    }
     if (_addMaskButton) {
         _addMaskButton->setEnabled(!_lastResultManifestProjectRelative.isEmpty() && !running && !sam3Running && !matAnyone2Running && !videoMamaRunning);
     }
@@ -1359,6 +1396,27 @@ void FluxAiPanel::updateUiState()
         _replaceMaskButton->setEnabled(!_lastResultManifestProjectRelative.isEmpty() && !running && !sam3Running && !matAnyone2Running && !videoMamaRunning);
     }
     const bool historyActionEnabled = !selectedResultManifestProjectRelative().isEmpty() && !running && !sam3Running && !matAnyone2Running && !videoMamaRunning;
+    if (_createCorridorKeyNodeButton) {
+        _createCorridorKeyNodeButton->setVisible(showCorridorKeyAction);
+        _createCorridorKeyNodeButton->setEnabled(currentModelId == QString::fromUtf8("corridorkey") && !hasSelectedCorridorKeyNode && projectSaved && hasSelectedSource() && historyActionEnabled);
+        _createCorridorKeyNodeButton->setToolTip(showCorridorKeyAction
+            ? QString::fromUtf8("Create a native CorridorKey node on the selected layer using the selected Result History mask as input 1.")
+            : QString());
+    }
+    if (_importCorridorKeyRgbaButton) {
+        _importCorridorKeyRgbaButton->setVisible(showCorridorKeyAction);
+        _importCorridorKeyRgbaButton->setEnabled(showCorridorKeyAction && projectSaved && hasSelectedSource() && historyActionEnabled);
+        _importCorridorKeyRgbaButton->setToolTip(showCorridorKeyAction
+            ? QString::fromUtf8("Import the processed_rgba_sequence_pattern_project_relative from the selected CorridorKey manifest above the source layer.")
+            : QString());
+    }
+    if (_bakeCorridorKeyRgbaButton) {
+        _bakeCorridorKeyRgbaButton->setVisible(showCorridorKeyAction);
+        _bakeCorridorKeyRgbaButton->setEnabled(showCorridorKeyAction && hasSelectedCorridorKeyNode && projectSaved && hasSelectedSource() && !running && !sam3Running && !matAnyone2Running && !videoMamaRunning);
+        _bakeCorridorKeyRgbaButton->setToolTip(showCorridorKeyAction
+            ? QString::fromUtf8("Render the selected layer's configured CorridorKey node over the selected range, write project-relative EXRs, and import the processed RGBA result above the source.")
+            : QString());
+    }
     if (_previewAgainButton) {
         _previewAgainButton->setEnabled(historyActionEnabled);
     }
@@ -1374,7 +1432,6 @@ void FluxAiPanel::updateUiState()
     if (_frameRangeEndSpin) {
         _frameRangeEndSpin->setEnabled(!running && !sam3Running && !matAnyone2Running && !videoMamaRunning && hasSelectedSource());
     }
-    const QString currentModelId = _modelCombo ? _modelCombo->currentData().toString() : QString();
     const bool showVideoMamaOptions = currentModelId == QString::fromUtf8("videomama");
     const bool enableVideoMamaOptions = showVideoMamaOptions && !running && !sam3Running && !matAnyone2Running && !videoMamaRunning;
     if (_videoMamaBatchLabel) { _videoMamaBatchLabel->setVisible(showVideoMamaOptions); }
@@ -1617,6 +1674,16 @@ QString FluxAiPanel::workflowGuideText(const QString& modelId) const
             "4. Choose Batch frames and Blend overlap.\n"
             "5. Run VideoMaMa. Do not Add Mask first unless you want to apply the SAM3 result to the comp.");
     }
+    if (modelId == QString::fromUtf8("corridorkey")) {
+        return QString::fromUtf8(
+            "Workflow — CorridorKey\n"
+            "1. Select the green/blue-screen source footage layer.\n"
+            "2. Select a SAM3, VideoMaMa, MatAnyone2, or AI Paint mask result in Result History.\n"
+            "3. Click Create CorridorKey Node. Flux wires plate input 0 and mask input 1.\n"
+            "4. Confirm the node uses the local 1024 TensorRT engine, or set engine_path manually.\n"
+            "5. Select the CorridorKey effect row and click Bake / Import CorridorKey RGBA.\n"
+            "Warning: CorridorKey is non-commercial/share-alike licensed with additional commercial-integration terms; Flux does not bundle code, weights, ONNX, or engines.");
+    }
     return QString::fromUtf8(
         "Workflow\n"
         "1. Select a source footage layer.\n"
@@ -1669,6 +1736,14 @@ QString FluxAiPanel::runUnavailableReason(const QString& modelId, bool running, 
             return QString::fromUtf8("select a SAM3 result in Result History, or create a current AI Paint live-preview mask. Add Mask is not required.");
         }
         return QString::fromUtf8("ready.");
+    }
+    if (modelId == QString::fromUtf8("corridorkey")) {
+        QString historyMask;
+        QString historyMsg;
+        if (!selectedResultMaskProjectRelative(&historyMask, &historyMsg)) {
+            return QString::fromUtf8("select a SAM3, VideoMaMa, MatAnyone2, or AI Paint mask result in Result History.");
+        }
+        return QString::fromUtf8("use Create CorridorKey Node; CorridorKey does not run through the Python worker Run button.");
     }
 
     return QString::fromUtf8("select a supported model.");
@@ -3186,6 +3261,486 @@ void FluxAiPanel::updatePromptSummary()
                           .arg(hasUnsupportedRole ? QString::fromUtf8("; exclude/neutral prompts block this SAM3 path") : QString()));
 }
 
+bool FluxAiPanel::writeCorridorKeyNodeManifest(const QString& relativeMask,
+                                               const QString& relativeSequencePattern,
+                                               QString* message,
+                                               QString* manifestRelative)
+{
+    if (!_gui || !_gui->getApp() || !_gui->getApp()->getProject()) {
+        if (message) { *message = QString::fromUtf8("CorridorKey manifest unavailable: project is missing."); }
+        return false;
+    }
+    ProjectPtr project = _gui->getApp()->getProject();
+    if (!project->hasProjectBeenSavedByUser()) {
+        if (message) { *message = QString::fromUtf8("CorridorKey manifest unavailable: save the project first."); }
+        return false;
+    }
+
+    QString safeMask;
+    if (!sanitizeProjectRelativePath(relativeMask, &safeMask)) {
+        if (message) { *message = QString::fromUtf8("CorridorKey manifest unavailable: selected mask path is unsafe."); }
+        return false;
+    }
+    QString safePattern;
+    if (!relativeSequencePattern.isEmpty()) {
+        sanitizeProjectRelativePath(relativeSequencePattern, &safePattern);
+    }
+
+    const QString runId = QString::fromUtf8("corridorkey_%1_%2")
+        .arg(QDateTime::currentDateTimeUtc().toString(QString::fromUtf8("yyyyMMddTHHmmssZ")))
+        .arg(QUuid::createUuid().toString(QUuid::Id128).left(8));
+    const QString relativeRoot = QString::fromUtf8("FluxGenerated/AI/corridorkey/%1").arg(runId);
+    const QString projectPath = project->getProjectPath();
+    const QString absoluteRoot = QDir(projectPath).filePath(relativeRoot);
+    if (!QDir().mkpath(absoluteRoot)) {
+        if (message) { *message = tr("CorridorKey manifest unavailable: could not create %1").arg(relativeRoot); }
+        return false;
+    }
+
+    QJsonObject sourceMetadata = selectedFrameRangeMetadata();
+    sourceMetadata.insert(QString::fromUtf8("selected_layer_index"), _sourceLayerIndex);
+    sourceMetadata.insert(QString::fromUtf8("selected_layer_name"), _sourceLayerName);
+    sourceMetadata.insert(QString::fromUtf8("source_file_name"), QFileInfo(_sourceFilePath).fileName());
+    sourceMetadata.insert(QString::fromUtf8("reader_label"), _sourceReaderLabel);
+
+    QJsonObject manifest;
+    manifest.insert(QString::fromUtf8("schema"), QString::fromUtf8("flux_ai_result_manifest_v1"));
+    manifest.insert(QString::fromUtf8("model_id"), QString::fromUtf8("corridorkey"));
+    manifest.insert(QString::fromUtf8("run_id"), runId);
+    manifest.insert(QString::fromUtf8("created_at_utc"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    manifest.insert(QString::fromUtf8("node_plugin_id"), QString::fromUtf8(PLUGINID_FLUX_CORRIDOR_KEY));
+    manifest.insert(QString::fromUtf8("source_metadata"), sourceMetadata);
+    manifest.insert(QString::fromUtf8("selected_mask_path_project_relative"), safeMask);
+    if (!safePattern.isEmpty()) {
+        manifest.insert(QString::fromUtf8("selected_mask_sequence_pattern_project_relative"), safePattern);
+    }
+    manifest.insert(QString::fromUtf8("engine_path_display"), QString::fromUtf8("user-supplied; set on CorridorKey node"));
+    manifest.insert(QString::fromUtf8("warning_text"), QString::fromUtf8("CorridorKey is CC BY-NC-SA 4.0 with additional terms. Flux does not bundle CorridorKey assets; commercial software integration requires a separate written agreement from Corridor Digital."));
+    manifest.insert(QString::fromUtf8("license"), QString::fromUtf8("CC BY-NC-SA 4.0 + CorridorKey additional commercial integration terms"));
+    manifest.insert(QString::fromUtf8("attribution"), QString::fromUtf8("CorridorKey by Corridor Digital / upstream authors; user-supplied engine required."));
+
+    const QString relManifest = relativeRoot + QString::fromUtf8("/manifest.json");
+    QFile out(QDir(projectPath).filePath(relManifest));
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (message) { *message = tr("CorridorKey manifest unavailable: could not write %1 (%2)").arg(relManifest, out.errorString()); }
+        return false;
+    }
+    out.write(QJsonDocument(manifest).toJson(QJsonDocument::Indented));
+    out.close();
+    if (manifestRelative) {
+        *manifestRelative = relManifest;
+    }
+    if (message) {
+        *message = tr("CorridorKey node manifest written: %1").arg(relManifest);
+    }
+    return true;
+}
+
+void FluxAiPanel::onCreateCorridorKeyNodeClicked()
+{
+    QString relativeMask;
+    QString message;
+    QString sequencePattern;
+    if (!selectedResultMaskProjectRelative(&relativeMask, &message, &sequencePattern)) {
+        _statusLabel->setText(QString::fromUtf8("Status: CorridorKey unavailable"));
+        appendLog(message);
+        updateUiState();
+        return;
+    }
+    const QString readRelativeMask = sequencePattern.isEmpty() ? relativeMask : sequencePattern;
+    QString existingManifestRelative;
+    QString safeManifest;
+    if (sanitizeProjectRelativePath(selectedResultManifestProjectRelative(), &safeManifest)) {
+        existingManifestRelative = safeManifest;
+    }
+    FluxTimeline* timeline = _gui ? _gui->getFluxTimeline() : nullptr;
+    if (!timeline || !timeline->createCorridorKeyNodeForSelectedLayer(relativeMask, existingManifestRelative, &message, readRelativeMask)) {
+        _statusLabel->setText(QString::fromUtf8("Status: CorridorKey node failed"));
+        appendLog(message.isEmpty() ? QString::fromUtf8("Create CorridorKey Node failed.") : message);
+        updateUiState();
+        return;
+    }
+
+    QString corridorManifest;
+    QString manifestMessage;
+    if (writeCorridorKeyNodeManifest(relativeMask, sequencePattern, &manifestMessage, &corridorManifest)) {
+        appendLog(manifestMessage);
+    } else if (!manifestMessage.isEmpty()) {
+        appendLog(manifestMessage);
+    }
+    _statusLabel->setText(QString::fromUtf8("Status: CorridorKey node created"));
+    appendLog(message);
+    updateUiState();
+}
+
+bool FluxAiPanel::writeCorridorKeyBakeManifest(const QString& relativeRoot,
+                                               const QString& processedPatternRelative,
+                                               const QString& mattePatternRelative,
+                                               const QString& fgPatternRelative,
+                                               const QJsonObject& nodeSettings,
+                                               QString* message,
+                                               QString* manifestRelative)
+{
+    if (!_gui || !_gui->getApp() || !_gui->getApp()->getProject()) {
+        if (message) { *message = QString::fromUtf8("CorridorKey bake manifest unavailable: project is missing."); }
+        return false;
+    }
+    QString safeRoot;
+    QString safeProcessed;
+    QString safeMatte;
+    QString safeFg;
+    if (!sanitizeProjectRelativePath(relativeRoot, &safeRoot) ||
+        !sanitizeProjectRelativePath(processedPatternRelative, &safeProcessed) ||
+        (!mattePatternRelative.isEmpty() && !sanitizeProjectRelativePath(mattePatternRelative, &safeMatte)) ||
+        (!fgPatternRelative.isEmpty() && !sanitizeProjectRelativePath(fgPatternRelative, &safeFg))) {
+        if (message) { *message = QString::fromUtf8("CorridorKey bake manifest unavailable: generated paths are unsafe."); }
+        return false;
+    }
+
+    QJsonObject manifest;
+    manifest.insert(QString::fromUtf8("schema"), QString::fromUtf8("flux_ai_result_manifest_v1"));
+    manifest.insert(QString::fromUtf8("model_id"), QString::fromUtf8("corridorkey"));
+    manifest.insert(QString::fromUtf8("run_id"), QFileInfo(safeRoot).fileName());
+    manifest.insert(QString::fromUtf8("created_at_utc"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    manifest.insert(QString::fromUtf8("node_plugin_id"), QString::fromUtf8(PLUGINID_FLUX_CORRIDOR_KEY));
+    manifest.insert(QString::fromUtf8("source_metadata"), selectedFrameRangeMetadata());
+    manifest.insert(QString::fromUtf8("processed_rgba_sequence_pattern_project_relative"), safeProcessed);
+    if (!safeMatte.isEmpty()) {
+        manifest.insert(QString::fromUtf8("selected_mask_path_project_relative"), safeMatte);
+        manifest.insert(QString::fromUtf8("selected_mask_sequence_pattern_project_relative"), safeMatte);
+        manifest.insert(QString::fromUtf8("matte_sequence_pattern_project_relative"), safeMatte);
+    }
+    if (!safeFg.isEmpty()) {
+        manifest.insert(QString::fromUtf8("fg_sequence_pattern_project_relative"), safeFg);
+    }
+    manifest.insert(QString::fromUtf8("node_settings"), nodeSettings);
+    manifest.insert(QString::fromUtf8("engine_path_display"), nodeSettings.value(QString::fromUtf8("engine_path_display")).toString());
+    manifest.insert(QString::fromUtf8("warning_text"), QString::fromUtf8("CorridorKey is CC BY-NC-SA 4.0 with additional terms. Flux does not bundle CorridorKey assets; commercial software integration requires a separate written agreement from Corridor Digital."));
+    manifest.insert(QString::fromUtf8("license"), QString::fromUtf8("CC BY-NC-SA 4.0 + CorridorKey additional commercial integration terms"));
+    manifest.insert(QString::fromUtf8("attribution"), QString::fromUtf8("CorridorKey by Corridor Digital / upstream authors; user-supplied engine required."));
+
+    const QString relManifest = safeRoot + QString::fromUtf8("/manifest.json");
+    QFile out(QDir(_gui->getApp()->getProject()->getProjectPath()).filePath(relManifest));
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (message) { *message = tr("CorridorKey bake manifest unavailable: could not write %1 (%2)").arg(relManifest, out.errorString()); }
+        return false;
+    }
+    out.write(QJsonDocument(manifest).toJson(QJsonDocument::Indented));
+    out.close();
+    if (manifestRelative) {
+        *manifestRelative = relManifest;
+    }
+    if (message) {
+        *message = tr("CorridorKey bake manifest written: %1").arg(relManifest);
+    }
+    return true;
+}
+
+bool FluxAiPanel::bakeCorridorKeyOutputs(const NodePtr& corridorNode,
+                                         QString* message,
+                                         QString* manifestRelative,
+                                         QString* processedPatternRelative)
+{
+    if (!_gui || !_gui->getApp() || !_gui->getApp()->getProject() || !corridorNode) {
+        if (message) { *message = QString::fromUtf8("Bake CorridorKey failed: project or CorridorKey node is unavailable."); }
+        return false;
+    }
+    ProjectPtr project = _gui->getApp()->getProject();
+    if (!project->hasProjectBeenSavedByUser()) {
+        if (message) { *message = QString::fromUtf8("Bake CorridorKey failed: save the project first."); }
+        return false;
+    }
+    int firstFrame = 0;
+    int lastFrame = 0;
+    QString rangeMessage;
+    if (!selectedFrameRange(&firstFrame, &lastFrame, &rangeMessage)) {
+        if (message) { *message = rangeMessage; }
+        return false;
+    }
+    const QString runId = QString::fromUtf8("corridorkey_bake_%1_%2")
+        .arg(QDateTime::currentDateTimeUtc().toString(QString::fromUtf8("yyyyMMddTHHmmssZ")))
+        .arg(QUuid::createUuid().toString(QUuid::Id128).left(8));
+    const QString relativeRoot = QString::fromUtf8("FluxGenerated/AI/CorridorKey/%1").arg(runId);
+    const QString processedRel = relativeRoot + QString::fromUtf8("/Processed/corridorkey.####.exr");
+    const QString matteRel;
+    const QString fgRel;
+    const QString projectPath = project->getProjectPath();
+    const QString absoluteRoot = QDir(projectPath).filePath(relativeRoot);
+    if (!QDir().mkpath(QDir(absoluteRoot).filePath(QString::fromUtf8("Processed")))) {
+        if (message) { *message = tr("Bake CorridorKey failed: could not create %1.").arg(relativeRoot); }
+        return false;
+    }
+
+    KnobIPtr engineKnobI = corridorNode->getKnobByName("engine_path");
+    KnobStringPtr engineKnob = std::dynamic_pointer_cast<KnobString>(engineKnobI);
+    const QString enginePath = engineKnob ? QString::fromUtf8(engineKnob->getValue().c_str()) : QString();
+    if (enginePath.trimmed().isEmpty()) {
+        if (message) { *message = QString::fromUtf8("Bake CorridorKey failed: set the CorridorKey engine_path knob first."); }
+        return false;
+    }
+
+    KnobIPtr outputModeKnobI = corridorNode->getKnobByName("output_mode");
+    KnobChoicePtr outputModeKnob = std::dynamic_pointer_cast<KnobChoice>(outputModeKnobI);
+    if (!outputModeKnob) {
+        if (message) { *message = QString::fromUtf8("Bake CorridorKey failed: output_mode knob is missing."); }
+        return false;
+    }
+    const int originalOutputMode = outputModeKnob->getValue();
+
+    QJsonObject nodeSettings;
+    nodeSettings.insert(QString::fromUtf8("engine_path_display"), QFileInfo(enginePath).fileName());
+    KnobIPtr resolutionKnobI = corridorNode->getKnobByName("resolution");
+    KnobChoicePtr resolutionKnob = std::dynamic_pointer_cast<KnobChoice>(resolutionKnobI);
+    int resolutionIndex = 2;
+    if (resolutionKnob) {
+        resolutionIndex = resolutionKnob->getValue();
+        nodeSettings.insert(QString::fromUtf8("resolution_index"), resolutionIndex);
+        const int resolutionValue = resolutionIndex == 0 ? 512 : (resolutionIndex == 1 ? 768 : (resolutionIndex == 2 ? 1024 : (resolutionIndex == 3 ? 2048 : 0)));
+        if (resolutionValue > 0) {
+            nodeSettings.insert(QString::fromUtf8("resolution"), resolutionValue);
+            nodeSettings.insert(QString::fromUtf8("auto_engine_basename"), QString::fromUtf8("CorridorKey_v1.0_%1_fp16.engine").arg(resolutionValue));
+        }
+    }
+    KnobIPtr invertKnobI = corridorNode->getKnobByName("invert");
+    KnobBoolPtr invertKnob = std::dynamic_pointer_cast<KnobBool>(invertKnobI);
+    if (invertKnob) {
+        nodeSettings.insert(QString::fromUtf8("invert"), invertKnob->getValue());
+    }
+    KnobIPtr screenColorKnobI = corridorNode->getKnobByName("screen_color");
+    KnobChoicePtr screenColorKnob = std::dynamic_pointer_cast<KnobChoice>(screenColorKnobI);
+    if (screenColorKnob) {
+        nodeSettings.insert(QString::fromUtf8("screen_color_index"), screenColorKnob->getValue());
+    }
+    KnobIPtr despillStrengthKnobI = corridorNode->getKnobByName("despill_strength");
+    KnobDoublePtr despillStrengthKnob = std::dynamic_pointer_cast<KnobDouble>(despillStrengthKnobI);
+    if (despillStrengthKnob) {
+        nodeSettings.insert(QString::fromUtf8("despill_strength"), despillStrengthKnob->getValue());
+    }
+    KnobIPtr gpuKnobI = corridorNode->getKnobByName("gpu");
+    KnobIntPtr gpuKnob = std::dynamic_pointer_cast<KnobInt>(gpuKnobI);
+    if (gpuKnob) {
+        nodeSettings.insert(QString::fromUtf8("gpu"), gpuKnob->getValue());
+    }
+    NodeCollectionPtr collection = std::dynamic_pointer_cast<NodeCollection>(project);
+    const QString processedAbs = QDir(projectPath).filePath(processedRel);
+    const auto renderedFramePath = [](const QString& pattern, int frame) {
+        QString file = pattern;
+        const QString padded = QString::fromUtf8("%1").arg(frame, 4, 10, QLatin1Char('0'));
+        file.replace(QString::fromUtf8("####"), padded);
+        return file;
+    };
+
+    outputModeKnob->setValue(0, ViewSpec::all(), 0);
+    CreateNodeArgs writeArgs(PLUGINID_NATRON_WRITE, collection);
+    writeArgs.setProperty<bool>(kCreateNodeArgsPropAutoConnect, false);
+    writeArgs.setProperty<bool>(kCreateNodeArgsPropAddUndoRedoCommand, false);
+    writeArgs.setProperty<bool>(kCreateNodeArgsPropSettingsOpened, false);
+    writeArgs.setProperty<bool>(kCreateNodeArgsPropSilent, true);
+    NodePtr writeNode = _gui->getApp()->createWriter(processedAbs.toStdString(), writeArgs, firstFrame, lastFrame);
+    if (!writeNode) {
+        outputModeKnob->setValue(originalOutputMode, ViewSpec::all(), 0);
+        if (message) { *message = tr("Bake CorridorKey failed: could not create processed RGBA writer for %1.").arg(processedAbs); }
+        return false;
+    }
+    const QString writerScriptName = QString::fromUtf8("CorridorKeyBakeWrite_%1").arg(runId);
+    try {
+        writeNode->setScriptName(writerScriptName.toStdString());
+    } catch (...) {
+    }
+    writeNode->disconnectInput(0);
+    if (!writeNode->connectInput(corridorNode, 0)) {
+        outputModeKnob->setValue(originalOutputMode, ViewSpec::all(), 0);
+        if (message) { *message = tr("Bake CorridorKey failed: could not connect processed RGBA writer for %1.").arg(processedAbs); }
+        return false;
+    }
+
+    const QString tempProjectName = runId + QString::fromUtf8("_bake.ntp");
+    QString tempProjectDir = QDir(absoluteRoot).absolutePath();
+    if (!tempProjectDir.endsWith(QLatin1Char('/'))) {
+        tempProjectDir += QLatin1Char('/');
+    }
+    QString savedProjectPath;
+    if (!project->saveProject_imp(tempProjectDir, tempProjectName, false, false, &savedProjectPath)) {
+        outputModeKnob->setValue(originalOutputMode, ViewSpec::all(), 0);
+        if (message) { *message = tr("Bake CorridorKey failed: could not save temporary bake project."); }
+        return false;
+    }
+    writeNode->deactivate(std::list<NodePtr>(), false, true);
+    outputModeKnob->setValue(originalOutputMode, ViewSpec::all(), 0);
+
+    const QString rangeArg = firstFrame == lastFrame
+        ? QString::number(firstFrame)
+        : QString::fromUtf8("%1-%2").arg(firstFrame).arg(lastFrame);
+    QStringList args;
+    args << QString::fromUtf8("-b")
+         << QString::fromUtf8("-w") << writerScriptName
+         << rangeArg
+         << (savedProjectPath.isEmpty() ? (tempProjectDir + tempProjectName) : savedProjectPath);
+
+    QProcess process;
+    process.setProgram(QCoreApplication::applicationFilePath());
+    process.setArguments(args);
+    process.setProcessChannelMode(QProcess::MergedChannels);
+    process.start();
+    if (!process.waitForStarted(30000)) {
+        if (message) { *message = tr("Bake CorridorKey failed: could not start background Flux renderer: %1").arg(process.errorString()); }
+        return false;
+    }
+    QString processOutput;
+    while (!process.waitForFinished(250)) {
+        const QString chunk = QString::fromUtf8(process.readAll());
+        if (!chunk.isEmpty()) {
+            processOutput += chunk;
+            const int progressIndex = processOutput.lastIndexOf(QString::fromUtf8("Progress: "));
+            if (progressIndex >= 0) {
+                int pos = progressIndex + QString::fromUtf8("Progress: ").size();
+                QString number;
+                while (pos < processOutput.size() && (processOutput.at(pos).isDigit() || processOutput.at(pos) == QLatin1Char('.'))) {
+                    number.append(processOutput.at(pos));
+                    ++pos;
+                }
+                bool ok = false;
+                const int progress = qRound(number.toDouble(&ok));
+                if (ok) {
+                    setProgressBarValue(progress, QString::fromUtf8("Baking CorridorKey"));
+                    if (_statusLabel) {
+                        _statusLabel->setText(QString::fromUtf8("Status: baking CorridorKey %1%").arg(qBound(0, progress, 100)));
+                    }
+                }
+            }
+            QCoreApplication::processEvents();
+        }
+    }
+    processOutput += QString::fromUtf8(process.readAll());
+    setProgressBarValue(100, QString::fromUtf8("Baking CorridorKey"));
+    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
+        if (message) {
+            *message = tr("Bake CorridorKey failed: background renderer exited with code %1.\n%2").arg(process.exitCode()).arg(processOutput.right(4000));
+        }
+        return false;
+    }
+
+    const QString firstRenderedFile = renderedFramePath(processedAbs, firstFrame);
+    if (!QFileInfo::exists(firstRenderedFile)) {
+        if (message) { *message = tr("Bake CorridorKey failed: expected rendered file was not written: %1.\n%2").arg(firstRenderedFile, processOutput.right(4000)); }
+        return false;
+    }
+
+
+    QString manifestMessage;
+    QString relManifest;
+    if (!writeCorridorKeyBakeManifest(relativeRoot, processedRel, matteRel, fgRel, nodeSettings, &manifestMessage, &relManifest)) {
+        if (message) { *message = manifestMessage; }
+        return false;
+    }
+    if (manifestRelative) {
+        *manifestRelative = relManifest;
+    }
+    if (processedPatternRelative) {
+        *processedPatternRelative = processedRel;
+    }
+    if (message) {
+        *message = tr("Baked CorridorKey EXR sequences for frames %1-%2. %3").arg(firstFrame).arg(lastFrame).arg(manifestMessage);
+    }
+    return true;
+}
+
+void FluxAiPanel::onBakeCorridorKeyRgbaClicked()
+{
+    FluxTimeline* timeline = _gui ? _gui->getFluxTimeline() : nullptr;
+    NodePtr corridorNode = timeline ? timeline->getCorridorKeyNodeForSelectedLayer() : NodePtr();
+    if (!corridorNode) {
+        _statusLabel->setText(QString::fromUtf8("Status: CorridorKey bake unavailable"));
+        appendLog(QString::fromUtf8("Bake CorridorKey failed: select a source layer that has a configured CorridorKey effect."));
+        updateUiState();
+        return;
+    }
+    setProgressBarBusy(QString::fromUtf8("Baking CorridorKey..."));
+    QString message;
+    QString manifestRelative;
+    QString processedPatternRelative;
+    if (!bakeCorridorKeyOutputs(corridorNode, &message, &manifestRelative, &processedPatternRelative)) {
+        resetProgressBar();
+        _statusLabel->setText(QString::fromUtf8("Status: CorridorKey bake failed"));
+        appendLog(message);
+        updateUiState();
+        return;
+    }
+    addOrPromoteResultManifest(manifestRelative);
+    appendLog(message);
+
+    QString importMessage;
+    const QString projectPath = _gui->getApp()->getProject()->getProjectPath();
+    const QString absolutePattern = QDir(projectPath).filePath(processedPatternRelative);
+    if (timeline && timeline->insertGeneratedFootageLayerAboveSelected(QString::fromUtf8("CorridorKey RGBA"), absolutePattern, &importMessage)) {
+        appendLog(importMessage);
+        _statusLabel->setText(QString::fromUtf8("Status: CorridorKey RGBA baked/imported"));
+    } else {
+        appendLog(importMessage.isEmpty() ? QString::fromUtf8("CorridorKey bake complete, but auto-import failed.") : importMessage);
+        _statusLabel->setText(QString::fromUtf8("Status: CorridorKey RGBA baked"));
+    }
+    resetProgressBar();
+    updateUiState();
+}
+
+
+void FluxAiPanel::onImportCorridorKeyRgbaClicked()
+{
+    if (!_gui || !_gui->getApp() || !_gui->getApp()->getProject()) {
+        appendLog(QString::fromUtf8("Import CorridorKey RGBA failed: project is unavailable."));
+        updateUiState();
+        return;
+    }
+    QString safeManifest;
+    if (!sanitizeProjectRelativePath(selectedResultManifestProjectRelative(), &safeManifest)) {
+        appendLog(QString::fromUtf8("Import CorridorKey RGBA failed: select a CorridorKey manifest in Result History."));
+        updateUiState();
+        return;
+    }
+
+    const QString projectPath = _gui->getApp()->getProject()->getProjectPath();
+    QFile file(QDir(projectPath).filePath(safeManifest));
+    if (!file.open(QIODevice::ReadOnly)) {
+        appendLog(tr("Import CorridorKey RGBA failed: manifest unavailable: %1").arg(safeManifest));
+        updateUiState();
+        return;
+    }
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        appendLog(tr("Import CorridorKey RGBA failed: manifest JSON could not be parsed: %1").arg(parseError.errorString()));
+        updateUiState();
+        return;
+    }
+    const QJsonObject obj = doc.object();
+    if (obj.value(QString::fromUtf8("model_id")).toString() != QString::fromUtf8("corridorkey")) {
+        appendLog(QString::fromUtf8("Import CorridorKey RGBA failed: selected history item is not a CorridorKey manifest."));
+        updateUiState();
+        return;
+    }
+    QString processedPattern;
+    if (!sanitizeProjectRelativePath(obj.value(QString::fromUtf8("processed_rgba_sequence_pattern_project_relative")).toString(), &processedPattern)) {
+        appendLog(QString::fromUtf8("Import CorridorKey RGBA failed: selected CorridorKey manifest has no processed_rgba_sequence_pattern_project_relative. Bake the configured CorridorKey node first."));
+        updateUiState();
+        return;
+    }
+
+    FluxTimeline* timeline = _gui->getFluxTimeline();
+    QString message;
+    const QString absolutePattern = QDir(projectPath).filePath(processedPattern);
+    const QString layerName = QFileInfo(processedPattern).completeBaseName().isEmpty()
+        ? QString::fromUtf8("CorridorKey RGBA")
+        : QString::fromUtf8("CorridorKey RGBA - %1").arg(QFileInfo(processedPattern).completeBaseName());
+    if (!timeline || !timeline->insertGeneratedFootageLayerAboveSelected(layerName, absolutePattern, &message)) {
+        appendLog(message.isEmpty() ? QString::fromUtf8("Import CorridorKey RGBA failed.") : message);
+        updateUiState();
+        return;
+    }
+    _statusLabel->setText(QString::fromUtf8("Status: CorridorKey RGBA imported"));
+    appendLog(message);
+    updateUiState();
+}
+
 void FluxAiPanel::onAddMaskClicked()
 {
     QString relativeMask;
@@ -3497,7 +4052,7 @@ void FluxAiPanel::toggleLog()
 void FluxAiPanel::onModelChanged()
 {
     const QString modelId = _modelCombo ? _modelCombo->currentData().toString() : QString();
-    if (modelId == QString::fromUtf8("matanyone2") || modelId == QString::fromUtf8("videomama")) {
+    if (modelId == QString::fromUtf8("matanyone2") || modelId == QString::fromUtf8("videomama") || modelId == QString::fromUtf8("corridorkey")) {
         const QString path = manifestPath();
         QFile file(path);
         QString warningText = QString::fromUtf8("NON-COMMERCIAL");

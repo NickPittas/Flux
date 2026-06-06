@@ -680,21 +680,23 @@ bool
 KnobChoice::populateChoices(const std::vector<ChoiceOption> &entries)
 {
     bool hasChanged = false;
+    std::vector<ChoiceOption> normalizedEntries(entries);
+    for (std::size_t i = 0; i < normalizedEntries.size(); ++i) {
+
+        // The ID cannot be empty, this is the only way to uniquely identify the choice.
+        assert(!normalizedEntries[i].id.empty());
+
+        // If the label is not set, use the ID
+        if (normalizedEntries[i].label.empty()) {
+            normalizedEntries[i].label = normalizedEntries[i].id;
+        }
+    }
     {
         QMutexLocker l(&_entriesMutex);
-        _entries = entries;
-        for (std::size_t i = 0; i < _entries.size(); ++i) {
-
-            // The ID cannot be empty, this is the only way to uniquely identify the choice.
-            assert(!_entries[i].id.empty());
-
-            // If the label is not set, use the ID
-            if (_entries[i].label.empty()) {
-                _entries[i].label = _entries[i].id;
-            }
+        hasChanged = _entries != normalizedEntries;
+        if (hasChanged) {
+            _entries.swap(normalizedEntries);
         }
-        hasChanged = true;
-
     }
 
     /*

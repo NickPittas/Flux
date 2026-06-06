@@ -827,9 +827,8 @@ NodeGui::removeSettingsPanel()
 void
 NodeGui::refreshSize()
 {
-    QRectF bbox = boundingRect();
-
-    QString& label = _nodeLabel;
+    const QRectF bbox = _boundingBox->rect();
+    const QString& label = _nodeLabel;
     resize( bbox.width(), bbox.height(), false, !label.isEmpty() );
 }
 
@@ -2783,8 +2782,7 @@ QSize
 NodeGui::getSize() const
 {
     if ( QThread::currentThread() == qApp->thread() ) {
-        QRectF bbox = boundingRect();
-
+        const QRectF bbox = _boundingBox->rect();
         return QSize( bbox.width(), bbox.height() );
     } else {
         QMutexLocker k(&_mtSafeSizeMutex);
@@ -3121,8 +3119,8 @@ NodeGui::setNameItemHtml(const QString & name,
         startFontTag = finalText.indexOf(QString::fromUtf8("\">"), startFontTag);
     }
 
-    QString oldText = _nameItem->toHtml();
-    if (finalText == oldText) {
+    const QString currentRawHtml = _nameItem->data(0).toString();
+    if (finalText == currentRawHtml) {
         // Nothing changed
         return;
     }
@@ -3143,10 +3141,10 @@ NodeGui::setNameItemHtml(const QString & name,
     _nameItem->setDefaultTextColor(color);
     _nameItem->setFont(f);
     _nameItem->setHtml(finalText);
+    _nameItem->setData(0, finalText);
     _nameItem->adjustSize();
 
-
-    QRectF bbox = boundingRect();
+    const QRectF bbox = _boundingBox->rect();
     resize( bbox.width(), bbox.height(), false, !label.isEmpty() );
 } // setNameItemHtml
 

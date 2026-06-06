@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Flux AI model manager: install/verify/remove/list/status with secure HF token use."""
 from __future__ import annotations
-import argparse, getpass, json, os, select, shutil, sys, tempfile, termios, tty, urllib.request
+import argparse, getpass, json, os, select, shutil, subprocess, sys, tempfile, termios, tty, urllib.request
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 APP_DIR="Flux"; SERVICE="org.flux.Flux"; TOKEN_USER="huggingface.token"
 REQUIRED_TOP_LEVEL={"manifest_version","models"}
-REQUIRED_MODEL_FIELDS={"id","display_name","category","role","priority","provider","runtime_type","install_policy","bundling_policy","license_summary","warning_text","gated_token_requirement","default_enabled","default_installable","output_use_notes","source"}
+REQUIRED_MODEL_FIELDS={"id","display_name","category","role","priority","provider","runtime_type","install_policy","bundling_policy","license_summary","warning_text","gated_token_requirement","default_enabled","default_installable","implemented","output_use_notes","source"}
 
 def redact(s:str|None)->str:
     if not s: return ""
@@ -44,7 +44,12 @@ def validate_manifest(data):
         if not isinstance(m.get("source"),dict): errors.append(f"{p}.source must be an object")
     return errors
 
-def sorted_models(data): return sorted(data.get("models",[]), key=lambda m:(-int(m.get("priority",0)), str(m.get("id",""))))
+def model_is_implemented(m): return bool(m.get("implemented"))
+def sorted_models(data, include_unimplemented=False):
+    rows = data.get("models", [])
+    if not include_unimplemented:
+        rows = [m for m in rows if model_is_implemented(m)]
+    return sorted(rows, key=lambda m:(-int(m.get("priority",0)), str(m.get("id",""))))
 def find_model(data, mid):
     for m in data.get("models",[]):
         if m.get("id")==mid: return m
@@ -63,14 +68,15 @@ def is_installed(m, paths): return (model_local_path(m,paths)/"flux_model_instal
 
 def cmd_list(args):
     data=load_manifest(args.manifest)
+    include_unimplemented = bool(getattr(args, "include_unimplemented", False))
     if getattr(args,"json",False):
         paths=flux_paths()
         rows=[]
-        for m in sorted_models(data):
-            rows.append({"id":m["id"],"display_name":m.get("display_name",""),"role":m.get("role",""),"license_summary":m.get("license_summary",""),"warning_text":m.get("warning_text",""),"default_enabled":bool(m.get("default_enabled")),"default_installable":bool(m.get("default_installable")),"installed":is_installed(m,paths),"labels":warning_labels(m)})
+        for m in sorted_models(data, include_unimplemented=include_unimplemented):
+            rows.append({"id":m["id"],"display_name":m.get("display_name",""),"role":m.get("role",""),"license_summary":m.get("license_summary",""),"warning_text":m.get("warning_text",""),"default_enabled":bool(m.get("default_enabled")),"default_installable":bool(m.get("default_installable")),"implemented":bool(m.get("implemented")),"installed":is_installed(m,paths),"labels":warning_labels(m)})
         print(json.dumps({"models":rows},sort_keys=True))
         return 0
-    for m in sorted_models(data):
+    for m in sorted_models(data, include_unimplemented=include_unimplemented):
         labels=warning_labels(m); print(f"{m['id']}: {m['display_name']}"+(f" [{' | '.join(labels)}]" if labels else ""))
         print(f"  role: {m['role']}\n  install: {m['install_policy']} | bundle: {m['bundling_policy']}\n  license: {m['license_summary']}")
         if m.get("warning_text"): print(f"  warning: {m['warning_text']}")
@@ -82,14 +88,14 @@ def cmd_verify(args):
         print("Manifest verification FAILED",file=sys.stderr); [print("ERROR: "+e,file=sys.stderr) for e in errors]; return 1
     if args.offline: print("Manifest verification OK (offline); no network performed."); return 0
     paths=flux_paths(); bad=0
-    for m in sorted_models(data):
+    for m in sorted_models(data, include_unimplemented=True):
         if is_installed(m,paths): print(f"OK installed: {m['id']} -> {model_local_path(m,paths)}")
     return bad
 
 def cmd_status(args):
     data=load_manifest(args.manifest); paths=flux_paths(); print("Flux AI model paths:")
     for k in ("model_store","hub_cache","download_staging","config_file"): print(f"  {k}: {paths[k]} (exists: {paths[k].exists()})")
-    for m in sorted_models(data): print(f"  {m['id']}: {'installed' if is_installed(m,paths) else 'missing'} ({model_local_path(m,paths)})")
+    for m in sorted_models(data, include_unimplemented=True): print(f"  {m['id']}: {'installed' if is_installed(m,paths) else 'missing'} ({model_local_path(m,paths)})")
     return 0
 
 SECURE_KEYRING_BACKENDS={
@@ -163,6 +169,25 @@ def write_meta(m,path,files):
     meta={"model_id":m["id"],"display_name":m.get("display_name"),"source":m.get("source"),"files":files,"warnings":m.get("warning_text"),"license_summary":m.get("license_summary")}
     (path/"flux_model_install.json").write_text(json.dumps(meta,indent=2,sort_keys=True),encoding="utf-8")
 
+def _prepare_install_dir(dest:Path, force:bool)->Path:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if force and dest.exists():
+        shutil.rmtree(dest)
+    staging = dest.parent / f".{dest.name}.partial"
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True, exist_ok=True)
+    return staging
+
+def _finalize_install_dir(staging:Path, dest:Path)->None:
+    if dest.exists():
+        shutil.rmtree(dest)
+    os.replace(staging, dest)
+
+def _cleanup_install_dir(staging:Path)->None:
+    if staging.exists():
+        shutil.rmtree(staging, ignore_errors=True)
+
 def install_hf(m,args,paths):
     s=m["source"]; req=str(m.get("gated_token_requirement","")).lower(); need=req.startswith("required") or req in {"token_required", "required_for_download"}; tok=token_from_args(args,need)
     if need and not tok:
@@ -174,18 +199,179 @@ def install_hf(m,args,paths):
     if args.dry_run: print(f"DRY-RUN HF {m['id']}: repo={s['repo']} revision={s['revision']} allow={s.get('allow_patterns')}"); return 0
     try: from huggingface_hub import snapshot_download
     except Exception: print("ERROR: install requires huggingface_hub (installer bootstraps it for normal Flux installs).",file=sys.stderr); return 1
-    dest=model_local_path(m,paths); dest.parent.mkdir(parents=True,exist_ok=True); paths["hub_cache"].mkdir(parents=True,exist_ok=True)
-    snapshot_download(repo_id=s["repo"], revision=s.get("revision"), token=tok, cache_dir=str(paths["hub_cache"]), local_dir=str(dest), allow_patterns=s.get("allow_patterns"))
-    files=[str(p.relative_to(dest)) for p in dest.rglob("*") if p.is_file() and p.name!="flux_model_install.json"]; write_meta(m,dest,files); print(f"Installed {m['id']} -> {dest}"); return 0
-
+    dest=model_local_path(m,paths); paths["hub_cache"].mkdir(parents=True,exist_ok=True); staging=_prepare_install_dir(dest,args.force)
+    try:
+        snapshot_download(repo_id=s["repo"], revision=s.get("revision"), token=tok, cache_dir=str(paths["hub_cache"]), local_dir=str(staging), allow_patterns=s.get("allow_patterns"))
+        files=[str(p.relative_to(staging)) for p in staging.rglob("*") if p.is_file() and p.name!="flux_model_install.json"]
+        write_meta(m,staging,files)
+        _finalize_install_dir(staging,dest)
+    except Exception:
+        _cleanup_install_dir(staging)
+        raise
+    print(f"Installed {m['id']} -> {dest}"); return 0
 def install_direct(m,args,paths):
     s=m["source"]; urls=s.get("urls") or ([s.get("url")] if s.get("url") else [])
     if args.dry_run: print(f"DRY-RUN URL {m['id']}: "+", ".join(u.get('url',u) if isinstance(u,dict) else u for u in urls)); return 0
     dest=model_local_path(m,paths); dest.mkdir(parents=True,exist_ok=True); files=[]
-    for item in urls:
-        url=item.get("url") if isinstance(item,dict) else item; name=item.get("filename") if isinstance(item,dict) else Path(url).name
-        print(f"Downloading {m['id']} file {name}"); urllib.request.urlretrieve(url, dest/name); files.append(name)
-    write_meta(m,dest,files); print(f"Installed {m['id']} -> {dest}"); return 0
+    dest=model_local_path(m,paths); staging=_prepare_install_dir(dest,args.force); files=[]
+    try:
+        for item in urls:
+            url=item.get("url") if isinstance(item,dict) else item; name=item.get("filename") if isinstance(item,dict) else Path(url).name
+            print(f"Downloading {m['id']} file {name}"); urllib.request.urlretrieve(url, staging/name); files.append(name)
+        write_meta(m,staging,files)
+        _finalize_install_dir(staging,dest)
+    except Exception:
+        _cleanup_install_dir(staging)
+        raise
+    print(f"Installed {m['id']} -> {dest}"); return 0
+def _candidate_paths(source, kind):
+    for item in source.get("local_candidates", []) or []:
+        if not isinstance(item, dict) or item.get("kind") != kind:
+            continue
+        env_name = item.get("path_env")
+        if env_name:
+            env_path = os.environ.get(env_name)
+            if env_path:
+                yield Path(env_path).expanduser()
+        raw = item.get("path")
+        if raw:
+            yield Path(raw).expanduser()
+
+def _copy_if_exists(patterns, src_dir, dst_dir):
+    copied=[]
+    for pat in patterns:
+        for p in src_dir.glob(pat):
+            if p.is_file():
+                dst_dir.mkdir(parents=True, exist_ok=True)
+                target = (dst_dir / p.name).resolve()
+                src = p.resolve()
+                if src != target:
+                    shutil.copy2(src, target)
+                copied.append(target.name)
+    return copied
+
+def _which(executable:str)->Path|None:
+    found=shutil.which(executable)
+    return Path(found) if found else None
+
+def _run(cmd:list[str], cwd:Path|None=None, env:dict[str,str]|None=None)->None:
+    subprocess.run(cmd, cwd=str(cwd) if cwd else None, env=env, check=True)
+
+def _ensure_git_checkout(url:str, dest:Path)->None:
+    if dest.exists():
+        _run(["git","-C",str(dest),"fetch","--depth","1","origin"])
+        _run(["git","-C",str(dest),"reset","--hard","origin/HEAD"])
+    else:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _run(["git","clone","--depth","1",url,str(dest)])
+
+def _download_once(url:str, dest:Path)->None:
+    if dest.is_file() and dest.stat().st_size > 0:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    urllib.request.urlretrieve(url, dest)
+
+def _find_trtexec(source:dict)->Path|None:
+    env_trtexec = os.environ.get("FLUX_TRTEXEC")
+    if env_trtexec:
+        p = Path(env_trtexec).expanduser()
+        if p.is_file():
+            return p
+    for candidate in _candidate_paths(source, "trtexec_bin"):
+        if candidate.is_file():
+            return candidate
+        if candidate.is_dir():
+            p = candidate / "trtexec"
+            if p.is_file():
+                return p
+    return _which("trtexec")
+
+def _find_tensorrt_lib_dir(source:dict, trtexec:Path|None)->Path|None:
+    for candidate in _candidate_paths(source, "tensorrt_lib_dir"):
+        if candidate.is_dir() and ((candidate / "libnvinfer.so").exists() or any(candidate.glob("libnvinfer.so*"))):
+            return candidate
+    if trtexec:
+        root = trtexec.parent.parent
+        for rel in ("lib","lib64"):
+            candidate = root / rel
+            if candidate.is_dir() and ((candidate / "libnvinfer.so").exists() or any(candidate.glob("libnvinfer.so*"))):
+                return candidate
+    return None
+
+def _stage_tensorrt_libs(source:dict, dest:Path, staged:list[str], trtexec:Path|None)->None:
+    lib_dest = dest / "tensorrt" / "lib"
+    matched_lib_dir = _find_tensorrt_lib_dir(source, trtexec)
+    if matched_lib_dir is not None:
+        staged.extend(_copy_if_exists(["libnvinfer.so*", "libnvinfer_plugin.so*", "libnvonnxparser.so*"], matched_lib_dir, lib_dest))
+    else:
+        print("WARNING: TensorRT runtime libraries were not found in known local locations. Installed Flux will still require TensorRT runtime libraries from the system or FLUX_TENSORRT_LIB_DIR.", file=sys.stderr)
+
+def _stage_local_corridorkey_assets(source:dict, dest:Path, required:list[str], staged:list[str])->bool:
+    engine_dirs = list(_candidate_paths(source, "engine_dir"))
+    matched_engine_dir = None
+    for candidate in engine_dirs:
+        if all((candidate / name).is_file() for name in required):
+            matched_engine_dir = candidate
+            break
+    if matched_engine_dir is None:
+        return False
+    for name in required:
+        src = (matched_engine_dir / name).resolve()
+        dst = (dest / name).resolve()
+        if src != dst:
+            shutil.copy2(src, dst)
+        staged.append(name)
+    trtexec = _find_trtexec(source)
+    _stage_tensorrt_libs(source, dest, staged, trtexec)
+    return True
+
+def _build_corridorkey_assets(source:dict, dest:Path, required:list[str], paths:dict, force:bool)->list[str]:
+    builder = source.get("builder", {})
+    work = paths["download_staging"] / "corridorkey-builder"
+    corridor = work / "CorridorKey"
+    nuke = work / "CorridorKey-for-Nuke"
+    weights_dir = corridor / "weights"
+    staged:list[str] = []
+    trtexec = _find_trtexec(source)
+    if trtexec is None:
+        raise RuntimeError("TensorRT builder tool trtexec is missing. Install/stage TensorRT and set FLUX_TRTEXEC if needed.")
+    if _find_tensorrt_lib_dir(source, trtexec) is None:
+        raise RuntimeError("TensorRT runtime libraries are missing. Stage TensorRT libs or set FLUX_TENSORRT_LIB_DIR.")
+    if _which("git") is None:
+        raise RuntimeError("git is required to acquire CorridorKey sources.")
+    if _which("uv") is None:
+        raise RuntimeError("uv is required to build CorridorKey engines automatically.")
+
+    _ensure_git_checkout(builder["corridorkey_repo"], corridor)
+    _ensure_git_checkout(builder["corridorkey_for_nuke_repo"], nuke)
+    weights_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(nuke / "export_corridorkey_onnx.py", corridor / "export_corridorkey_onnx.py")
+    _download_once(builder["weights_url"], weights_dir / builder.get("weights_filename", "CorridorKey_v1.0.pth"))
+
+    python_hint = builder.get("python_hint") or "3.13"
+    _run(["uv","sync","--python",python_hint,"--no-dev"], cwd=corridor)
+    _run(["uv","pip","install","onnx","onnxscript"], cwd=corridor)
+
+    trt_lib_dir = _find_tensorrt_lib_dir(source, trtexec)
+    env = os.environ.copy()
+    if trt_lib_dir:
+        env["LD_LIBRARY_PATH"] = f"{trt_lib_dir}{os.pathsep}{env.get('LD_LIBRARY_PATH','')}".rstrip(os.pathsep)
+
+    for size in builder.get("engine_sizes", [1024]):
+        onnx = weights_dir / f"CorridorKey_v1.0_{size}.onnx"
+        engine = weights_dir / f"CorridorKey_v1.0_{size}_fp16.engine"
+        if force or not onnx.is_file():
+            _run(["uv","run","python","export_corridorkey_onnx.py","--checkpoint",str(weights_dir / builder.get("weights_filename", "CorridorKey_v1.0.pth")),"--output",str(onnx),"--img-size",str(size),"--no-verify"], cwd=corridor, env=env)
+        if force or not engine.is_file():
+            _run([str(trtexec),"--onnx="+str(onnx),"--saveEngine="+str(engine),"--fp16","--memPoolSize=workspace:2G"], cwd=corridor, env=env)
+        shutil.copy2(engine, dest / engine.name)
+        staged.append(engine.name)
+
+    _stage_tensorrt_libs(source, dest, staged, trtexec)
+    return staged
+
+
+
 
 def validate_required_files(m,path):
     required=[]
@@ -236,46 +422,150 @@ def install_composite(m,args,paths):
     need=req.startswith("required") or req in {"token_required","required_for_download"}
     tok=token_from_args(args,need)
     dest=model_local_path(m,paths)
-    if dest.exists() and args.force:
-        shutil.rmtree(dest)
-    dest.mkdir(parents=True,exist_ok=True)
+    staging=_prepare_install_dir(dest,args.force)
     paths["hub_cache"].mkdir(parents=True,exist_ok=True)
-    files=[]
-    for step in steps:
-        typ=step.get("type")
-        target=dest/str(step.get("target_subdir") or ".")
-        target.mkdir(parents=True,exist_ok=True)
-        if typ=="huggingface":
-            print(f"Downloading {m['id']} component {step.get('role',step.get('repo'))}")
-            snapshot_download(repo_id=step["repo"], revision=step.get("revision"), token=tok, cache_dir=str(paths["hub_cache"]), local_dir=str(target), allow_patterns=step.get("allow_patterns"))
-        elif typ=="url":
-            url=step["url"]; name=step.get("filename") or Path(url).name
-            print(f"Downloading {m['id']} file {name}")
-            urllib.request.urlretrieve(url, target/name)
-        else:
-            raise ValueError(f"{m['id']} unsupported composite step type: {typ}")
-    copy_bundled_files(m,dest)
-    validate_required_files(m,dest)
-    files=[str(p.relative_to(dest)) for p in dest.rglob("*") if p.is_file() and p.name!="flux_model_install.json"]
-    write_meta(m,dest,files)
+    try:
+        for step in steps:
+            typ=step.get("type")
+            target=staging/str(step.get("target_subdir") or ".")
+            target.mkdir(parents=True,exist_ok=True)
+            if typ=="huggingface":
+                print(f"Downloading {m['id']} component {step.get('role',step.get('repo'))}")
+                snapshot_download(repo_id=step["repo"], revision=step.get("revision"), token=tok, cache_dir=str(paths["hub_cache"]), local_dir=str(target), allow_patterns=step.get("allow_patterns"))
+            elif typ=="url":
+                url=step["url"]; name=step.get("filename") or Path(url).name
+                print(f"Downloading {m['id']} file {name}")
+                urllib.request.urlretrieve(url, target/name)
+            else:
+                raise ValueError(f"{m['id']} unsupported composite step type: {typ}")
+        copy_bundled_files(m,staging)
+        validate_required_files(m,staging)
+        files=[str(p.relative_to(staging)) for p in staging.rglob("*") if p.is_file() and p.name!="flux_model_install.json"]
+        write_meta(m,staging,files)
+        _finalize_install_dir(staging,dest)
+    except Exception:
+        _cleanup_install_dir(staging)
+        raise
     print(f"Installed {m['id']} -> {dest}")
     return 0
 
+def _provider_runtime_manifest_path()->Path:
+    return Path(__file__).resolve().with_name("provider_runtime_manifest.json")
+
+def _load_provider_runtime_manifest()->dict[str,Any]:
+    path = _provider_runtime_manifest_path()
+    if not path.is_file():
+        return {"runtimes":[]}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+def _runtime_for_model(model_id:str)->str|None:
+    data = _load_provider_runtime_manifest()
+    for runtime in data.get("runtimes", []) or []:
+        if model_id in (runtime.get("models") or []):
+            return str(runtime.get("id"))
+    return None
+
+def _system_ram_gib()->float:
+    try:
+        pages = os.sysconf("SC_PHYS_PAGES")
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        return float(pages * page_size) / (1024 ** 3)
+    except Exception:
+        return 0.0
+
+def _disk_free_gib(path:Path)->float:
+    usage = shutil.disk_usage(path)
+    return float(usage.free) / (1024 ** 3)
+
+def _gpu_vram_gib()->float:
+    nvidia_smi = _which("nvidia-smi")
+    if not nvidia_smi:
+        return 0.0
+    try:
+        out = subprocess.check_output([str(nvidia_smi), "--query-gpu=memory.total", "--format=csv,noheader,nounits"], text=True).strip().splitlines()
+        return max((float(x.strip()) / 1024.0 for x in out if x.strip()), default=0.0)
+    except Exception:
+        return 0.0
+
+def _corridorkey_preflight(source:dict, paths:dict)->None:
+    missing = [tool for tool in ("git", "uv") if _which(tool) is None]
+    trtexec = _find_trtexec(source)
+    if trtexec is None:
+        missing.append("trtexec")
+    if _find_tensorrt_lib_dir(source, trtexec) is None:
+        missing.append("TensorRT runtime libraries")
+    if missing:
+        raise RuntimeError("Missing CorridorKey prerequisites: " + ", ".join(missing))
+    ram_gib = _system_ram_gib()
+    paths["download_staging"].parent.mkdir(parents=True, exist_ok=True)
+    disk_gib = _disk_free_gib(paths["download_staging"].parent)
+    vram_gib = _gpu_vram_gib()
+    if ram_gib and ram_gib < 120.0:
+        raise RuntimeError(f"CorridorKey engine build needs about 128-140 GiB RAM for the 2048 export path; detected {ram_gib:.1f} GiB.")
+    if disk_gib < 10.0:
+        raise RuntimeError(f"CorridorKey engine build needs more free disk space; detected {disk_gib:.1f} GiB free.")
+    if vram_gib and vram_gib < 20.0:
+        raise RuntimeError(f"CorridorKey 2048 engine build expects about 24 GiB GPU VRAM; detected {vram_gib:.1f} GiB.")
+
+def install_external(m,args,paths):
+    source = m.get("source", {})
+    mode = source.get("mode")
+    if mode != "corridorkey_local_stage":
+        print(f"ERROR: {m['id']} has unsupported external mode {mode}", file=sys.stderr)
+        return 1
+    if args.dry_run:
+        print(f"DRY-RUN EXTERNAL {m['id']}: stage local engines if present, otherwise auto-acquire sources/weights and build engines with TensorRT.")
+        return 0
+    dest = model_local_path(m, paths)
+    staging = _prepare_install_dir(dest, args.force)
+    required = [str(x) for x in source.get("required_files", []) if x]
+    staged:list[str] = []
+    try:
+        if not _stage_local_corridorkey_assets(source, staging, required, staged):
+            _corridorkey_preflight(source, paths)
+            staged.extend(_build_corridorkey_assets(source, staging, required, paths, args.force))
+        write_meta(m, staging, sorted(set(staged)))
+        validate_required_files(m, staging)
+        _finalize_install_dir(staging, dest)
+    except subprocess.CalledProcessError as e:
+        _cleanup_install_dir(staging)
+        print(f"ERROR: CorridorKey build step failed: {' '.join(e.cmd)}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        _cleanup_install_dir(staging)
+        print(f"ERROR: CorridorKey install failed: {e}", file=sys.stderr)
+        return 1
+    print(f"Installed {m['id']} -> {dest}")
+    return 0
+
+def _ensure_runtime_for_model(model_id:str)->None:
+    runtime_id = _runtime_for_model(model_id)
+    if not runtime_id:
+        return
+    manager = Path(__file__).resolve().with_name("flux_provider_runtime.py")
+    _run([sys.executable, str(manager), "install", runtime_id, "--cuda", os.environ.get("FLUX_AI_RUNTIME_CUDA","cu128"), "--json"])
+
 def install_one(m,args,paths):
     if not m.get("default_installable",False) and not args.force: print(f"SKIP {m['id']}: not installable by default (use --force).",file=sys.stderr); return 1
+    if not model_is_implemented(m) and not args.force:
+        print(f"SKIP {m['id']}: model is not implemented in Flux and is hidden from normal installer flows (use --force only for manual recovery/remove).", file=sys.stderr)
+        return 1
     if m.get("warning_text") and not (args.yes or args.dry_run):
         print("WARNING: "+m["warning_text"]); input("Press Enter to continue or Ctrl-C to abort.")
+    if not args.dry_run:
+        _ensure_runtime_for_model(m["id"])
     typ=m.get("source",{}).get("type")
     if typ=="huggingface": return install_hf(m,args,paths)
     if typ=="huggingface_composite": return install_composite(m,args,paths)
     if typ=="url": return install_direct(m,args,paths)
+    if typ=="external": return install_external(m,args,paths)
     print(f"ERROR: {m['id']} has unsupported source type {typ}",file=sys.stderr); return 1
 
 def describe_install_selection(models):
     print("Flux AI model setup will install:")
     for m in models:
         labels=warning_labels(m)
-        print(f"  - {m['id']}: {m['display_name']}"+(f" [{', '.join(labels)}]" if labels else ""))
+        print(f"  - {m['id']}: {m['display_name']}"+(f" [{' | '.join(labels)}]" if labels else ""))
         if m.get("warning_text"): print(f"    warning: {m['warning_text']}")
         print(f"    license: {m.get('license_summary','unknown')}")
 
@@ -301,7 +591,6 @@ def remove_model_id(manifest:Path, model_id:str):
 
 def cmd_remove(args):
     return remove_model_id(args.manifest,args.model)
-
 def cmd_login(args):
     tok=os.environ.get("FLUX_HF_TOKEN") or (sys.stdin.read().strip() if args.token_stdin else getpass.getpass("Hugging Face token (hidden): "))
     if not args.remember: print("Token accepted for this command only; nothing stored."); return 0
@@ -417,7 +706,7 @@ def interactive_install(args):
     return rc
 
 def interactive_remove(manifest:Path):
-    data=load_manifest(manifest); paths=flux_paths(); installed=[m for m in sorted_models(data) if is_installed(m,paths)]
+    data=load_manifest(manifest); paths=flux_paths(); installed=[m for m in sorted_models(data, include_unimplemented=True) if is_installed(m,paths)]
     if not installed:
         print("No Flux AI models are installed."); return 0
     rows=[model_row(m) for m in installed]
@@ -450,7 +739,9 @@ def cmd_interactive(args):
 
 def build_parser():
     p=argparse.ArgumentParser(description="Flux AI model manager"); p.add_argument("--manifest",type=Path,default=default_manifest_path()); sp=p.add_subparsers(dest="command",required=True)
-    li=sp.add_parser("list"); li.add_argument("--json",action="store_true"); li.set_defaults(func=cmd_list); v=sp.add_parser("verify"); v.add_argument("--offline",action="store_true"); v.set_defaults(func=cmd_verify); sp.add_parser("status").set_defaults(func=cmd_status)
+    li=sp.add_parser("list"); li.add_argument("--json",action="store_true"); li.add_argument("--include-unimplemented",action="store_true"); li.set_defaults(func=cmd_list)
+    v=sp.add_parser("verify"); v.add_argument("--offline",action="store_true"); v.set_defaults(func=cmd_verify)
+    sp.add_parser("status").set_defaults(func=cmd_status)
     ins=sp.add_parser("install"); ins.add_argument("model",nargs="?"); ins.add_argument("--all-default",action="store_true"); ins.add_argument("--yes",action="store_true"); ins.add_argument("--token-stdin",action="store_true"); ins.add_argument("--dry-run",action="store_true"); ins.add_argument("--force",action="store_true"); ins.set_defaults(func=cmd_install)
     rem=sp.add_parser("remove"); rem.add_argument("model"); rem.set_defaults(func=cmd_remove)
     remi=sp.add_parser("remove-interactive"); remi.set_defaults(func=lambda args: interactive_remove(args.manifest))

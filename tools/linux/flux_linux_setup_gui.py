@@ -83,22 +83,74 @@ REPAIR_ACTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
     "Install/repair the app, bundled Python tools, PyPlugs, OFX bundles, launcher, and OFX cache": ("deploy-runtime", ()),
     "Build Flux and bundled OFX plugins": ("build-all", ()),
     "Run installer checks and dependency validation": ("checks", ()),
-    "Install/repair SAM3 venv": ("ai-runtime-install", ("sam3",)),
-    "Install/repair MatAnyone2 venv": ("ai-runtime-install", ("matanyone2",)),
-    "Install/repair VideoMaMa venv": ("ai-runtime-install", ("videomama",)),
-    "Install/repair SAM3.1 venv": ("ai-runtime-install", ("sam31",)),
-    "Install/repair SAM3 model": ("ai-install", ("sam3_transformers",)),
-    "Install/repair MatAnyone2 model": ("ai-install", ("matanyone2",)),
-    "Install/repair VideoMaMa model": ("ai-install", ("videomama",)),
-    "Install/repair SAM3.1 model": ("ai-install", ("sam31_sam3plus",)),
+    "Install/repair AI host packages (Fedora)": ("ai-host-prereqs-install", ()),
+    "Install/repair user tools (uv, bun)": ("ai-user-tools-install", ()),
+    "Install/repair CUDA toolkit (Fedora)": ("cuda-toolkit-install", ()),
+    "Install/repair CorridorKey builder toolkit": ("corridorkey-builder-prereqs", ()),
 }
 
-AI_PROVIDERS = (
-    ("SAM3", "sam3", "sam3_transformers"),
-    ("MatAnyone2", "matanyone2", "matanyone2"),
-    ("VideoMaMa", "videomama", "videomama"),
-    ("SAM3.1", "sam31", "sam31_sam3plus"),
-)
+def _load_json(path: Path) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+def _implemented_models() -> list[dict[str, Any]]:
+    manifest = _load_json(FLUX_ROOT / "tools" / "ai" / "model_manifest.json")
+    rows = [m for m in manifest.get("models", []) if m.get("implemented")]
+    return sorted(rows, key=lambda m: (-int(m.get("priority", 0)), str(m.get("id", ""))))
+
+def _runtime_by_model() -> dict[str, str]:
+    manifest = _load_json(FLUX_ROOT / "tools" / "ai" / "provider_runtime_manifest.json")
+    out: dict[str, str] = {}
+    for runtime in manifest.get("runtimes", []) or []:
+        rid = str(runtime.get("id", ""))
+        for model_id in runtime.get("models", []) or []:
+            out[str(model_id)] = rid
+    return out
+
+def ai_provider_rows() -> list[dict[str, str]]:
+    runtime_map = _runtime_by_model()
+    rows: list[dict[str, str]] = []
+    for model in _implemented_models():
+        model_id = str(model.get("id", ""))
+        rows.append({
+            "title": str(model.get("display_name", model_id)),
+            "runtime_id": runtime_map.get(model_id, ""),
+            "model_id": model_id,
+        })
+    return rows
+
+def _runtime_repair_label(runtime_id: str) -> str:
+    return f"Install/repair {runtime_id} runtime"
+
+def _model_repair_label(model_id: str, runtime_id: str) -> str:
+    return "Install/repair CorridorKey engine set" if not runtime_id else f"Install/repair {model_id} model"
+
+REPAIR_ORDER = {
+    "Install/repair AI host packages (Fedora)": 10,
+    "Install/repair user tools (uv, bun)": 20,
+    "Install/repair CUDA toolkit (Fedora)": 30,
+    "Install/repair CorridorKey builder toolkit": 40,
+    "Install/repair CorridorKey engine set": 50,
+    "Run installer checks and dependency validation": 1000,
+}
+
+def _ordered_unique_repairs(labels: list[str]) -> list[str]:
+    indexed: dict[str, int] = {}
+    for index, label in enumerate(labels):
+        indexed.setdefault(label, index)
+    return sorted(indexed, key=lambda label: (REPAIR_ORDER.get(label, 100 + indexed[label]), indexed[label]))
+
+def repair_actions_map() -> dict[str, tuple[str, tuple[str, ...]]]:
+    actions = dict(REPAIR_ACTIONS)
+    for provider in ai_provider_rows():
+        runtime_id = provider["runtime_id"]
+        model_id = provider["model_id"]
+        if runtime_id:
+            actions[_runtime_repair_label(runtime_id)] = ("ai-runtime-install", (runtime_id,))
+        actions[_model_repair_label(model_id, runtime_id)] = ("ai-install", (model_id,))
+    return actions
 
 
 def env_for_backend() -> dict[str, str]:
@@ -329,17 +381,24 @@ class FluxInstallerWindow(QMainWindow):
         token_row.addWidget(self.token_edit, 1)
         token_row.addWidget(self._button("Open Token Entry", lambda: self.run_action("ai-token", select_logs=True)))
         layout.addLayout(token_row)
-        for title, runtime_id, model_id in AI_PROVIDERS:
+        for provider in ai_provider_rows():
+            title = provider["title"]
+            runtime_id = provider["runtime_id"]
+            model_id = provider["model_id"]
             group = QGroupBox(title)
             group.setObjectName("ProviderBox")
             box = QVBoxLayout(group)
-            box.addWidget(QLabel(f"Runtime venv: {runtime_id}    Model payload: {model_id}"))
+            if runtime_id:
+                box.addWidget(QLabel(f"Runtime venv: {runtime_id}    Model payload: {model_id}"))
+            else:
+                box.addWidget(QLabel(f"Native model payload: {model_id}"))
             row = QHBoxLayout()
-            row.addWidget(self._small_action("Install / repair venv", "ai-runtime-install", runtime_id))
-            row.addWidget(self._small_action("Runtime status", "ai-runtime-status", runtime_id))
-            row.addWidget(self._small_action("Self-check", "ai-runtime-self-check", runtime_id))
+            if runtime_id:
+                row.addWidget(self._small_action("Install / repair venv", "ai-runtime-install", runtime_id))
+                row.addWidget(self._small_action("Runtime status", "ai-runtime-status", runtime_id))
+                row.addWidget(self._small_action("Self-check", "ai-runtime-self-check", runtime_id))
             row.addWidget(self._small_action("Model status", "ai-status", model_id))
-            row.addWidget(self._small_action("Download / repair model", "ai-install", model_id))
+            row.addWidget(self._small_action("Stage / repair engine set" if not runtime_id else "Download / repair model", "ai-install", model_id))
             row.addStretch(1)
             box.addLayout(row)
             layout.addWidget(group)
@@ -683,22 +742,31 @@ class FluxInstallerWindow(QMainWindow):
         if any(not x.get("installed") for x in plugins.get("required_pyplugs", [])) or any(not x.get("installed") for x in plugins.get("required_ofx", [])):
             suggestions.append("Install/repair the app, bundled Python tools, PyPlugs, OFX bundles, launcher, and OFX cache")
         ai = data.get("ai", {})
-        runtime_map = {"sam3": "Install/repair SAM3 venv", "matanyone2": "Install/repair MatAnyone2 venv", "videomama": "Install/repair VideoMaMa venv", "sam31": "Install/repair SAM3.1 venv"}
-        for item in ai.get("runtimes", []):
-            label = runtime_map.get(item.get("id"))
-            if label and not item.get("installed"):
-                suggestions.append(label)
-        model_map = {"sam3_transformers": "Install/repair SAM3 model", "matanyone2": "Install/repair MatAnyone2 model", "videomama": "Install/repair VideoMaMa model", "sam31_sam3plus": "Install/repair SAM3.1 model"}
-        for item in ai.get("models", []):
-            label = model_map.get(item.get("id"))
-            if label and not item.get("present"):
-                suggestions.append(label)
+        runtime_status = {item.get("id"): item for item in ai.get("runtimes", [])}
+        model_status = {item.get("id"): item for item in ai.get("models", [])}
+        corridor = plugins.get("corridorkey", {})
+        corridor_ready = bool(corridor) and all(item.get("present") for item in corridor.get("required_engines", []))
+        for provider in ai_provider_rows():
+            runtime_id = provider["runtime_id"]
+            model_id = provider["model_id"]
+            if runtime_id and not runtime_status.get(runtime_id, {}).get("installed"):
+                suggestions.append(_runtime_repair_label(runtime_id))
+            if model_id == "corridorkey":
+                if not corridor_ready:
+                    suggestions.append(_model_repair_label(model_id, runtime_id))
+            elif not model_status.get(model_id, {}).get("present"):
+                suggestions.append(_model_repair_label(model_id, runtime_id))
+        host = ai.get("host_prereqs", {})
+        if not host.get("python3") or not host.get("cargo") or not host.get("rustc") or not host.get("git"):
+            suggestions.append("Install/repair AI host packages (Fedora)")
+        if not host.get("uv") or not host.get("bun"):
+            suggestions.append("Install/repair user tools (uv, bun)")
+        if not host.get("nvcc"):
+            suggestions.append("Install/repair CUDA toolkit (Fedora)")
+        if corridor and (not corridor.get("trtexec_found") or not corridor.get("tensorrt_lib_dir_found")):
+            suggestions.append("Install/repair CorridorKey builder toolkit")
         suggestions.append("Run installer checks and dependency validation")
-        deduped: list[str] = []
-        for suggestion in suggestions:
-            if suggestion not in deduped:
-                deduped.append(suggestion)
-        return deduped
+        return _ordered_unique_repairs(suggestions)
 
     def run_selected_repairs(self) -> None:
         selected = [label for label, check in self.repair_checks.items() if check.isChecked()]
@@ -710,7 +778,7 @@ class FluxInstallerWindow(QMainWindow):
             return
         self.tabs.setCurrentIndex(self.tabs.count() - 1)
         self.append_log("\n=== Selected repairs ===\n" + details + "\n")
-        self.repair_queue = selected
+        self.repair_queue = _ordered_unique_repairs(selected)
         self._run_next_repair()
 
     def _run_next_repair(self) -> None:
@@ -718,7 +786,7 @@ class FluxInstallerWindow(QMainWindow):
             self.refresh_diagnostics(show_log=True)
             return
         label = self.repair_queue.pop(0)
-        action, args = REPAIR_ACTIONS[label]
+        action, args = repair_actions_map()[label]
         self.run_action(action, *args, select_logs=True, auto_yes=True)
 
     def select_all_suggested(self) -> None:

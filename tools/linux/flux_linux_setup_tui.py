@@ -11,12 +11,15 @@ ACTIONS = [
     ("full-bootstrap", "Full setup / update Flux", "Build, install app/runtime/plugins/launcher, validate, and offer default AI setup.", True),
     ("update-installed", "Update installed Flux", "Fast-forward source, refresh submodules, configure/build/deploy, clear OFX cache, and validate.", True),
     ("ai-install-menu", "Install or update AI models", "Choose models in this curses checklist, then run concrete model installs.", False),
+    ("ai-runtime-install-menu", "Install or update AI runtimes", "Choose provider runtimes in this curses checklist, then repair/create their isolated venvs.", False),
     ("ai-token", "Hugging Face token", "Hidden token prompt; optional persistence only in accepted secure keyring.", True),
     ("ai-status", "AI model status", "Show model/cache/config paths and installed/missing model state.", False),
-    ("ai-runtime-install", "Install SAM3.1 runtime", "Create/update isolated provider venv under Flux/ai-envs/sam31; never uses Flux/Plugins/python.", True),
-    ("ai-runtime-status", "SAM3.1 runtime status", "Show isolated provider runtime env/model readiness.", False),
-    ("ai-runtime-self-check", "SAM3.1 runtime self-check", "Run the SAM3.1 probe through the provider env Python.", False),
+    ("ai-runtime-status-menu", "AI runtime status / self-check", "Choose provider runtimes and run status or self-check.", False),
     ("ai-remove-menu", "Remove installed AI model", "Choose installed models in this curses picker, then remove by explicit model id.", False),
+    ("ai-host-prereqs-install", "Install AI host packages (Fedora)", "Install git, python3/pip, cargo, rust with privileged Fedora package install.", True),
+    ("ai-user-tools-install", "Install user tools (uv, bun)", "Install uv and bun into the user environment.", True),
+    ("corridorkey-builder-prereqs", "Install CorridorKey builder toolkit", "Install AI host packages, uv/bun, and local TensorRT toolkit staging.", True),
+    ("cuda-toolkit-install", "Install CUDA toolkit (Fedora)", "Enable NVIDIA CUDA repo and install the CUDA toolkit packages needed for CorridorKey engine builds.", True),
     ("deploy-runtime", "Install/repair runtime only", "Repair installed app, Python runtime, plugins, launcher; no rebuild.", True),
     ("installer-self-test", "Installer self-test", "Fresh-clone configure and stale-submodule repair verification without host install mutation.", False),
     ("build-all", "Build Flux from source", "Compile Flux/Natron and Flux OFX targets from the configured build tree.", True),
@@ -45,7 +48,8 @@ def status_rows():
     return rows
 
 def model_rows(installed_only=False):
-    p = call("ai-list", capture=True)
+    args = ["--include-unimplemented"] if installed_only else []
+    p = call("ai-list", *args, capture=True)
     if p.returncode != 0:
         return [], p.stderr or p.stdout or "AI model list unavailable. Deploy runtime/AI tools first."
     try:
@@ -56,6 +60,16 @@ def model_rows(installed_only=False):
     if installed_only:
         rows = [m for m in rows if m.get("installed")]
     return rows, ""
+
+def runtime_rows():
+    p = call("ai-runtime-list", capture=True)
+    if p.returncode != 0:
+        return [], p.stderr or p.stdout or "AI runtime list unavailable."
+    try:
+        data = json.loads(p.stdout)
+    except json.JSONDecodeError as e:
+        return [], f"AI runtime list parse failed: {e}"
+    return data.get("runtimes", []), ""
 
 def draw(stdscr, selected, msg=""):
     h, w = stdscr.getmaxyx(); stdscr.erase(); y = 0
@@ -108,6 +122,32 @@ def checklist(stdscr, title, rows, installed_remove=False):
         elif ch == ord(' '): checked.symmetric_difference_update({cur})
         elif ch in (10, 13): return [rows[i]["id"] for i in sorted(checked)]
 
+def pick_one(stdscr, title, rows):
+    if not rows:
+        return None
+    cur = 0
+    while True:
+        h, w = stdscr.getmaxyx(); stdscr.erase(); stdscr.addnstr(0, 0, title, w-1, curses.A_BOLD)
+        stdscr.addnstr(1, 0, "Up/Down move  Enter choose  q/Esc cancel", w-1, curses.A_DIM)
+        start = max(0, cur - (h-5) + 1)
+        for y, i in enumerate(range(start, min(len(rows), start+h-5)), 3):
+            row = rows[i]
+            state = "installed" if row.get("installed") else "missing"
+            models = ", ".join(row.get("models", [])) or "no models"
+            text = f"{row['id']} — {row.get('display_name','')} ({state}) models: {models}"
+            stdscr.addnstr(y, 0, text, w-1, curses.A_REVERSE if i == cur else curses.A_NORMAL)
+        stdscr.refresh(); ch = stdscr.getch()
+        if ch in (ord('q'), 27): return None
+        if ch in (curses.KEY_UP, ord('k')): cur = max(0, cur-1)
+        elif ch in (curses.KEY_DOWN, ord('j')): cur = min(len(rows)-1, cur+1)
+        elif ch in (10, 13): return rows[cur]
+
+
+
+def runtime_row(r):
+    models = ", ".join(r.get("models", [])) or "no models"
+    state = "installed" if r.get("installed") else "missing"
+    return {"id": r["id"], "display_name": r.get("display_name", r["id"]), "installed": r.get("installed", False), "models": r.get("models", []), "title": f"{r['id']} — {r.get('display_name', r['id'])} ({state})", "help": f"models: {models}", "value": r}
 def main(stdscr):
     curses.curs_set(0); stdscr.keypad(True); selected = 0; msg = ""
     while True:
@@ -123,6 +163,21 @@ def main(stdscr):
             for mid in ids:
                 if confirm(stdscr, f"Install/update {mid}?"):
                     suspend_run(stdscr, "ai-install", mid)
+        elif action == "ai-runtime-install-menu":
+            rows, err = runtime_rows(); msg = err
+            ids = checklist(stdscr, "Install/update Flux AI runtimes", rows)
+            for rid in ids:
+                if confirm(stdscr, f"Install/update runtime {rid}?"):
+                    suspend_run(stdscr, "ai-runtime-install", rid)
+        elif action == "ai-runtime-status-menu":
+            rows, err = runtime_rows(); msg = err
+            runtime = pick_one(stdscr, "Flux AI runtimes", [runtime_row(r) for r in rows])
+            if runtime:
+                rid = runtime["id"]
+                if confirm(stdscr, f"Run self-check for {rid}? (No = status only)"):
+                    suspend_run(stdscr, "ai-runtime-self-check", rid)
+                else:
+                    suspend_run(stdscr, "ai-runtime-status", rid)
         elif action == "ai-remove-menu":
             rows, err = model_rows(True); msg = err or ("No installed AI models." if not rows else "")
             ids = checklist(stdscr, "Remove installed Flux AI models", rows, True)

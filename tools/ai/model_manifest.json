@@ -17,6 +17,7 @@
       "gated_token_requirement": "not_required_expected",
       "default_enabled": false,
       "default_installable": true,
+      "implemented": true,
       "output_use_notes": "Immediate still-image Transformers baseline for text/box/point proof only; SAM3.1 Meta/multiplex remains a later video propagation target.",
       "source": {
         "type": "huggingface",
@@ -48,6 +49,7 @@
       "gated_token_requirement": "required_for_download",
       "default_enabled": false,
       "default_installable": true,
+      "implemented": false,
       "output_use_notes": "Primary promptable segmentation path for point/box/text/mask prompts and base matte generation.",
       "source": {
         "type": "huggingface",
@@ -81,6 +83,7 @@
       "gated_token_requirement": "possible_upstream_gate_unknown",
       "default_enabled": false,
       "default_installable": true,
+      "implemented": true,
       "output_use_notes": "Refines human video alpha/foreground sequences from a base matte; not a default commercial bundle.",
       "source": {
         "type": "huggingface",
@@ -118,6 +121,7 @@
       "gated_token_requirement": "not_required_expected",
       "default_enabled": true,
       "default_installable": true,
+      "implemented": false,
       "output_use_notes": "First permissive base matte worker target for images and image sequences.",
       "source": {
         "type": "huggingface",
@@ -151,6 +155,7 @@
       "gated_token_requirement": "not_required_expected",
       "default_enabled": true,
       "default_installable": true,
+      "implemented": false,
       "output_use_notes": "Refines SAM/BiRefNet base mattes using generated trimaps.",
       "source": {
         "type": "huggingface",
@@ -184,6 +189,7 @@
       "gated_token_requirement": "unknown_pending_review",
       "default_enabled": false,
       "default_installable": true,
+      "implemented": false,
       "output_use_notes": "Baseline depth provider for EXR depth/disparity sequences.",
       "source": {
         "type": "huggingface",
@@ -217,6 +223,7 @@
       "gated_token_requirement": "possible_upstream_gate_unknown",
       "default_enabled": false,
       "default_installable": true,
+      "implemented": false,
       "output_use_notes": "Optional video-stable depth provider; expose VRAM/resolution/stride controls later.",
       "source": {
         "type": "huggingface",
@@ -250,6 +257,7 @@
       "gated_token_requirement": "not_required_expected",
       "default_enabled": false,
       "default_installable": true,
+      "implemented": true,
       "output_use_notes": "Generates video alpha matte sequences from source frames and a first-frame mask (or per-frame mask sequence) using SVD-based diffusion. Supports per-frame tracked masks via mask_sequence_pattern. Non-commercial license applies. Pipeline code and model weights must be manually downloaded and configured by the user.",
       "multi_source_payload": {
         "description": "VideoMaMa is installed as a composite payload: selected SVD base files plus VideoMaMa UNet files are downloaded from upstream repositories, then Flux installs the bundled pipeline_svd_mask_numpy.py workflow adapter into the final local model directory.",
@@ -361,6 +369,7 @@
       "gated_token_requirement": "not_required_expected",
       "default_enabled": false,
       "default_installable": true,
+      "implemented": false,
       "output_use_notes": "Optional helper path only; future manager should record user-configured command path.",
       "source": {
         "type": "url",
@@ -393,6 +402,7 @@
       "gated_token_requirement": "not_required_expected",
       "default_enabled": false,
       "default_installable": true,
+      "implemented": false,
       "output_use_notes": "Optional mask propagation helper when configured externally; current direct URL assets are hkchengrex/XMem v1.0 checkpoints used by the helper workflow.",
       "source": {
         "type": "url",
@@ -406,6 +416,75 @@
             "filename": "XMem-s012.pth",
             "url": "https://github.com/hkchengrex/XMem/releases/download/v1.0/XMem-s012.pth"
           }
+        ]
+      }
+    },
+    {
+      "id": "corridorkey",
+      "display_name": "CorridorKey",
+      "category": "keying",
+      "role": "native TensorRT green/blue-screen foreground and alpha refinement from a coarse mask hint",
+      "priority": 8,
+      "provider": "Corridor Digital / CorridorKey",
+      "runtime_type": "native_tensorrt_user_engine",
+      "install_policy": "user_supplied_engine_noncommercial_warning",
+      "bundling_policy": "not_bundled_user_supplied_engine_only",
+      "license_summary": "CC BY-NC-SA 4.0 plus additional terms; commercial software integration requires a separate written agreement from Corridor Digital.",
+      "warning_text": "NON-COMMERCIAL / COMMERCIAL-INTEGRATION WARNING: CorridorKey assets are user supplied and are not bundled by Flux. Commercial software integration requires a separate written agreement from Corridor Digital.",
+      "gated_token_requirement": "not_required_expected",
+      "default_enabled": false,
+      "default_installable": true,
+      "implemented": true,
+      "output_use_notes": "Create a native CorridorKey node from an existing Result History mask. Installer/runtime stages user-supplied or locally available TensorRT engines and TensorRT runtime libraries; Flux still does not bundle CorridorKey source or claim commercial clearance.",
+      "source": {
+        "type": "external",
+        "mode": "corridorkey_local_stage",
+        "revision": "user_supplied",
+        "required_files": [
+          "CorridorKey_v1.0_512_fp16.engine",
+          "CorridorKey_v1.0_768_fp16.engine",
+          "CorridorKey_v1.0_1024_fp16.engine",
+          "CorridorKey_v1.0_2048_fp16.engine"
+        ],
+        "local_candidates": [
+          {
+            "kind": "engine_dir",
+            "path_env": "FLUX_CORRIDORKEY_ENGINE_SOURCE_DIR",
+            "path": "~/.local/share/Flux/models/corridorkey"
+          },
+          {
+            "kind": "engine_dir",
+            "path": "~/.local/share/Flux/models/corridorkey/user_supplied"
+          },
+          {
+            "kind": "engine_dir",
+            "path": "/tmp/flux-corridorkey-engine/CorridorKey/weights"
+          },
+          {
+            "kind": "tensorrt_lib_dir",
+            "path_env": "FLUX_TENSORRT_LIB_DIR",
+            "path": "~/.cache/flux-tensorrt/extracted/TensorRT-10.15.1.29/lib"
+          },
+          {
+            "kind": "trtexec_bin",
+            "path_env": "FLUX_TRTEXEC",
+            "path": "~/.cache/flux-tensorrt/extracted/TensorRT-10.15.1.29/bin/trtexec"
+          }
+        ],
+        "builder": {
+          "corridorkey_repo": "https://github.com/nikopueringer/CorridorKey.git",
+          "corridorkey_for_nuke_repo": "https://github.com/petermercell/CorridorKey-for-Nuke.git",
+          "weights_url": "https://huggingface.co/nikopueringer/CorridorKey_v1.0/resolve/main/CorridorKey_v1.0.pth",
+          "weights_filename": "CorridorKey_v1.0.pth",
+          "engine_sizes": [
+            512,
+            768,
+            1024,
+            2048
+          ],
+          "python_hint": "3.13"
+        },
+        "urls": [
         ]
       }
     }

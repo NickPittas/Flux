@@ -264,6 +264,8 @@ public:
 
     /** @brief Add a new layer from a file path. */
     void addLayer(const QString& name, const QString& filePath, const QString& type = QString::fromUtf8("footage"));
+    /** @brief Insert project-generated footage above the selected source layer. */
+    bool insertGeneratedFootageLayerAboveSelected(const QString& name, const QString& filePath, QString* message = nullptr);
 
     /** @brief Add a solid color layer. */
     void addSolidLayer(const QColor& color = QColor(128, 128, 128));
@@ -333,6 +335,8 @@ public:
     bool addEffectByPluginId(const QString& pluginId, int major = -1);
 
     bool addAIMaskCopyToSelectedLayer(const QString& relativeMask, const QString& manifestRelative, QString* message, const QString& readRelativeMask = QString());
+    bool createCorridorKeyNodeForSelectedLayer(const QString& relativeMask, const QString& manifestRelative, QString* message, const QString& readRelativeMask = QString());
+    NodePtr getCorridorKeyNodeForSelectedLayer() const;
     bool replaceSelectedAIMaskCopy(const QString& relativeMask, const QString& manifestRelative, QString* message, const QString& readRelativeMask = QString());
 
 Q_SIGNALS:

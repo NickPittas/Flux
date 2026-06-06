@@ -214,6 +214,53 @@ FluxTimeline::addLayer(const QString& name,
     update();
 }
 
+bool
+FluxTimeline::insertGeneratedFootageLayerAboveSelected(const QString& name,
+                                                       const QString& filePath,
+                                                       QString* message)
+{
+    int targetLayer = _selectedLayer;
+    if (targetLayer < 0 || targetLayer >= _layers.size()) {
+        if (message) { *message = QString::fromUtf8("Import generated footage failed: select the source layer first."); }
+        return false;
+    }
+    if (filePath.isEmpty()) {
+        if (message) { *message = QString::fromUtf8("Import generated footage failed: generated footage path is empty."); }
+        return false;
+    }
+
+    FluxLayer layer;
+    layer.name = name.isEmpty() ? QFileInfo(filePath).fileName() : name;
+    layer.filePath = filePath;
+    layer.type = QString::fromUtf8("footage");
+    layer.inPoint = _layers[targetLayer].inPoint;
+    layer.outPoint = _layers[targetLayer].outPoint;
+    layer.originalInPoint = _layers[targetLayer].originalInPoint;
+    layer.originalOutPoint = _layers[targetLayer].originalOutPoint;
+    layer.originalFirstFrame = _layers[targetLayer].originalFirstFrame;
+    layer.originalLastFrame = _layers[targetLayer].originalLastFrame;
+    layer.timeOffset = _layers[targetLayer].timeOffset;
+    layer.trimStart = _layers[targetLayer].trimStart;
+    layer.trimEnd = _layers[targetLayer].trimEnd;
+    layer.sourceFrameRate = _layers[targetLayer].sourceFrameRate;
+    layer.color = QColor(122, 158, 224);
+
+    const int newIndex = targetLayer;
+    _layers.insert(newIndex, layer);
+    _selectedType = eFluxSelectionLayer;
+    _selectedLayer = newIndex;
+    _selectedEffectIndex = -1;
+    _selectedMaskIndex = -1;
+    _selectedPropertyIndex = -1;
+
+    rebuildVisibleRows();
+    Q_EMIT compositingChanged();
+    Q_EMIT layerSelected(newIndex);
+    update();
+    if (message) { *message = QString::fromUtf8("Imported generated footage layer above the selected source layer."); }
+    return true;
+}
+
 void
 FluxTimeline::addSolidLayer(const QColor& color)
 {
@@ -1755,6 +1802,100 @@ FluxTimeline::addAIMaskCopyToSelectedLayer(const QString& relativeMask, const QS
     update();
     if (message) *message = QString::fromUtf8("Added AI mask alpha replacement.");
     return true;
+}
+
+bool
+FluxTimeline::createCorridorKeyNodeForSelectedLayer(const QString& relativeMask, const QString& manifestRelative, QString* message, const QString& readRelativeMask)
+{
+    Gui* gui = getGui();
+    if (!gui || !gui->getApp() || !gui->getApp()->getProject()) {
+        if (message) *message = QString::fromUtf8("Create CorridorKey Node failed: app/project unavailable.");
+        return false;
+    }
+
+    const QString readMask = readRelativeMask.isEmpty() ? relativeMask : readRelativeMask;
+
+    int targetLayer = _selectedLayer;
+    if (targetLayer < 0 || targetLayer >= _layers.size() || _layers[targetLayer].type == QString::fromUtf8("adjustment") || _layers[targetLayer].type == QString::fromUtf8("null") || _layers[targetLayer].locked) {
+        if (message) *message = QString::fromUtf8("Create CorridorKey Node failed: select a normal layer or layer effect row in the timeline.");
+        return false;
+    }
+
+    NodePtr readNode = fluxCreateAIReadNode(gui, readMask, _layers[targetLayer].sourceFrameRate);
+    NodePtr timeOffsetNode = fluxCreateNode(gui, PLUGINID_OFX_TIMEOFFSET);
+    NodePtr corridorNode = fluxCreateNode(gui, PLUGINID_FLUX_CORRIDOR_KEY);
+    if (!readNode || !timeOffsetNode || !corridorNode) {
+        if (readNode) readNode->deactivate(std::list<NodePtr>(), false, true);
+        if (timeOffsetNode) timeOffsetNode->deactivate(std::list<NodePtr>(), false, true);
+        if (corridorNode) corridorNode->deactivate(std::list<NodePtr>(), false, true);
+        if (message) *message = QString::fromUtf8("Create CorridorKey Node failed: could not create AI Read, TimeOffset, or CorridorKey node.");
+        return false;
+    }
+    corridorNode->setLabel(std::string("CorridorKey"));
+
+    FluxEffect effect;
+    effect.pluginId = QString::fromUtf8(PLUGINID_FLUX_CORRIDOR_KEY);
+    effect.label = QString::fromUtf8("CorridorKey");
+    effect.node = corridorNode;
+    effect.enabled = true;
+    effect.isAIMaskCopy = true;
+    effect.aiMaskUsage = QString::fromUtf8("corridorkey-hint");
+    effect.aiMaskSourceChannel = QString::fromUtf8("red");
+    effect.aiMaskSourceRelativePath = readMask;
+    effect.aiMaskManifestRelativePath = manifestRelative;
+    effect.aiMaskBaseTimeOffset = fluxAIMaskGenerationTimeOffset(gui, manifestRelative, _layers[targetLayer].timeOffset);
+    effect.aiMaskReadNode = readNode;
+    effect.aiMaskTimeOffsetNode = timeOffsetNode;
+    fluxConfigureAIMaskTimeOffsetNode(effect.aiMaskTimeOffsetNode, _layers[targetLayer].timeOffset - effect.aiMaskBaseTimeOffset);
+
+    _layers[targetLayer].effects.append(effect);
+    _layers[targetLayer].expanded = true;
+    _selectedType = eFluxSelectionEffect;
+    _selectedLayer = targetLayer;
+    _selectedEffectIndex = _layers[targetLayer].effects.size() - 1;
+    _selectedMaskIndex = -1;
+    refreshVisibleRows();
+    Q_EMIT effectsChanged(targetLayer);
+    Q_EMIT effectSelected(targetLayer, _selectedEffectIndex);
+    Q_EMIT compositingChanged();
+    if (gui) {
+        gui->rebuildCompositingGraph(this);
+    }
+
+    const bool hasLayerInput = (corridorNode->getInput(0) != NodePtr());
+    const bool hasMaskOffset = (timeOffsetNode->getInput(0) == readNode);
+    const bool hasMaskInput = (corridorNode->getInput(1) == timeOffsetNode);
+    if (!hasLayerInput || !hasMaskOffset || !hasMaskInput) {
+        qDebug() << "FluxTimeline::createCorridorKeyNodeForSelectedLayer: wiring verification failed"
+                 << "layer" << targetLayer
+                 << "effect" << _selectedEffectIndex
+                 << "input0" << hasLayerInput
+                 << "timeOffsetInput0" << hasMaskOffset
+                 << "input1" << hasMaskInput;
+        if (message) {
+            *message = QString::fromUtf8("Create CorridorKey Node failed: node was created but graph wiring did not connect correctly.");
+        }
+        update();
+        return false;
+    }
+    update();
+    if (message) *message = QString::fromUtf8("Created CorridorKey effect node.");
+    return true;
+}
+
+NodePtr
+FluxTimeline::getCorridorKeyNodeForSelectedLayer() const
+{
+    if (_selectedLayer < 0 || _selectedLayer >= _layers.size()) {
+        return NodePtr();
+    }
+    const FluxLayer& layer = _layers[_selectedLayer];
+    for (QList<FluxEffect>::const_iterator it = layer.effects.begin(); it != layer.effects.end(); ++it) {
+        if (it->pluginId == QString::fromUtf8(PLUGINID_FLUX_CORRIDOR_KEY) && it->node && it->node->isActivated()) {
+            return it->node;
+        }
+    }
+    return NodePtr();
 }
 
 bool

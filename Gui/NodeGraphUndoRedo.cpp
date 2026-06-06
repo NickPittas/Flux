@@ -638,10 +638,9 @@ ResizeBackdropCommand::ResizeBackdropCommand(const NodeGuiPtr& bd,
     , _oldW(0)
     , _oldH(0)
 {
-    QRectF bbox = bd->boundingRect();
-
-    _oldW = bbox.width();
-    _oldH = bbox.height();
+    QSize size = bd->getSize();
+    _oldW = size.width();
+    _oldH = size.height();
     setText( tr("Resize %1").arg( QString::fromUtf8( _bd->getNode()->getLabel().c_str() ) ) );
 }
 

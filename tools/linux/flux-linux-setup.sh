@@ -104,6 +104,20 @@ FEDORA_PACKAGES=(
   OpenImageIO-devel
 )
 
+FEDORA_AI_HOST_PACKAGES=(
+  git
+  python3
+  python3-devel
+  python3-pip
+  cargo
+  rust
+)
+
+TENSORRT_VERSION="10.15.1.29"
+TENSORRT_CUDA_FLAVOR="cuda-13.1"
+TENSORRT_TARBALL="TensorRT-${TENSORRT_VERSION}.Linux.x86_64-gnu.${TENSORRT_CUDA_FLAVOR}.tar.gz"
+TENSORRT_URL="https://developer.download.nvidia.com/compute/machine-learning/tensorrt/10.15.1/tars/${TENSORRT_TARBALL}"
+
 REQUIRED_PYPLUG_FILES=(
   "FluxLayer.py"
   "FluxSolid.py"
@@ -407,6 +421,46 @@ enable_rpmfusion_free() {
   run_privileged dnf install -y "$rpmfusion_url"
 }
 
+cuda_repo_url_for_fedora() {
+  local fedora_version="${1:-}"
+  local arch
+  arch="$(uname -m)"
+  printf 'https://developer.download.nvidia.com/compute/cuda/repos/fedora%s/%s/cuda-fedora%s.repo\n' "$fedora_version" "$arch" "$fedora_version"
+}
+
+enable_cuda_repo_fedora() {
+  local os_id fedora_version arch repo_url configured=0 candidate_versions=() version
+  os_id="$(detect_os)"
+  [[ "$os_id" == "fedora" ]] || die "CUDA repository setup only supports Fedora; detected '${os_id}'."
+  command -v dnf >/dev/null 2>&1 || die 'dnf is required to enable the CUDA repository.'
+  require_privilege_or_guidance 'CUDA repository setup' || die 'sudo or pkexec is required to enable the CUDA repository.'
+  fedora_version="$(fedora_version_for_commands)"
+  candidate_versions=("$fedora_version" "43" "42")
+  for version in "${candidate_versions[@]}"; do
+    repo_url="$(cuda_repo_url_for_fedora "$version")"
+    if curl -fsI "$repo_url" >/dev/null 2>&1; then
+      log "Enabling NVIDIA CUDA repository from ${repo_url}."
+      run_privileged dnf config-manager addrepo --from-repofile="$repo_url"
+      configured=1
+      break
+    fi
+  done
+  [[ "$configured" -eq 1 ]] || die 'Could not find a compatible NVIDIA CUDA Fedora repository metadata URL.'
+}
+
+install_fedora_cuda_toolkit() {
+  local os_id
+  os_id="$(detect_os)"
+  [[ "$os_id" == "fedora" ]] || die "CUDA toolkit installation currently supports Fedora only; detected '${os_id}'."
+  command -v dnf >/dev/null 2>&1 || die 'dnf is required to install the CUDA toolkit.'
+  require_privilege_or_guidance 'CUDA toolkit installation' || die 'sudo or pkexec is required to install the CUDA toolkit.'
+  enable_cuda_repo_fedora || return
+  log 'Installing CUDA toolkit and NVIDIA CUDA userspace components from the NVIDIA CUDA repository.'
+  run_privileged dnf clean all
+  run_privileged dnf config-manager setopt "cuda-fedora*".exclude="nvidia-driver,nvidia-modprobe,nvidia-persistenced,nvidia-settings,nvidia-libXNVCtrl,nvidia-xconfig" || true
+  run_privileged dnf install -y --setopt=install_weak_deps=False cuda-toolkit xorg-x11-drv-nvidia-cuda
+}
+
 install_fedora_packages() {
   local os_id
   os_id="$(detect_os)"
@@ -416,6 +470,41 @@ install_fedora_packages() {
 
   log 'Installing Fedora packages. RPM Fusion free must be enabled for ffmpeg-devel.'
   run_privileged dnf install -y --setopt=install_weak_deps=False --allowerasing "${FEDORA_PACKAGES[@]}"
+}
+
+install_fedora_ai_host_packages() {
+  local os_id
+  os_id="$(detect_os)"
+  [[ "$os_id" == "fedora" ]] || die "AI host prerequisite installation currently supports Fedora only; detected '${os_id}'."
+  require_privilege_or_guidance 'AI host prerequisite installation' || die 'sudo or pkexec is required to install AI host prerequisites.'
+  command -v dnf >/dev/null 2>&1 || die 'dnf is required for AI host prerequisite installation.'
+  log 'Installing Fedora AI host prerequisite packages.'
+  run_privileged dnf install -y --setopt=install_weak_deps=False --allowerasing "${FEDORA_AI_HOST_PACKAGES[@]}"
+}
+
+bootstrap_user_uv() {
+  command -v python3 >/dev/null 2>&1 || die 'python3 is required to bootstrap uv.'
+  log 'Installing uv into the user environment.'
+  python3 -m pip install --user --upgrade uv
+}
+
+bootstrap_user_bun() {
+  command -v curl >/dev/null 2>&1 || die 'curl is required to bootstrap bun.'
+  log 'Installing bun into the user environment.'
+  curl -fsSL https://bun.sh/install | bash
+}
+
+install_tensorrt_toolkit_local() {
+  local cache_root archive extract_root
+  cache_root="${HOME}/.cache/flux-tensorrt"
+  archive="${cache_root}/${TENSORRT_TARBALL}"
+  extract_root="${cache_root}/extracted"
+  mkdir -p "$cache_root" "$extract_root"
+  log "Downloading TensorRT toolkit tarball to ${archive}."
+  curl -L --fail --output "$archive" "$TENSORRT_URL"
+  log "Extracting TensorRT toolkit into ${extract_root}."
+  rm -rf "${extract_root}/TensorRT-${TENSORRT_VERSION}"
+  tar -xzf "$archive" -C "$extract_root"
 }
 
 ensure_ocio_configs() {
@@ -859,10 +948,25 @@ run_ai_manager() {
   PYTHONPATH="${PYTHON_RUNTIME_DIR}${PYTHONPATH:+:${PYTHONPATH}}" python3 "$manager" "$@"
 }
 
+install_ai_host_prereqs() {
+  install_fedora_ai_host_packages
+}
+
+bootstrap_ai_user_tools() {
+  bootstrap_user_uv
+  bootstrap_user_bun
+}
+
 setup_default_ai_models() {
   confirm_default_yes "Install default Flux AI models now?" || { log "AI model setup skipped by user."; return 0; }
   log "Installing default Flux AI models; gated models prompt securely for Hugging Face tokens when needed."
   run_ai_manager install --all-default || die "Flux AI model setup failed."
+}
+
+install_corridorkey_builder_prereqs() {
+  install_ai_host_prereqs || return
+  bootstrap_ai_user_tools || return
+  install_tensorrt_toolkit_local || return
 }
 
 run_ai_model_install() {
@@ -898,6 +1002,19 @@ run_ai_runtime_manager() {
   local manager="${FLUX_ROOT}/tools/ai/flux_provider_runtime.py"
   [[ -f "$manager" ]] || die "Missing Flux provider runtime manager: ${manager}"
   python3 "$manager" "$@"
+}
+
+run_ai_runtime_list() {
+  FLUX_ROOT="${FLUX_ROOT}" python3 - <<'PY'
+import json, os, subprocess
+from pathlib import Path
+root = Path(os.environ["FLUX_ROOT"])
+models = json.loads(subprocess.check_output(["python3", str(root / "tools/ai/flux_model_manager.py"), "--manifest", str(root / "tools/ai/model_manifest.json"), "list", "--json"], text=True))["models"]
+visible = {m["id"] for m in models}
+runtimes = json.loads(subprocess.check_output(["python3", str(root / "tools/ai/flux_provider_runtime.py"), "list", "--json"], text=True))["runtimes"]
+filtered = [r for r in runtimes if any(mid in visible for mid in r.get("models", []))]
+print(json.dumps({"runtimes": filtered}, indent=2, sort_keys=True))
+PY
 }
 
 run_ai_runtime_status() {
@@ -1065,7 +1182,15 @@ export NATRON_PLUGIN_PATH="\${NATRON_PLUGIN_PATH:-\${FLUX_INSTALL_PREFIX}/Plugin
 export OFX_PLUGIN_PATH="\${OFX_PLUGIN_PATH:-\${FLUX_INSTALL_PREFIX}/Plugins/OFX}"
 export FLUX_OFX_STRICT_PATH="\${FLUX_OFX_STRICT_PATH:-1}"
 export PYTHONPATH="\${FLUX_INSTALL_PREFIX}/Plugins/python\${PYTHONPATH:+:\${PYTHONPATH}}"
-export LD_LIBRARY_PATH="\${FLUX_INSTALL_PREFIX}/Plugins/OFX/SeExpr.ofx.bundle/Contents/Linux-x86-64/seexpr-deps/lib:\${FLUX_INSTALL_PREFIX}/Plugins/OFX/Magick.ofx.bundle/Contents/Linux-x86-64/magick-deps/lib:\${LD_LIBRARY_PATH:-}"
+export OCIO="\${OCIO:-\${FLUX_INSTALL_PREFIX}/share/OpenColorIO-Configs/nuke-default/config.ocio}"
+export FLUX_MODEL_STORE="\${XDG_DATA_HOME:-\${HOME}/.local/share}/Flux/models"
+export FLUX_CORRIDORKEY_ENGINE_DIR="\${FLUX_CORRIDORKEY_ENGINE_DIR:-\${FLUX_MODEL_STORE}/corridorkey/user_supplied}"
+export FLUX_CORRIDORKEY_ENGINE_PATH="\${FLUX_CORRIDORKEY_ENGINE_PATH:-\${FLUX_CORRIDORKEY_ENGINE_DIR}/CorridorKey_v1.0_1024_fp16.engine}"
+if [[ -d "\${FLUX_CORRIDORKEY_ENGINE_DIR}/tensorrt/lib" ]]; then
+  export LD_LIBRARY_PATH="\${FLUX_CORRIDORKEY_ENGINE_DIR}/tensorrt/lib:\${FLUX_INSTALL_PREFIX}/Plugins/OFX/SeExpr.ofx.bundle/Contents/Linux-x86-64/seexpr-deps/lib:\${FLUX_INSTALL_PREFIX}/Plugins/OFX/Magick.ofx.bundle/Contents/Linux-x86-64/magick-deps/lib:\${LD_LIBRARY_PATH:-}"
+else
+  export LD_LIBRARY_PATH="\${FLUX_INSTALL_PREFIX}/Plugins/OFX/SeExpr.ofx.bundle/Contents/Linux-x86-64/seexpr-deps/lib:\${FLUX_INSTALL_PREFIX}/Plugins/OFX/Magick.ofx.bundle/Contents/Linux-x86-64/magick-deps/lib:\${LD_LIBRARY_PATH:-}"
+fi
 if [[ "\${FLUX_VERBOSE_CONSOLE:-0}" == "1" || "\${1:-}" == "--help" || "\${1:-}" == "-h" ]]; then
   exec "\${FLUX_INSTALL_PREFIX}/bin/flux" "\$@"
 fi
@@ -1259,6 +1384,23 @@ check_ocio_configs() {
   return "$missing"
 }
 
+check_corridorkey_assets() {
+  local model_root="${XDG_DATA_HOME:-${HOME}/.local/share}/Flux/models/corridorkey/user_supplied"
+  local missing=0
+  for name in CorridorKey_v1.0_512_fp16.engine CorridorKey_v1.0_768_fp16.engine CorridorKey_v1.0_1024_fp16.engine CorridorKey_v1.0_2048_fp16.engine; do
+    if [[ ! -f "${model_root}/${name}" ]]; then
+      warn "Missing CorridorKey engine asset: ${model_root}/${name}"
+      missing=1
+    fi
+  done
+  return "$missing"
+}
+corridorkey_assets_required() {
+  local model_root="${XDG_DATA_HOME:-${HOME}/.local/share}/Flux/models/corridorkey/user_supplied"
+  [[ "${FLUX_CHECK_CORRIDORKEY:-}" == "1" ]] || [[ -f "${model_root}/flux_model_install.json" ]]
+}
+
+
 check_cache_ids() {
   local cache_file="${OFX_CACHE_DIR}/OFXCache_2.6_Devel_0.xml"
   local missing=0 id content
@@ -1304,6 +1446,11 @@ run_checks() {
   check_ofx_bundles || status=1
   check_ocio_configs || status=1
   check_cache_ids || status=1
+  if corridorkey_assets_required; then
+    check_corridorkey_assets || status=1
+  else
+    warn 'CorridorKey engine asset check skipped; optional CorridorKey model is not installed.'
+  fi
   return "$status"
 }
 
@@ -1614,6 +1761,41 @@ def exists_dir(path):
     p = Path(path)
     return {"path": str(p), "exists": p.is_dir()}
 
+def _has_nvinfer(path):
+    p = Path(path).expanduser()
+    return p.is_dir() and ((p / "libnvinfer.so").exists() or any(p.glob("libnvinfer.so*")))
+
+def _find_trtexec():
+    env_trtexec = os.environ.get("FLUX_TRTEXEC")
+    if env_trtexec:
+        p = Path(env_trtexec).expanduser()
+        if p.is_file():
+            return p
+    default = (Path.home() / ".cache/flux-tensorrt/extracted/TensorRT-10.15.1.29/bin/trtexec").expanduser()
+    if default.is_file():
+        return default
+    found = shutil.which("trtexec")
+    return Path(found) if found else None
+
+def _find_tensorrt_lib_dir(trtexec, model_root):
+    env_lib = os.environ.get("FLUX_TENSORRT_LIB_DIR")
+    if env_lib and _has_nvinfer(env_lib):
+        return Path(env_lib).expanduser()
+    for candidate in (
+        model_root / "corridorkey" / "user_supplied" / "tensorrt" / "lib",
+        Path.home() / ".cache/flux-tensorrt/extracted/TensorRT-10.15.1.29/lib",
+    ):
+        if _has_nvinfer(candidate):
+            return candidate.expanduser()
+    if trtexec:
+        root = trtexec.parent.parent
+        for rel in ("lib", "lib64"):
+            candidate = root / rel
+            if _has_nvinfer(candidate):
+                return candidate
+    return None
+
+
 root = Path(os.environ["FLUX_ROOT"])
 prefix = Path(os.environ["FLUX_INSTALL_PREFIX"])
 pyplug_dir = Path(os.environ["USER_PYPLUG_DIR"])
@@ -1623,6 +1805,8 @@ required_ofx = ["IO.ofx.bundle", "Misc.ofx.bundle", "FluxTextRender.ofx.bundle"]
 ai_root = prefix / "tools" / "ai"
 runtime_root = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local/share")) / "Flux" / "ai-envs"
 model_root = Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local/share")) / "Flux" / "models"
+trtexec_path = _find_trtexec()
+tensorrt_lib_dir = _find_tensorrt_lib_dir(trtexec_path, model_root)
 payload = {
     "schema": "org.flux.installer.diagnostics.v1",
     "system": {
@@ -1647,6 +1831,22 @@ payload = {
     "plugins": {
         "pyplug_dir": exists_dir(str(pyplug_dir)),
         "required_pyplugs": [{"name": name, "installed": (pyplug_dir / name).is_file()} for name in required_pyplugs],
+        "corridorkey": {
+            "installed_root": str(model_root / "corridorkey" / "user_supplied"),
+            "required_engines": [
+                {"name": name, "present": ((model_root / "corridorkey" / "user_supplied" / name).is_file())}
+                for name in ("CorridorKey_v1.0_512_fp16.engine", "CorridorKey_v1.0_768_fp16.engine", "CorridorKey_v1.0_1024_fp16.engine", "CorridorKey_v1.0_2048_fp16.engine")
+            ],
+            "trtexec_env": os.environ.get("FLUX_TRTEXEC", ""),
+            "trtexec_default": str((Path.home() / ".cache/flux-tensorrt/extracted/TensorRT-10.15.1.29/bin/trtexec").expanduser()),
+            "trtexec_found": trtexec_path is not None,
+            "trtexec_path": str(trtexec_path) if trtexec_path else "",
+            "uv_found": bool(shutil.which("uv")),
+            "git_found": bool(shutil.which("git")),
+            "cuda_nvcc_found": bool(shutil.which("nvcc")),
+            "tensorrt_lib_dir_found": tensorrt_lib_dir is not None,
+            "tensorrt_lib_dir": str(tensorrt_lib_dir) if tensorrt_lib_dir else ""
+        },
         "ofx_dir": exists_dir(str(ofx_dir)),
         "required_ofx": [{"name": name, "installed": (ofx_dir / name).is_dir()} for name in required_ofx],
         "ocio_configs": {
@@ -1662,12 +1862,24 @@ payload = {
         },
         "runtimes": [
             {"id": rid, "venv_python": str(runtime_root / rid / "venv" / "bin" / "python"), "installed": (runtime_root / rid / "venv" / "bin" / "python").is_file()}
-            for rid in ("sam3", "matanyone2", "videomama", "sam31")
+            for rid in ("sam3", "matanyone2", "videomama")
         ],
         "models": [
-            {"id": mid, "path": str(model_root / mid), "present": (model_root / mid).is_dir()}
-            for mid in ("sam3_transformers", "matanyone2", "videomama", "sam31_sam3plus")
+            {"id": mid, "path": str(model_root / mid / "user_supplied" if mid == "corridorkey" else model_root / mid), "present": (all(((model_root / "corridorkey" / "user_supplied" / name).is_file()) for name in ("CorridorKey_v1.0_512_fp16.engine", "CorridorKey_v1.0_768_fp16.engine", "CorridorKey_v1.0_1024_fp16.engine", "CorridorKey_v1.0_2048_fp16.engine")) if mid == "corridorkey" else (model_root / mid).is_dir())}
+            for mid in ("sam3_transformers", "matanyone2", "videomama", "corridorkey")
         ],
+        "host_prereqs": {
+            "python3": shutil.which("python3"),
+            "pip3": shutil.which("pip3"),
+            "uv": shutil.which("uv"),
+            "cargo": shutil.which("cargo"),
+            "rustc": shutil.which("rustc"),
+            "bun": shutil.which("bun"),
+            "nvcc": shutil.which("nvcc"),
+            "trtexec": shutil.which("trtexec"),
+            "sudo": shutil.which("sudo"),
+            "pkexec": shutil.which("pkexec"),
+        },
     },
 }
 print(json.dumps(payload, indent=2, sort_keys=True))
@@ -1691,11 +1903,16 @@ run_private_action() {
     uninstall) uninstall_flux ;;
     status-summary) print_status_summary ;;
     diagnostics-json) run_installer_diagnostics_json ;;
-    ai-list) run_ai_model_list ;;
+    ai-list) run_ai_model_list "$@" ;;
     ai-status) run_ai_model_status ;;
     ai-install) run_ai_model_install "$@" ;;
     ai-remove) run_ai_model_remove "$@" ;;
     ai-token) run_ai_token_entry ;;
+    ai-host-prereqs-install) install_ai_host_prereqs ;;
+    ai-user-tools-install) bootstrap_ai_user_tools ;;
+    corridorkey-builder-prereqs) install_corridorkey_builder_prereqs ;;
+    cuda-toolkit-install) install_fedora_cuda_toolkit ;;
+    ai-runtime-list) run_ai_runtime_list ;;
     ai-runtime-status) run_ai_runtime_status "$@" ;;
     ai-runtime-install) run_ai_runtime_install "$@" ;;
     ai-runtime-self-check) run_ai_runtime_self_check "$@" ;;

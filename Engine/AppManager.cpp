@@ -90,6 +90,7 @@
 #include <QDir>
 #include <QCoreApplication>
 #include <QSettings>
+#include <QTimer>
 #include <QThreadPool>
 #include <QTextStream>
 #include <QAbstractSocket>
@@ -134,6 +135,7 @@
 #include "Engine/RotoReplaceChannels.h"
 #include "Engine/FluxAIMaskCopy.h"
 #include "Engine/FluxChannelMerge.h"
+#include "Engine/FluxCorridorKey.h"
 #include "Engine/StandardPaths.h"
 #include "Engine/TrackerNode.h"
 #include "Engine/ThreadPool.h"
@@ -1044,6 +1046,14 @@ AppManager::loadInternalAfterInitGui(const CLArgs& cl)
         return false;
     } else {
         onLoadCompleted();
+        if (!isBackground() && mainInstance) {
+            const AppInstancePtr capturedInstance = mainInstance;
+            QTimer::singleShot(0, qApp, [this, capturedInstance]() {
+                _imp->_settings->refreshReadFileColorspaceChoices(capturedInstance);
+            });
+        } else {
+            _imp->_settings->refreshReadFileColorspaceChoices(mainInstance);
+        }
 
         ///In background project auto-run the rendering is finished at this point, just exit the instance
         if ( ( (_imp->_appType == eAppTypeBackgroundAutoRun) ||
@@ -1147,6 +1157,8 @@ AppManager::newAppInstanceInternal(const CLArgs& cl,
 
         return instance;
     }
+    _imp->_settings->refreshReadFileColorspaceChoices(instance);
+
 
     ///flag that we finished loading the Appmanager even if it was already true
     _imp->_loaded = true;
@@ -1554,6 +1566,7 @@ AppManager::loadBuiltinNodePlugins(IOPluginsMap* /*readersMap*/,
     registerBuiltInPlugin<RotoReplaceChannels>(QString::fromUtf8(""), false, true);
     registerBuiltInPlugin<FluxAIMaskCopy>(QString::fromUtf8(""), false, false);
     registerBuiltInPlugin<FluxChannelMerge>(QString::fromUtf8(""), false, false);
+    registerBuiltInPlugin<FluxCorridorKey>(QString::fromUtf8(""), false, false);
     registerBuiltInPlugin<PrecompNode>(QString::fromUtf8(NATRON_IMAGES_PATH "precompNodeIcon.png"), false, false);
     registerBuiltInPlugin<TrackerNode>(QString::fromUtf8(NATRON_IMAGES_PATH "trackerNodeIcon.png"), false, false);
     registerBuiltInPlugin<JoinViewsNode>(QString::fromUtf8(NATRON_IMAGES_PATH "joinViewsNode.png"), false, false);

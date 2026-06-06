@@ -1689,14 +1689,14 @@ Gui::setupFluxUi()
                              }
                          }
                          EffectInstancePtr effectInstance = node->getEffectInstance();
-                         if (effectInstance && effectInstance->getPluginID() == PLUGINID_NATRON_AIPAINT) {
+                         if (effectInstance && (effectInstance->getPluginID() == PLUGINID_NATRON_AIPAINT || effectInstance->getPluginID() == PLUGINID_FLUX_CORRIDOR_KEY)) {
                              NodePtr viewerNode;
                              ViewerTab* viewerTab = ensureFluxAiWorkViewerTab(&viewerNode);
                              if (viewerTab && viewerNode && viewerNode->isActivated()) {
                                  viewerNode->disconnectInput(0);
                                  viewerNode->connectInput(node, 0);
                                  showFluxViewerTab(viewerTab);
-                                 if (aiPanel) {
+                                 if (aiPanel && effectInstance->getPluginID() == PLUGINID_NATRON_AIPAINT) {
                                      const int timelineFrame = timeline->getCurrentFrame();
                                      const FluxLayer& layer = layers[layerIndex];
                                      const int sourceFrame = qBound(layer.originalFirstFrame, timelineFrame - layer.timeOffset, layer.originalLastFrame);
@@ -1783,14 +1783,14 @@ Gui::setupFluxUi()
                              }
                          }
                          EffectInstancePtr effectInstance = node->getEffectInstance();
-                         if (effectInstance && effectInstance->getPluginID() == PLUGINID_NATRON_AIPAINT) {
+                         if (effectInstance && (effectInstance->getPluginID() == PLUGINID_NATRON_AIPAINT || effectInstance->getPluginID() == PLUGINID_FLUX_CORRIDOR_KEY)) {
                              NodePtr viewerNode;
                              ViewerTab* viewerTab = ensureFluxAiWorkViewerTab(&viewerNode);
                              if (viewerTab && viewerNode && viewerNode->isActivated()) {
                                  viewerNode->disconnectInput(0);
                                  viewerNode->connectInput(node, 0);
                                  showFluxViewerTab(viewerTab);
-                                 if (aiPanel) {
+                                 if (aiPanel && effectInstance->getPluginID() == PLUGINID_NATRON_AIPAINT) {
                                      const int timelineFrame = timeline->getCurrentFrame();
                                      const int sourceFrame = qBound(layer.originalFirstFrame, timelineFrame - layer.timeOffset, layer.originalLastFrame);
                                      const int rangeFirstFrame = qBound(layer.originalFirstFrame, layer.inPoint, layer.originalLastFrame);

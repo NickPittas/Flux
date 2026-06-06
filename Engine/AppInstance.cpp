@@ -70,6 +70,7 @@ CLANG_DIAG_ON(unknown-pragmas)
 #include "Engine/ProcessHandler.h"
 #include "Engine/ReadNode.h"
 #include "Engine/Settings.h"
+#include "Engine/KnobTypes.h"
 #include "Engine/WriteNode.h"
 
 NATRON_NAMESPACE_ENTER
@@ -131,6 +132,13 @@ FlagIncrementer::~FlagIncrementer()
         lock->unlock();
     }
 }
+
+namespace {
+
+
+
+} // namespace
+
 
 struct RenderQueueItem
 {
@@ -2064,6 +2072,7 @@ void
 AppInstance::onOCIOConfigPathChanged(const std::string& path)
 {
     _imp->_currentProject->onOCIOConfigPathChanged(path, false);
+    appPTR->getCurrentSettings()->refreshReadFileColorspaceChoices(shared_from_this());
 }
 
 void

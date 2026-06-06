@@ -277,6 +277,14 @@ public:
     bool didSettingsExistOnStartup() const;
 
     bool notifyOnFileChange() const;
+    bool isReadColorspaceMismatchWarningEnabled() const;
+    bool areReadFileColorspaceChoicesPopulated() const;
+    std::string getReadColorspace8BitID() const;
+    std::string getReadColorspace16BitID() const;
+    std::string getReadColorspaceLogID() const;
+    std::string getReadColorspaceFloatID() const;
+    void refreshReadFileColorspaceChoices(const AppInstancePtr& app);
+    void refreshReadFileColorspaceChoicesFromEntries(const std::vector<ChoiceOption>& entries);
 
     bool isAggressiveCachingEnabled() const;
 
@@ -499,6 +507,15 @@ private:
     KnobBoolPtr _warnOcioConfigKnobChanged;
     KnobBoolPtr _ocioStartupCheck;
     KnobFilePtr _customOcioConfigFile;
+    KnobBoolPtr _readColorspaceWarnOnMismatch;
+    KnobChoicePtr _readColorspace8Bit;
+    KnobChoicePtr _readColorspace16Bit;
+    KnobChoicePtr _readColorspaceLog;
+    KnobChoicePtr _readColorspaceFloat;
+    KnobStringPtr _readColorspace8BitID;
+    KnobStringPtr _readColorspace16BitID;
+    KnobStringPtr _readColorspaceLogID;
+    KnobStringPtr _readColorspaceFloatID;
 
     // Caching
     KnobPagePtr _cachingTab;

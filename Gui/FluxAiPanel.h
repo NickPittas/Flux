@@ -54,6 +54,9 @@ public:
 private Q_SLOTS:
     void onAddMaskClicked();
     void onReplaceMaskClicked();
+    void onCreateCorridorKeyNodeClicked();
+    void onImportCorridorKeyRgbaClicked();
+    void onBakeCorridorKeyRgbaClicked();
     void onModelChanged();
     void onRunClicked();
     void onRunningChanged(bool running);
@@ -99,6 +102,9 @@ private:
     bool verifyVideoMamaResultAndWriteManifest(const QJsonObject& workerResult, QString* message, QString* selectedRelativeMask = nullptr);
     bool verifyMatAnyone2ResultAndWriteManifest(const QJsonObject& workerResult, QString* message, QString* selectedRelativeMask = nullptr);
     bool verifySam3ResultAndWriteManifest(const QJsonObject& probeResult, QString* message, QString* selectedRelativeMask = nullptr);
+    bool writeCorridorKeyNodeManifest(const QString& relativeMask, const QString& relativeSequencePattern, QString* message, QString* manifestRelative = nullptr);
+    bool bakeCorridorKeyOutputs(const NodePtr& corridorNode, QString* message, QString* manifestRelative = nullptr, QString* processedPatternRelative = nullptr);
+    bool writeCorridorKeyBakeManifest(const QString& relativeRoot, const QString& processedPatternRelative, const QString& mattePatternRelative, const QString& fgPatternRelative, const QJsonObject& nodeSettings, QString* message, QString* manifestRelative);
     void previewSam3RunResult(const QString& relativeMask);
     void addOrPromoteResultManifest(const QString& projectRelativeManifest);
     void refreshResultHistoryList(const QString& selectedManifest = QString());
@@ -191,6 +197,9 @@ private:
     QPushButton* _runButton;
     QPushButton* _addMaskButton;
     QPushButton* _replaceMaskButton;
+    QPushButton* _createCorridorKeyNodeButton;
+    QPushButton* _importCorridorKeyRgbaButton;
+    QPushButton* _bakeCorridorKeyRgbaButton;
     QPushButton* _cancelButton;
     QListWidget* _resultHistoryList;
     QPushButton* _previewAgainButton;

@@ -145,7 +145,19 @@ def status_payload(r):
     return {"schema":"org.flux.ai.provider-runtime-status.v1","id":r["id"],"runtime_root":str(runtime_root()),"env_dir":str(env_dir(r)),"venv_dir":str(venv_dir(r)),"python":str(ep),"python_exists":ep.exists(),"metadata":meta,"models":models,"runtime_imports":imports,"ready":not blockers,"blockers":blockers}
 
 def cmd_list(args):
-    data=load_manifest(args.manifest); rows=[{"id":r["id"],"display_name":r.get("display_name"),"env_dir":str(env_dir(r)),"models":r.get("models",[])} for r in data.get("runtimes",[])]
+    data=load_manifest(args.manifest)
+    rows=[]
+    for r in data.get("runtimes",[]):
+        installed = env_python(r).exists() and meta_path(r).is_file()
+        rows.append({
+            "id":r["id"],
+            "display_name":r.get("display_name"),
+            "env_dir":str(env_dir(r)),
+            "models":r.get("models",[]),
+            "installed":installed,
+            "default_installable":False,
+            "default_enabled":False,
+        })
     jprint({"runtimes":rows}) if args.json else [print(f"{x['id']}: {x['display_name']} -> {x['env_dir']}") for x in rows]; return 0
 
 def cmd_status(args):

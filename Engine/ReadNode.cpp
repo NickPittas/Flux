@@ -158,6 +158,131 @@ static GenericKnob genericReaderKnobNames[] =
     {kOCIOParamContext, false},
     {0, false}
 };
+enum ReadFileColorspaceCategory {
+    eReadFileColorspace8Bit = 0,
+    eReadFileColorspace16Bit,
+    eReadFileColorspaceLog,
+    eReadFileColorspaceFloat
+};
+
+static ReadFileColorspaceCategory
+classifyReadFileColorspaceCategory(const NodePtr& embeddedReader,
+                                   const std::string& filename)
+{
+    const QString suffix = QFileInfo(QString::fromUtf8(filename.c_str())).suffix().toLower();
+    if (suffix == QString::fromUtf8("dpx") ||
+        suffix == QString::fromUtf8("cin") ||
+        suffix == QString::fromUtf8("cineon")) {
+        return eReadFileColorspaceLog;
+    }
+    if (suffix == QString::fromUtf8("exr") ||
+        suffix == QString::fromUtf8("sxr") ||
+        suffix == QString::fromUtf8("hdr")) {
+        return eReadFileColorspaceFloat;
+    }
+    if (suffix == QString::fromUtf8("jpg") ||
+        suffix == QString::fromUtf8("jpeg") ||
+        suffix == QString::fromUtf8("png") ||
+        suffix == QString::fromUtf8("webp") ||
+        suffix == QString::fromUtf8("bmp") ||
+        suffix == QString::fromUtf8("gif") ||
+        suffix == QString::fromUtf8("mp4") ||
+        suffix == QString::fromUtf8("mov") ||
+        suffix == QString::fromUtf8("avi") ||
+        suffix == QString::fromUtf8("mxf") ||
+        suffix == QString::fromUtf8("mkv") ||
+        suffix == QString::fromUtf8("webm")) {
+        return eReadFileColorspace8Bit;
+    }
+    if (suffix == QString::fromUtf8("tif") ||
+        suffix == QString::fromUtf8("tiff") ||
+        suffix == QString::fromUtf8("tga")) {
+        return eReadFileColorspace16Bit;
+    }
+    if (embeddedReader) {
+        EffectInstancePtr effect = embeddedReader->getEffectInstance();
+        if (effect) {
+            const ImageBitDepthEnum bitDepth = effect->getBitDepth(-1);
+            if (bitDepth == eImageBitDepthFloat) {
+                return eReadFileColorspaceFloat;
+            } else if (bitDepth == eImageBitDepthShort) {
+                return eReadFileColorspace16Bit;
+            }
+        }
+    }
+    return eReadFileColorspace8Bit;
+}
+
+static std::string
+preferredReadColorspaceIDForCategory(const SettingsPtr& settings,
+                                     ReadFileColorspaceCategory category)
+{
+    if (!settings) {
+        return std::string();
+    }
+    switch (category) {
+    case eReadFileColorspace16Bit:
+        return settings->getReadColorspace16BitID();
+    case eReadFileColorspaceLog:
+        return settings->getReadColorspaceLogID();
+    case eReadFileColorspaceFloat:
+        return settings->getReadColorspaceFloatID();
+    case eReadFileColorspace8Bit:
+    default:
+        return settings->getReadColorspace8BitID();
+    }
+}
+
+static const char*
+readColorspaceCategoryName(ReadFileColorspaceCategory category)
+{
+    switch (category) {
+    case eReadFileColorspace16Bit: return "16-bit";
+    case eReadFileColorspaceLog: return "log";
+    case eReadFileColorspaceFloat: return "float";
+    case eReadFileColorspace8Bit:
+    default: return "8-bit";
+    }
+}
+
+static void
+applyPreferredReadColorspace(const NodePtr& readNode,
+                             const NodePtr& embeddedReader,
+                             const std::string& filename)
+{
+    if (!readNode) {
+        return;
+    }
+    SettingsPtr settings = appPTR->getCurrentSettings();
+    if (!settings) {
+        return;
+    }
+    KnobChoicePtr inputSpaceChoice = std::dynamic_pointer_cast<KnobChoice>(readNode->getKnobByName(kOCIOParamInputSpaceChoice));
+    KnobStringPtr inputSpaceString = std::dynamic_pointer_cast<KnobString>(readNode->getKnobByName(kOCIOParamInputSpace));
+    if (!inputSpaceChoice || !inputSpaceString) {
+        return;
+    }
+    const ReadFileColorspaceCategory category = classifyReadFileColorspaceCategory(embeddedReader, filename);
+    const std::string preferredID = preferredReadColorspaceIDForCategory(settings, category);
+    if (preferredID.empty()) {
+        return;
+    }
+    inputSpaceChoice->setValueFromID(preferredID, 0, false);
+    const std::string resolvedID = inputSpaceChoice->getActiveEntry().id;
+    if (!resolvedID.empty()) {
+        inputSpaceString->setValue(resolvedID);
+    }
+    if (resolvedID != preferredID) {
+        if (settings->isReadColorspaceMismatchWarningEnabled()) {
+            readNode->setPersistentMessage(eMessageTypeWarning,
+                                           QObject::tr("Preferred Read File Colorspace \"%1\" for %2 files is not available in the active OCIO config.")
+                                           .arg(QString::fromStdString(preferredID))
+                                           .arg(QString::fromUtf8(readColorspaceCategoryName(category))).toStdString());
+        }
+    } else {
+        readNode->clearPersistentMessage(false);
+    }
+}
 static bool
 isGenericKnob(const std::string& knobName,
               bool *mustSerialize)
@@ -680,7 +805,7 @@ ReadNodePrivate::createReadNode(bool throwErrors,
         if (fileKnob) {
             // Make sure instance changed action is called on the decoder and not caught in our knobChanged handler.
             embeddedPlugin->getEffectInstance()->onKnobValueChanged_public(fileKnob.get(), eValueChangedReasonNatronInternalEdited, _publicInterface->getCurrentTime(), ViewSpec(0), true);
-
+            applyPreferredReadColorspace(_publicInterface->getNode(), embeddedPlugin, filename);
         }
 
         return;
@@ -799,6 +924,7 @@ ReadNodePrivate::createReadNode(bool throwErrors,
     if (knob) {
         inputFileKnob = std::dynamic_pointer_cast<KnobFile>(knob);
     }
+    applyPreferredReadColorspace(_publicInterface->getNode(), node ? node : embeddedPlugin, filename);
 } // ReadNodePrivate::createReadNode
 
 void
