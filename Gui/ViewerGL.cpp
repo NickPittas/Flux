@@ -180,7 +180,8 @@ ViewerGL::resizeGL(int w,
         return;
     }
     glCheckError();
-    glViewport (0, 0, w, h);
+    const double pixelRatio = devicePixelRatioF();
+    glViewport(0, 0, std::max(1, (int)std::ceil(w * pixelRatio)), std::max(1, (int)std::ceil(h * pixelRatio)));
     double zoomWidth = w;
     double zoomHeight = h;
 

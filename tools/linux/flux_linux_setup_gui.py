@@ -128,7 +128,8 @@ def ai_provider_rows() -> list[dict[str, str]]:
         model_id = str(model.get("id", ""))
         gated = str(model.get("gated_token_requirement", "")).lower()
         labels: list[str] = []
-        if "required" in gated or "token" in gated or "gated" in str(model.get("install_policy", "")).lower():
+        req = gated in {"required", "token_required", "required_for_download"} or gated.startswith("required")
+        if req:
             labels.append("HF token required")
         rows.append({
             "title": str(model.get("display_name", model_id)),
@@ -813,8 +814,11 @@ class FluxInstallerWindow(QMainWindow):
             if model_id == "corridorkey":
                 if not corridor_ready:
                     suggestions.append(_model_repair_label(model_id, runtime_id))
-            elif not model_status.get(model_id, {}).get("present"):
-                suggestions.append(_model_repair_label(model_id, runtime_id))
+            else:
+                # Do not auto-suggest optional/gated model downloads from the global repair queue.
+                # Model payload installs must be explicit per-row actions so SAM3 cannot be bundled
+                # into unrelated repairs such as CorridorKey staging.
+                pass
         host = ai.get("host_prereqs", {})
         if not host.get("python3") or not host.get("cargo") or not host.get("rustc") or not host.get("git"):
             suggestions.append("Install/repair AI host packages (Fedora)")

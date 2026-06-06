@@ -1029,6 +1029,7 @@ package_runtime_artifact() {
   [[ -d "${FLUX_INSTALL_PREFIX}/Plugins/OFX" ]] || die "Installed OFX plugin directory missing: ${FLUX_INSTALL_PREFIX}/Plugins/OFX"
   [[ -d "${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs" ]] || die "Installed PyPlug directory missing: ${FLUX_INSTALL_PREFIX}/Plugins/PyPlugs"
   [[ -d "${FLUX_INSTALL_PREFIX}/tools/ai" ]] || die "Installed Flux AI tools missing: ${FLUX_INSTALL_PREFIX}/tools/ai"
+  [[ -d "${FLUX_ROOT}/Gui/Resources" ]] || die "Source GUI runtime resources missing: ${FLUX_ROOT}/Gui/Resources"
   ensure_ocio_configs || return
   validate_ldd || die 'Runtime artifact packaging refused because binary/plugin dependency validation failed.'
   command -v tar >/dev/null 2>&1 || die 'tar is required to package a runtime artifact.'
@@ -1042,6 +1043,7 @@ package_runtime_artifact() {
   cp -aL "${FLUX_INSTALL_PREFIX}/bin" "${stage}/bin"
   cp -aL "${FLUX_INSTALL_PREFIX}/Plugins" "${stage}/Plugins"
   cp -aL "${FLUX_INSTALL_PREFIX}/tools" "${stage}/tools"
+  cp -aL "${FLUX_ROOT}/Gui/Resources" "${stage}/Resources"
   [[ -d "${FLUX_INSTALL_PREFIX}/onnxruntime-sdk" ]] && cp -aL "${FLUX_INSTALL_PREFIX}/onnxruntime-sdk" "${stage}/onnxruntime-sdk"
   cp -aL "${FLUX_ROOT}/OpenColorIO-Configs" "${stage}/share/OpenColorIO-Configs"
   manifest="${stage}/artifact-manifest.json"
@@ -1057,6 +1059,7 @@ EOF
   [[ -f "${stage}/share/OpenColorIO-Configs/blender/config.ocio" ]] || die 'Artifact staging failed: blender OCIO config missing.'
   [[ -f "${stage}/share/OpenColorIO-Configs/natron/config.ocio" ]] || die 'Artifact staging failed: natron OCIO config missing.'
   [[ -f "${stage}/share/OpenColorIO-Configs/nuke-default/config.ocio" ]] || die 'Artifact staging failed: nuke-default OCIO config missing.'
+  [[ -d "${stage}/Resources/etc/fonts" ]] || die 'Artifact staging failed: runtime Resources/etc/fonts missing.'
   tar -czf "$output" -C "$stage" .
   rm -rf "$stage"
   log "Packaged Flux runtime artifact: ${output}"

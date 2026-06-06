@@ -157,10 +157,18 @@ def token_from_args(args, needed=False):
     cached=getattr(args,"_hf_token",None)
     if cached: return cached
     tok=os.environ.get("FLUX_HF_TOKEN")
-    if tok: return tok
-    if getattr(args,"token_stdin",False): return sys.stdin.read().strip()
+    if tok:
+        setattr(args,"_hf_token",tok)
+        return tok
+    if getattr(args,"token_stdin",False):
+        tok=sys.stdin.read().strip()
+        if tok:
+            setattr(args,"_hf_token",tok)
+            return tok
     tok=keyring_token()
-    if tok: return tok
+    if tok:
+        setattr(args,"_hf_token",tok)
+        return tok
     if needed and sys.stdin.isatty() and not getattr(args,"yes",False):
         tok=getpass.getpass("Hugging Face token (input hidden): ").strip()
         if tok:
@@ -195,10 +203,7 @@ def _cleanup_install_dir(staging:Path)->None:
 def install_hf(m,args,paths):
     s=m["source"]; req=str(m.get("gated_token_requirement","")).lower(); need=req.startswith("required") or req in {"token_required", "required_for_download"}; tok=token_from_args(args,need)
     if need and not tok:
-        if sys.stdin.isatty() and not getattr(args,"yes",False):
-            print(f"SKIP {m['id']}: gated Hugging Face model requires access/token and no token was entered.")
-        else:
-            print(f"SKIP {m['id']}: gated Hugging Face model requires access/token. Interactive installer prompts when run from a terminal; advanced one-shot paths are FLUX_HF_TOKEN or --token-stdin.")
+        print(f"SKIP {m['id']}: gated Hugging Face model requires access/token. Accept access on Hugging Face, then provide FLUX_HF_TOKEN, --token-stdin, or the GUI token field.", file=sys.stderr)
         return 2
     if args.dry_run: print(f"DRY-RUN HF {m['id']}: repo={s['repo']} revision={s['revision']} allow={s.get('allow_patterns')}"); return 0
     try: from huggingface_hub import snapshot_download
