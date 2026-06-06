@@ -154,6 +154,8 @@ def remember_token_securely(tok:str)->None:
         print(f"Secure keyring persistence failed; refusing plaintext fallback. Continuing one-shot only: {e}", file=sys.stderr)
 
 def token_from_args(args, needed=False):
+    cached=getattr(args,"_hf_token",None)
+    if cached: return cached
     tok=os.environ.get("FLUX_HF_TOKEN")
     if tok: return tok
     if getattr(args,"token_stdin",False): return sys.stdin.read().strip()
@@ -161,7 +163,9 @@ def token_from_args(args, needed=False):
     if tok: return tok
     if needed and sys.stdin.isatty() and not getattr(args,"yes",False):
         tok=getpass.getpass("Hugging Face token (input hidden): ").strip()
-        if tok: remember_token_securely(tok)
+        if tok:
+            setattr(args,"_hf_token",tok)
+            remember_token_securely(tok)
         return tok or None
     return None
 
@@ -546,20 +550,29 @@ def _ensure_runtime_for_model(model_id:str)->None:
     _run([sys.executable, str(manager), "install", runtime_id, "--cuda", os.environ.get("FLUX_AI_RUNTIME_CUDA","cu128"), "--json"])
 
 def install_one(m,args,paths):
-    if not m.get("default_installable",False) and not args.force: print(f"SKIP {m['id']}: not installable by default (use --force).",file=sys.stderr); return 1
+    typ=m.get("source",{}).get("type")
+    req=str(m.get("gated_token_requirement","")).lower()
+    needs_token=(typ in {"huggingface","huggingface_composite"}) and (req.startswith("required") or req in {"token_required","required_for_download"})
+    if needs_token and not token_from_args(args, True):
+        print(f"SKIP {m['id']}: gated Hugging Face model requires access/token. Accept access on Hugging Face, then provide FLUX_HF_TOKEN, --token-stdin, or the GUI token field.", file=sys.stderr)
+        return 2
+    if not m.get("default_installable",False) and not args.force:
+        print(f"SKIP {m['id']}: not installable by default (use --force).",file=sys.stderr)
+        return 1
     if not model_is_implemented(m) and not args.force:
         print(f"SKIP {m['id']}: model is not implemented in Flux and is hidden from normal installer flows (use --force only for manual recovery/remove).", file=sys.stderr)
         return 1
     if m.get("warning_text") and not (args.yes or args.dry_run):
-        print("WARNING: "+m["warning_text"]); input("Press Enter to continue or Ctrl-C to abort.")
+        print("WARNING: "+m["warning_text"])
+        input("Press Enter to continue or Ctrl-C to abort.")
     if not args.dry_run:
         _ensure_runtime_for_model(m["id"])
-    typ=m.get("source",{}).get("type")
     if typ=="huggingface": return install_hf(m,args,paths)
     if typ=="huggingface_composite": return install_composite(m,args,paths)
     if typ=="url": return install_direct(m,args,paths)
     if typ=="external": return install_external(m,args,paths)
-    print(f"ERROR: {m['id']} has unsupported source type {typ}",file=sys.stderr); return 1
+    print(f"ERROR: {m['id']} has unsupported source type {typ}",file=sys.stderr)
+    return 1
 
 def describe_install_selection(models):
     print("Flux AI model setup will install:")
@@ -579,7 +592,8 @@ def cmd_install(args):
     rc=0
     for m in models:
         r=install_one(m,args,paths)
-        if r==1: rc=1
+        if r:
+            rc=r
     return rc
 
 def remove_model_id(manifest:Path, model_id:str):

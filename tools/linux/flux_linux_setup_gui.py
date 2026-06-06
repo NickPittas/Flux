@@ -86,6 +86,7 @@ MUTATING_ACTIONS = {
     "corridorkey-builder-prereqs",
     "ai-install",
     "ai-remove",
+    "ai-token",
     "ai-runtime-install",
 }
 
@@ -125,10 +126,16 @@ def ai_provider_rows() -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for model in _implemented_models():
         model_id = str(model.get("id", ""))
+        gated = str(model.get("gated_token_requirement", "")).lower()
+        labels: list[str] = []
+        if "required" in gated or "token" in gated or "gated" in str(model.get("install_policy", "")).lower():
+            labels.append("HF token required")
         rows.append({
             "title": str(model.get("display_name", model_id)),
             "runtime_id": runtime_map.get(model_id, ""),
             "model_id": model_id,
+            "warning_text": str(model.get("warning_text", "")),
+            "labels": " | ".join(labels),
         })
     return rows
 
@@ -397,22 +404,32 @@ class FluxInstallerWindow(QMainWindow):
         token_label = QLabel("Hugging Face token")
         self.token_edit = QLineEdit()
         self.token_edit.setEchoMode(QLineEdit.Password)
-        self.token_edit.setPlaceholderText("Optional; backend token action remains authoritative")
+        self.token_edit.setPlaceholderText("Required for gated models such as SAM3; use Open Token Entry or FLUX_HF_TOKEN")
         token_row.addWidget(token_label)
         token_row.addWidget(self.token_edit, 1)
-        token_row.addWidget(self._button("Open Token Entry", lambda: self.run_action("ai-token", select_logs=True)))
+        token_row.addWidget(self._button("Open Token Entry", lambda _checked=False: self.run_action("ai-token", select_logs=True)))
         layout.addLayout(token_row)
         for provider in ai_provider_rows():
             title = provider["title"]
             runtime_id = provider["runtime_id"]
             model_id = provider["model_id"]
+            labels = provider.get("labels", "")
+            warning_text = provider.get("warning_text", "")
             group = QGroupBox(title)
             group.setObjectName("ProviderBox")
             box = QVBoxLayout(group)
             if runtime_id:
-                box.addWidget(QLabel(f"Runtime venv: {runtime_id}    Model payload: {model_id}"))
+                line = f"Runtime venv: {runtime_id}    Model payload: {model_id}"
             else:
-                box.addWidget(QLabel(f"Native model payload: {model_id}"))
+                line = f"Native model payload: {model_id}"
+            if labels:
+                line = f"{line}    [{labels}]"
+            box.addWidget(QLabel(line))
+            if warning_text:
+                warning = QLabel(warning_text)
+                warning.setWordWrap(True)
+                warning.setObjectName("ActionDetail")
+                box.addWidget(warning)
             row = QHBoxLayout()
             if runtime_id:
                 row.addWidget(self._small_action("Install / repair venv", "ai-runtime-install", runtime_id))
@@ -510,6 +527,13 @@ class FluxInstallerWindow(QMainWindow):
             artifact_text = artifact.text().strip() if artifact is not None else ""
             if artifact_text:
                 args = (artifact_text,)
+        token_payload = ""
+        if action in {"ai-token", "ai-install"}:
+            token = getattr(self, "token_edit", None)
+            token_payload = token.text().strip() if token is not None else ""
+            if action == "ai-token" and not token_payload:
+                QMessageBox.warning(self, "Hugging Face token required", "Paste a Hugging Face token into the token field before opening token entry.")
+                return
         command_text = f"{SETUP_SCRIPT} __flux_setup_action {action} {' '.join(args)}".strip()
         if action in MUTATING_ACTIONS and not auto_yes:
             if QMessageBox.question(self, "Confirm repair/install action", f"Run this action?\n\n{command_text}") != QMessageBox.Yes:
@@ -547,7 +571,11 @@ class FluxInstallerWindow(QMainWindow):
             self.append_log(f"ERROR: failed to start {command_text}\n")
             self._finish_action(False, "failed to start")
             return
-        if auto_yes:
+        if action in {"ai-token", "ai-install"}:
+            if token_payload:
+                process.write((token_payload + "\n").encode("utf-8"))
+            process.closeWriteChannel()
+        elif auto_yes:
             process.write(("y\n" * 8).encode("utf-8"))
             process.closeWriteChannel()
 

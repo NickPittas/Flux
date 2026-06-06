@@ -1095,7 +1095,11 @@ install_ai_payloads() {
 ensure_ai_tools() {
   local old_force="$FORCE"
   if [[ ! -d "$PYTHON_RUNTIME_DIR" ]]; then
-    confirm_default_yes "Flux AI Python dependencies are missing. Install them now without rebuilding Flux?" || die 'AI Python dependencies are required for this action.'
+    if [[ -t 0 ]]; then
+      confirm_default_yes "Flux AI Python dependencies are missing. Install them now without rebuilding Flux?" || die 'AI Python dependencies are required for this action.'
+    else
+      die "Flux AI Python dependencies are missing: ${PYTHON_RUNTIME_DIR}. Install the runtime artifact or run deploy-runtime before AI actions."
+    fi
     validate_install_prefix || return
     mkdir -p "$FLUX_INSTALL_PREFIX"
     touch "$INSTALL_MANIFEST"
@@ -1140,12 +1144,20 @@ install_corridorkey_builder_prereqs() {
 run_ai_model_install() {
   local model_id="${1:-}"
   [[ -n "$model_id" ]] || die 'AI model install requires a model id.'
-  run_ai_manager install "$model_id"
+  if [[ -t 0 ]]; then
+    run_ai_manager install "$model_id"
+  else
+    run_ai_manager install "$model_id" --yes --token-stdin
+  fi
 }
 
 run_ai_token_entry() {
   log 'Opening secure Hugging Face token prompt. Token persistence uses only the desktop secure keyring.'
-  run_ai_manager login --remember
+  if [[ -t 0 ]]; then
+    run_ai_manager login --remember
+  else
+    run_ai_manager login --remember --token-stdin
+  fi
 }
 
 run_ai_model_status() {
