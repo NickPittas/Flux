@@ -58,6 +58,7 @@ CLANG_DIAG_ON(uninitialized)
 #define kShortcutGroupPlayer "Player"
 #define kShortcutGroupNodes "Nodes"
 #define kShortcutGroupScriptEditor "ScriptEditor"
+#define kShortcutGroupTimeline "Timeline"
 
 /////////GLOBAL SHORTCUTS
 #define kShortcutIDActionNewProject "newProject"
@@ -586,6 +587,32 @@ CLANG_DIAG_ON(uninitialized)
 
 #define kShortcutIDActionScriptShowOutput "showHideOutput"
 #define kShortcutDescActionScriptShowOutput "Show/Hide Output Window"
+
+/////////TIMELINE SHORTCUTS
+
+#define kShortcutIDActionTimelineTrimStartToPlayhead "trimStartToPlayhead"
+#define kShortcutDescActionTimelineTrimStartToPlayhead "Trim Layer Start to Playhead"
+
+#define kShortcutIDActionTimelineTrimEndToPlayhead "trimEndToPlayhead"
+#define kShortcutDescActionTimelineTrimEndToPlayhead "Trim Layer End to Playhead"
+
+#define kShortcutIDActionTimelineMoveStartToPlayhead "moveStartToPlayhead"
+#define kShortcutDescActionTimelineMoveStartToPlayhead "Move Layer Start to Playhead"
+
+#define kShortcutIDActionTimelineMoveEndToPlayhead "moveEndToPlayhead"
+#define kShortcutDescActionTimelineMoveEndToPlayhead "Move Layer End to Playhead"
+
+#define kShortcutIDActionTimelineNudgeLeft "nudgeLeft"
+#define kShortcutDescActionTimelineNudgeLeft "Nudge Layer Left 1 Frame"
+
+#define kShortcutIDActionTimelineNudgeRight "nudgeRight"
+#define kShortcutDescActionTimelineNudgeRight "Nudge Layer Right 1 Frame"
+
+#define kShortcutIDActionTimelineNudgeLeft10 "nudgeLeft10"
+#define kShortcutDescActionTimelineNudgeLeft10 "Nudge Layer Left 10 Frames"
+
+#define kShortcutIDActionTimelineNudgeRight10 "nudgeRight10"
+#define kShortcutDescActionTimelineNudgeRight10 "Nudge Layer Right 10 Frames"
 
 NATRON_NAMESPACE_ENTER
 

@@ -300,6 +300,9 @@ public:
     /** @brief Get selected timeline row, or -1. */
     int getSelectedLayerIndex() const;
 
+    /** @brief Get all selected layer indices (multi-selection). */
+    QList<int> getSelectedLayerIndices() const;
+
     /** @brief Set the reader NodePtr for a layer (called after node creation). */
     void setLayerReaderNode(int index, const NodePtr& node);
 
@@ -508,6 +511,24 @@ private:
     QString makeUniqueMaskName(int layerIndex, int effectIndex) const;
     bool canAddEffectMask(int layerIndex, int effectIndex) const;
 
+    /** @brief Check if a layer index is in the multi-selection set. */
+    bool layerIsSelected(int index) const;
+
+    /** @brief Clear multi-layer selection. */
+    void clearLayerSelection();
+
+    /** @brief Add a layer to multi-selection (no-op if already present). */
+    void addToLayerSelection(int index);
+
+    /** @brief Toggle a layer in/out of multi-selection. */
+    void toggleLayerSelection(int index);
+
+    /** @brief Select a range of layers from 'from' to 'to' inclusive. */
+    void selectLayerRange(int from, int to);
+
+    /** @brief Shift all keyframes owned by a layer by frameDelta frames. */
+    void shiftLayerKeyframes(int layerIndex, int frameDelta);
+
     /** @brief Connect native knob keyframe signals for all currently modeled nodes. */
     void refreshKeyframeSignalConnections();
 
@@ -546,6 +567,7 @@ private:
     int _selectedKeyPropertyIndex;
     double _selectedKeyTime;
     QList<SelectedKeyframe> _selectedKeys; ///< multi-select keyframe set
+    QList<int> _selectedLayers; ///< multi-layer selection (indices into _layers)
     QPoint _rubberBandStart;               ///< screen coords at rubber-band drag start
     QPoint _rubberBandCurrent;             ///< current screen coords during rubber-band drag
     double _zoom;         // pixels per frame

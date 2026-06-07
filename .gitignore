@@ -303,6 +303,7 @@ t083-research/
 .fallow/
 .local/
 build-logs/
+dist/
 
 # One-off local reports/screenshots
 errors.md

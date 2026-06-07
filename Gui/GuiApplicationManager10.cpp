@@ -998,6 +998,16 @@ GuiApplicationManager::populateShortcuts()
     registerKeybind(kShortcutGroupScriptEditor, kShortcutIDActionScriptExecScript, kShortcutDescActionScriptExecScript, Qt::ControlModifier, Qt::Key_Return);
     registerKeybind(kShortcutGroupScriptEditor, kShortcutIDActionScriptClearOutput, kShortcutDescActionScriptClearOutput, Qt::ControlModifier, Qt::Key_Backspace);
     registerKeybind(kShortcutGroupScriptEditor, kShortcutIDActionScriptShowOutput, kShortcutDescActionScriptShowOutput, Qt::NoModifier, (Qt::Key)0);
+
+    ///Timeline
+    registerKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineTrimStartToPlayhead, kShortcutDescActionTimelineTrimStartToPlayhead, Qt::AltModifier, Qt::Key_BracketLeft);
+    registerKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineTrimEndToPlayhead, kShortcutDescActionTimelineTrimEndToPlayhead, Qt::AltModifier, Qt::Key_BracketRight);
+    registerKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineMoveStartToPlayhead, kShortcutDescActionTimelineMoveStartToPlayhead, Qt::NoModifier, Qt::Key_BracketLeft);
+    registerKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineMoveEndToPlayhead, kShortcutDescActionTimelineMoveEndToPlayhead, Qt::NoModifier, Qt::Key_BracketRight);
+    registerKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineNudgeLeft, kShortcutDescActionTimelineNudgeLeft, Qt::NoModifier, Qt::Key_Comma);
+    registerKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineNudgeRight, kShortcutDescActionTimelineNudgeRight, Qt::NoModifier, Qt::Key_Period);
+    registerKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineNudgeLeft10, kShortcutDescActionTimelineNudgeLeft10, Qt::ShiftModifier, Qt::Key_Less);
+    registerKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineNudgeRight10, kShortcutDescActionTimelineNudgeRight10, Qt::ShiftModifier, Qt::Key_Greater);
 } // populateShortcuts
 
 std::list<QKeySequence>

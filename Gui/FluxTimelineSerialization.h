@@ -504,6 +504,7 @@ struct FluxTimelineSerialization
     std::vector<FluxLayerSerialization> layers;
     std::string bgReformatNodeScriptName;
     int selectedLayer;
+    std::vector<int> selectedLayers;
     bool showKeyframeCurves;
     std::vector<std::string> ungroupedKeyframeProperties;
 
@@ -541,12 +542,22 @@ struct FluxTimelineSerialization
                 ar & ::boost::serialization::make_nvp("UngroupedKeyframeProperty", ungroupedKeyframeProperties[i]);
             }
         }
+        if (version >= 3) {
+            int numSelectedLayers = (int)selectedLayers.size();
+            ar & ::boost::serialization::make_nvp("NumSelectedLayers", numSelectedLayers);
+            if (Archive::is_loading::value) {
+                selectedLayers.resize(numSelectedLayers);
+            }
+            for (int i = 0; i < numSelectedLayers; ++i) {
+                ar & ::boost::serialization::make_nvp("SelectedLayer", selectedLayers[i]);
+            }
+        }
     }
 };
 
 NATRON_NAMESPACE_EXIT
 
-BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxTimelineSerialization, 2)
+BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxTimelineSerialization, 3)
 BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxLayerSerialization, 5)
 BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxMaskSerialization, 3)
 BOOST_CLASS_VERSION(NATRON_NAMESPACE::FluxEffectAIMaskSerialization, 3)

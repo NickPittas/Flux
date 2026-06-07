@@ -52,6 +52,7 @@
 #include "Engine/ImagePlaneDesc.h"
 #include "Gui/ViewerTab.h"
 #include "Gui/GuiApplicationManager.h"
+#include "Gui/ActionShortcuts.h"
 #include "Engine/ViewerInstance.h"
 #include "Gui/FluxTimelineSerialization.h"
 #include "Gui/FluxMaskUtils.h"
@@ -115,6 +116,7 @@ FluxTimeline::FluxTimeline(Gui* gui,
       , _selectedPropertyIndex(-1)
       , _selectedKeyPropertyIndex(-1)
       , _selectedKeyTime(0.0)
+      , _selectedLayers()
       , _rubberBandStart(0, 0)
       , _rubberBandCurrent(0, 0)
       , _zoom(10.0)
@@ -326,15 +328,34 @@ void
 FluxTimeline::duplicateSelectedLayer()
 {
     if (_selectedType == eFluxSelectionLayer) {
-        duplicateLayer(_selectedLayer);
+        // Duplicate in reverse order so indices stay valid as layers are inserted
+        QList<int> indices = _selectedLayers;
+        if (indices.isEmpty()) {
+            indices.append(_selectedLayer);
+        }
+        std::sort(indices.begin(), indices.end(), std::greater<int>());
+        for (int idx : indices) {
+            if (idx >= 0 && idx < _layers.size() && canDuplicateRow(idx)) {
+                duplicateLayer(idx);
+            }
+        }
     }
 }
 
 void
 FluxTimeline::splitSelectedLayer()
 {
-    if (_selectedType == eFluxSelectionLayer && canSplitRow(_selectedLayer)) {
-        splitLayer(_selectedLayer, _currentFrame);
+    if (_selectedType == eFluxSelectionLayer) {
+        QList<int> indices = _selectedLayers;
+        if (indices.isEmpty()) {
+            indices.append(_selectedLayer);
+        }
+        std::sort(indices.begin(), indices.end(), std::greater<int>());
+        for (int idx : indices) {
+            if (idx >= 0 && idx < _layers.size() && canSplitRow(idx)) {
+                splitLayer(idx, _currentFrame);
+            }
+        }
     }
 }
 
@@ -355,9 +376,18 @@ FluxTimeline::deleteSelectedLayer()
         return;
     }
 
-    if (_selectedType == eFluxSelectionLayer &&
-        _selectedLayer >= 0 && _selectedLayer < _layers.size()) {
-        removeLayer(_selectedLayer);
+    if (_selectedType == eFluxSelectionLayer) {
+        QList<int> indices = _selectedLayers;
+        if (indices.isEmpty()) {
+            indices.append(_selectedLayer);
+        }
+        // Remove highest-index first to keep indices valid
+        std::sort(indices.begin(), indices.end(), std::greater<int>());
+        for (int idx : indices) {
+            if (idx >= 0 && idx < _layers.size() && !_layers[idx].locked) {
+                removeLayer(idx);
+            }
+        }
     }
 }
 
@@ -1004,6 +1034,60 @@ int
 FluxTimeline::getSelectedLayerIndex() const
 {
     return _selectedLayer;
+}
+
+bool
+FluxTimeline::layerIsSelected(int index) const
+{
+    return _selectedLayers.contains(index);
+}
+
+QList<int>
+FluxTimeline::getSelectedLayerIndices() const
+{
+    return _selectedLayers;
+}
+
+void
+FluxTimeline::clearLayerSelection()
+{
+    _selectedLayers.clear();
+}
+
+void
+FluxTimeline::addToLayerSelection(int index)
+{
+    if (index >= 0 && index < _layers.size() && !_selectedLayers.contains(index)) {
+        _selectedLayers.append(index);
+    }
+}
+
+void
+FluxTimeline::toggleLayerSelection(int index)
+{
+    if (index < 0 || index >= _layers.size()) {
+        return;
+    }
+    int pos = _selectedLayers.indexOf(index);
+    if (pos >= 0) {
+        _selectedLayers.removeAt(pos);
+    } else {
+        _selectedLayers.append(index);
+    }
+}
+
+void
+FluxTimeline::selectLayerRange(int from, int to)
+{
+    if (from > to) {
+        std::swap(from, to);
+    }
+    from = qMax(0, from);
+    to = qMin((int)_layers.size() - 1, to);
+    _selectedLayers.clear();
+    for (int i = from; i <= to; ++i) {
+        _selectedLayers.append(i);
+    }
 }
 
  void
@@ -2451,7 +2535,7 @@ FluxTimeline::drawLayerBars(QPainter& painter,
             int i = visibleRow.layerIndex;
             const FluxLayer& layer = _layers[i];
 
-            bool isSelected = (_selectedType == eFluxSelectionLayer && i == _selectedLayer);
+            bool isSelected = (_selectedType == eFluxSelectionLayer && layerIsSelected(i));
 
             // ── Control and name columns background (unified sidebar) ──
             QRect sidebarRect(0, y, _layerLabelWidth, rowHeight);
@@ -4208,6 +4292,7 @@ FluxTimeline::hitTest(int x,
 void
 FluxTimeline::mousePressEvent(QMouseEvent* event)
 {
+    setFocus(); // ensure timeline receives keyboard events (like ViewerGL does)
     // ── Dirty-banner click detection (before all other handlers) ──
     if (event->button() == Qt::LeftButton) {
         const int mx = event->pos().x();
@@ -4305,6 +4390,7 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             // Clicked below all rows
             _selectedType = eFluxSelectionNone;
             _selectedLayer = -1;
+            _selectedLayers.clear();
             _selectedEffectIndex = -1;
             _selectedMaskIndex = -1;
             _selectedPropertyIndex = -1;
@@ -4451,10 +4537,27 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
 
             // No button hit — select the layer
             _selectedType = eFluxSelectionLayer;
-            _selectedLayer = layerIdx;
             _selectedEffectIndex = -1;
             _selectedMaskIndex = -1;
             _selectedPropertyIndex = -1;
+
+            bool ctrlHeld = (event->modifiers() & Qt::ControlModifier) != 0;
+            bool shiftHeld = (event->modifiers() & Qt::ShiftModifier) != 0;
+
+            if (ctrlHeld) {
+                // Ctrl+Click: toggle layer in multi-selection
+                toggleLayerSelection(layerIdx);
+                _selectedLayer = layerIdx; // update anchor
+            } else if (shiftHeld && _selectedLayer >= 0) {
+                // Shift+Click: select range from anchor to clicked layer
+                selectLayerRange(_selectedLayer, layerIdx);
+                _selectedLayer = layerIdx; // update anchor
+            } else {
+                // Plain click: single-select
+                _selectedLayer = layerIdx;
+                clearLayerSelection();
+                addToLayerSelection(layerIdx);
+            }
             Q_EMIT layerSelected(layerIdx);
             update();
         }
@@ -4583,6 +4686,7 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
             // Clicked empty space in bar area — start rubber-band select
             _selectedType = eFluxSelectionNone;
             _selectedLayer = -1;
+            _selectedLayers.clear();
             _selectedEffectIndex = -1;
             _selectedMaskIndex = -1;
             _selectedPropertyIndex = -1;
@@ -4599,10 +4703,27 @@ FluxTimeline::mousePressEvent(QMouseEvent* event)
 
         // Select the layer
         _selectedType = eFluxSelectionLayer;
-        _selectedLayer = layerIdx;
         _selectedEffectIndex = -1;
         _selectedMaskIndex = -1;
         _selectedPropertyIndex = -1;
+
+        bool ctrlHeld = (event->modifiers() & Qt::ControlModifier) != 0;
+        bool shiftHeld = (event->modifiers() & Qt::ShiftModifier) != 0;
+
+        if (ctrlHeld) {
+            // Ctrl+Click: toggle layer in multi-selection
+            toggleLayerSelection(layerIdx);
+            _selectedLayer = layerIdx; // update anchor
+        } else if (shiftHeld && _selectedLayer >= 0) {
+            // Shift+Click: select range from anchor to clicked layer
+            selectLayerRange(_selectedLayer, layerIdx);
+            _selectedLayer = layerIdx; // update anchor
+        } else {
+            // Plain click: single-select
+            _selectedLayer = layerIdx;
+            clearLayerSelection();
+            addToLayerSelection(layerIdx);
+        }
         Q_EMIT layerSelected(layerIdx);
 
         // Store interaction start state
@@ -5795,6 +5916,8 @@ FluxTimeline::wheelEvent(QWheelEvent* event)
 void
 FluxTimeline::keyPressEvent(QKeyEvent* event)
 {
+    Qt::KeyboardModifiers modifiers = event->modifiers();
+    Qt::Key key = (Qt::Key)event->key();
     if (event->key() == Qt::Key_Delete) {
         if (!_selectedKeys.isEmpty()) {
             // Delete all selected keyframes
@@ -5830,23 +5953,43 @@ FluxTimeline::keyPressEvent(QKeyEvent* event)
             _selectedLayer >= 0 && _selectedLayer < _layers.size() &&
             _selectedMaskIndex >= 0) {
             removeMaskFromLayer(_selectedLayer, _selectedMaskIndex);
-        } else if (_selectedType == eFluxSelectionLayer &&
-                   _selectedLayer >= 0 && _selectedLayer < _layers.size()) {
-            if (!_layers[_selectedLayer].locked) {
-                removeLayer(_selectedLayer);
+        } else if (_selectedType == eFluxSelectionLayer) {
+            QList<int> indices = _selectedLayers;
+            if (indices.isEmpty()) {
+                indices.append(_selectedLayer);
+            }
+            std::sort(indices.begin(), indices.end(), std::greater<int>());
+            for (int idx : indices) {
+                if (idx >= 0 && idx < _layers.size() && !_layers[idx].locked) {
+                    removeLayer(idx);
+                }
             }
         }
         event->accept();
     } else if (event->key() == Qt::Key_D && (event->modifiers() & Qt::ControlModifier) && (event->modifiers() & Qt::ShiftModifier)) {
-        // Ctrl+Shift+D = Split at playhead
-        if (_selectedType == eFluxSelectionLayer && canSplitRow(_selectedLayer)) {
-            splitLayer(_selectedLayer, _currentFrame);
+        // Ctrl+Shift+D = Split at playhead (all selected layers)
+        if (_selectedType == eFluxSelectionLayer) {
+            QList<int> indices = _selectedLayers;
+            if (indices.isEmpty()) { indices.append(_selectedLayer); }
+            std::sort(indices.begin(), indices.end(), std::greater<int>());
+            for (int idx : indices) {
+                if (idx >= 0 && idx < _layers.size() && canSplitRow(idx)) {
+                    splitLayer(idx, _currentFrame);
+                }
+            }
         }
         event->accept();
     } else if (event->key() == Qt::Key_D && (event->modifiers() & Qt::ControlModifier) && !(event->modifiers() & Qt::ShiftModifier)) {
-        // Ctrl+D = Duplicate selected layer
-        if (_selectedType == eFluxSelectionLayer && canDuplicateRow(_selectedLayer)) {
-            duplicateLayer(_selectedLayer);
+        // Ctrl+D = Duplicate (all selected layers)
+        if (_selectedType == eFluxSelectionLayer) {
+            QList<int> indices = _selectedLayers;
+            if (indices.isEmpty()) { indices.append(_selectedLayer); }
+            std::sort(indices.begin(), indices.end(), std::greater<int>());
+            for (int idx : indices) {
+                if (idx >= 0 && idx < _layers.size() && canDuplicateRow(idx)) {
+                    duplicateLayer(idx);
+                }
+            }
         }
         event->accept();
     } else if (event->key() == Qt::Key_C && (event->modifiers() & Qt::ControlModifier) && !(event->modifiers() & Qt::ShiftModifier)) {
@@ -5868,10 +6011,179 @@ FluxTimeline::keyPressEvent(QKeyEvent* event)
     } else if (event->key() == Qt::Key_Escape && event->modifiers() == Qt::NoModifier) {
         _selectedType = eFluxSelectionNone;
         _selectedLayer = -1;
+        _selectedLayers.clear();
         _selectedEffectIndex = -1;
         _selectedMaskIndex = -1;
         _selectedPropertyIndex = -1;
         Q_EMIT layerSelected(-1);
+        update();
+        event->accept();
+    } else if (isKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineTrimStartToPlayhead, modifiers, key)) {
+        // Alt+[ = Trim start of selected layers to playhead
+        QList<int> indices = _selectedLayers.isEmpty() ? QList<int>{_selectedLayer} : _selectedLayers;
+        for (int idx : indices) {
+            if (idx >= 0 && idx < _layers.size() && canTrimRow(idx)) {
+                FluxLayer& layer = _layers[idx];
+                int newIn = _currentFrame - layer.timeOffset;
+                newIn = qBound(layer.originalInPoint, newIn, layer.outPoint - 1);
+                if (newIn != layer.inPoint) {
+                    layer.inPoint = newIn;
+                    if (isAdjustmentRow(idx)) {
+                        updateAdjustmentTrimKeyframes(idx);
+                    } else {
+                        updateLayerTrimKnobs(idx);
+                    }
+                }
+            }
+        }
+        Q_EMIT compositingChanged();
+        Q_EMIT frameChanged(_currentFrame);
+        update();
+        event->accept();
+    } else if (isKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineTrimEndToPlayhead, modifiers, key)) {
+        // Alt+] = Trim end of selected layers to playhead
+        QList<int> indices = _selectedLayers.isEmpty() ? QList<int>{_selectedLayer} : _selectedLayers;
+        for (int idx : indices) {
+            if (idx >= 0 && idx < _layers.size() && canTrimRow(idx)) {
+                FluxLayer& layer = _layers[idx];
+                int newOut = _currentFrame - layer.timeOffset;
+                newOut = qBound(layer.inPoint + 1, newOut, layer.originalOutPoint);
+                if (newOut != layer.outPoint) {
+                    layer.outPoint = newOut;
+                    if (isAdjustmentRow(idx)) {
+                        updateAdjustmentTrimKeyframes(idx);
+                    } else {
+                        updateLayerTrimKnobs(idx);
+                    }
+                }
+            }
+        }
+        Q_EMIT compositingChanged();
+        Q_EMIT frameChanged(_currentFrame);
+        update();
+        event->accept();
+    } else if (isKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineMoveStartToPlayhead, modifiers, key)) {
+        // [ = Move start of selected layers to playhead
+        QList<int> indices = _selectedLayers.isEmpty() ? QList<int>{_selectedLayer} : _selectedLayers;
+        for (int idx : indices) {
+            if (idx >= 0 && idx < _layers.size()) {
+                FluxLayer& layer = _layers[idx];
+                int newOffset = _currentFrame - layer.inPoint;
+                int delta = newOffset - layer.timeOffset;
+                if (delta != 0) {
+                    layer.timeOffset = newOffset;
+                    if (!isAdjustmentRow(idx) && !isNullRow(idx)) {
+                        updateLayerMoveKnob(idx);
+                    }
+                    if (isAdjustmentRow(idx)) {
+                        updateAdjustmentTrimKeyframes(idx);
+                    }
+                    shiftLayerKeyframes(idx, delta);
+                }
+            }
+        }
+        Q_EMIT compositingChanged();
+        Q_EMIT frameChanged(_currentFrame);
+        update();
+        event->accept();
+    } else if (isKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineMoveEndToPlayhead, modifiers, key)) {
+        // ] = Move end of selected layers to playhead
+        QList<int> indices = _selectedLayers.isEmpty() ? QList<int>{_selectedLayer} : _selectedLayers;
+        for (int idx : indices) {
+            if (idx >= 0 && idx < _layers.size()) {
+                FluxLayer& layer = _layers[idx];
+                int newOffset = _currentFrame - layer.outPoint;
+                int delta = newOffset - layer.timeOffset;
+                if (delta != 0) {
+                    layer.timeOffset = newOffset;
+                    if (!isAdjustmentRow(idx) && !isNullRow(idx)) {
+                        updateLayerMoveKnob(idx);
+                    }
+                    if (isAdjustmentRow(idx)) {
+                        updateAdjustmentTrimKeyframes(idx);
+                    }
+                    shiftLayerKeyframes(idx, delta);
+                }
+            }
+        }
+        Q_EMIT compositingChanged();
+        Q_EMIT frameChanged(_currentFrame);
+        update();
+        event->accept();
+    } else if (isKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineNudgeLeft, modifiers, key)) {
+        // , = Nudge selected layers left by 1 frame
+        QList<int> indices = _selectedLayers.isEmpty() ? QList<int>{_selectedLayer} : _selectedLayers;
+        for (int idx : indices) {
+            if (idx >= 0 && idx < _layers.size() && !_layers[idx].locked) {
+                _layers[idx].timeOffset -= 1;
+                if (!isAdjustmentRow(idx) && !isNullRow(idx)) {
+                    updateLayerMoveKnob(idx);
+                }
+                if (isAdjustmentRow(idx)) {
+                    updateAdjustmentTrimKeyframes(idx);
+                }
+                shiftLayerKeyframes(idx, -1);
+            }
+        }
+        Q_EMIT compositingChanged();
+        Q_EMIT frameChanged(_currentFrame);
+        update();
+        event->accept();
+    } else if (isKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineNudgeRight, modifiers, key)) {
+        // . = Nudge selected layers right by 1 frame
+        QList<int> indices = _selectedLayers.isEmpty() ? QList<int>{_selectedLayer} : _selectedLayers;
+        for (int idx : indices) {
+            if (idx >= 0 && idx < _layers.size() && !_layers[idx].locked) {
+                _layers[idx].timeOffset += 1;
+                if (!isAdjustmentRow(idx) && !isNullRow(idx)) {
+                    updateLayerMoveKnob(idx);
+                }
+                if (isAdjustmentRow(idx)) {
+                    updateAdjustmentTrimKeyframes(idx);
+                }
+                shiftLayerKeyframes(idx, 1);
+            }
+        }
+        Q_EMIT compositingChanged();
+        Q_EMIT frameChanged(_currentFrame);
+        update();
+        event->accept();
+    } else if (isKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineNudgeLeft10, modifiers, key)) {
+        // Shift+, = Nudge selected layers left by 10 frames
+        QList<int> indices = _selectedLayers.isEmpty() ? QList<int>{_selectedLayer} : _selectedLayers;
+        for (int idx : indices) {
+            if (idx >= 0 && idx < _layers.size() && !_layers[idx].locked) {
+                _layers[idx].timeOffset -= 10;
+                if (!isAdjustmentRow(idx) && !isNullRow(idx)) {
+                    updateLayerMoveKnob(idx);
+                }
+                if (isAdjustmentRow(idx)) {
+                    updateAdjustmentTrimKeyframes(idx);
+                }
+                shiftLayerKeyframes(idx, -10);
+            }
+        }
+        Q_EMIT compositingChanged();
+        Q_EMIT frameChanged(_currentFrame);
+        update();
+        event->accept();
+    } else if (isKeybind(kShortcutGroupTimeline, kShortcutIDActionTimelineNudgeRight10, modifiers, key)) {
+        // Shift+. = Nudge selected layers right by 10 frames
+        QList<int> indices = _selectedLayers.isEmpty() ? QList<int>{_selectedLayer} : _selectedLayers;
+        for (int idx : indices) {
+            if (idx >= 0 && idx < _layers.size() && !_layers[idx].locked) {
+                _layers[idx].timeOffset += 10;
+                if (!isAdjustmentRow(idx) && !isNullRow(idx)) {
+                    updateLayerMoveKnob(idx);
+                }
+                if (isAdjustmentRow(idx)) {
+                    updateAdjustmentTrimKeyframes(idx);
+                }
+                shiftLayerKeyframes(idx, 10);
+            }
+        }
+        Q_EMIT compositingChanged();
+        Q_EMIT frameChanged(_currentFrame);
         update();
         event->accept();
     } else if (event->modifiers() == Qt::NoModifier) {
@@ -6063,6 +6375,131 @@ FluxTimeline::updateLayerMoveKnob(int layerIndex)
             continue;
         }
         fluxConfigureAIMaskTimeOffsetNode(effect.aiMaskTimeOffsetNode, layer.timeOffset - effect.aiMaskBaseTimeOffset);
+    }
+}
+
+void
+FluxTimeline::shiftLayerKeyframes(int layerIndex, int frameDelta)
+{
+    if (layerIndex < 0 || layerIndex >= _layers.size() || frameDelta == 0) {
+        return;
+    }
+    const FluxLayer& layer = _layers[layerIndex];
+
+    // System/timing knobs handled by updateLayerMoveKnob already — skip them.
+    static const std::set<std::string> kSkipKnobNames = {
+        "timeOffset", "frameRange", "before", "after"
+    };
+
+    // Collect all animatable properties for this layer
+    QList<FluxKeyframeProperty> allProps;
+
+    // Layer-level user properties (excluding timing knobs)
+    QList<FluxKeyframeProperty> layerProps = buildLayerProperties(layer, _ungroupedKeyframeProperties);
+    for (const FluxKeyframeProperty& prop : layerProps) {
+        if (prop.knob && kSkipKnobNames.count(prop.knob->getName())) {
+            continue;
+        }
+        allProps.append(prop);
+    }
+
+    // All effect properties
+    bool isAdj = isAdjustmentRow(layerIndex);
+    for (int ei = 0; ei < layer.effects.size(); ++ei) {
+        QList<FluxKeyframeProperty> effectProps =
+            buildEffectProperties(layer.effects[ei], isAdj, _ungroupedKeyframeProperties);
+        allProps.append(effectProps);
+    }
+
+    // All mask properties (layer masks and effect masks)
+    for (int mi = 0; mi < layer.masks.size(); ++mi) {
+        QList<FluxKeyframeProperty> maskProps = buildMaskProperties(layer.masks[mi]);
+        allProps.append(maskProps);
+    }
+
+    // Build pending moves for every key across all properties
+    struct LayerPendingMove {
+        const FluxKeyframeProperty* prop;
+        double srcTime;
+        double dstTime;
+    };
+    QList<LayerPendingMove> pendingMoves;
+
+    for (const FluxKeyframeProperty& prop : allProps) {
+        QList<FluxKeyframeKey> keys = keysForProperty(prop);
+        for (const FluxKeyframeKey& k : keys) {
+            pendingMoves.append({&prop, k.time, k.time + frameDelta});
+        }
+    }
+
+    // Sort in safe order to avoid self-collisions
+    if (frameDelta > 0) {
+        std::sort(pendingMoves.begin(), pendingMoves.end(),
+                  [](const LayerPendingMove& a, const LayerPendingMove& b) { return a.srcTime > b.srcTime; });
+    } else {
+        std::sort(pendingMoves.begin(), pendingMoves.end(),
+                  [](const LayerPendingMove& a, const LayerPendingMove& b) { return a.srcTime < b.srcTime; });
+    }
+
+    // Apply moves
+    bool anyMoved = false;
+    for (const LayerPendingMove& pm : pendingMoves) {
+        if (moveKeysAtTime(*pm.prop, pm.srcTime, pm.dstTime)) {
+            anyMoved = true;
+        }
+    }
+
+    if (anyMoved) {
+        // Sync text animators if any affected property belongs to a text layer
+        for (const FluxKeyframeProperty& prop : allProps) {
+            syncTextAnimatorPropertyIfNeeded(prop);
+        }
+
+        // Build set of owner nodes for the moved layer
+        std::set<Node*> movedOwnerNodes;
+        if (layer.gizmoNode) {
+            movedOwnerNodes.insert(layer.gizmoNode.get());
+        }
+        for (int ei = 0; ei < layer.effects.size(); ++ei) {
+            if (layer.effects[ei].node) {
+                movedOwnerNodes.insert(layer.effects[ei].node.get());
+            }
+        }
+        for (int mi = 0; mi < layer.masks.size(); ++mi) {
+            if (layer.masks[mi].maskNode) {
+                movedOwnerNodes.insert(layer.masks[mi].maskNode.get());
+            }
+        }
+
+        // Identify property indices belonging to the moved layer
+        std::set<int> movedPropIndices;
+        for (int pi = 0; pi < _propertyRows.size(); ++pi) {
+            if (_propertyRows[pi].ownerNode &&
+                movedOwnerNodes.count(_propertyRows[pi].ownerNode.get())) {
+                movedPropIndices.insert(pi);
+            }
+        }
+
+        // Preserve selection across row rebuild
+        QList<SelectedKeyframe> savedSelection = _selectedKeys;
+        int savedKeyPropIdx = _selectedKeyPropertyIndex;
+        double savedKeyTime = _selectedKeyTime;
+
+        rebuildVisibleRows();
+
+        // Shift keyTimes for selected keys that belong to the moved layer
+        for (int i = 0; i < savedSelection.size(); ++i) {
+            if (movedPropIndices.count(savedSelection[i].propertyIndex)) {
+                savedSelection[i].keyTime += frameDelta;
+            }
+        }
+        if (savedKeyPropIdx >= 0 && movedPropIndices.count(savedKeyPropIdx)) {
+            savedKeyTime += frameDelta;
+        }
+
+        _selectedKeys = savedSelection;
+        _selectedKeyPropertyIndex = savedKeyPropIdx;
+        _selectedKeyTime = savedKeyTime;
     }
 }
 
@@ -6273,6 +6710,10 @@ FluxTimeline::serializeForProject() const
 {
     FluxTimelineSerialization ser;
     ser.selectedLayer = _selectedLayer;
+    ser.selectedLayers.clear();
+    for (int idx : _selectedLayers) {
+        ser.selectedLayers.push_back(idx);
+    }
     ser.showKeyframeCurves = _showKeyframeCurves;
     ser.ungroupedKeyframeProperties.assign(_ungroupedKeyframeProperties.begin(),
                                            _ungroupedKeyframeProperties.end());
@@ -6572,6 +7013,12 @@ FluxTimeline::restoreFromProjectSerialization(const FluxTimelineSerialization& s
     }
 
     _selectedLayer = ser.selectedLayer;
+    _selectedLayers.clear();
+    for (int idx : ser.selectedLayers) {
+        if (idx >= 0 && idx < (int)_layers.size()) {
+            _selectedLayers.append(idx);
+        }
+    }
     _selectedKeyPropertyIndex = -1;
     _selectedKeyTime = 0.0;
     _selectedKeys.clear();
