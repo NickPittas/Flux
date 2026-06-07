@@ -122,6 +122,9 @@ private:
     SpinBox *_spinS;
     SpinBox *_spinV;
     SpinBox *_spinA;
+    SpinBox *_spinTemp;
+    SpinBox *_spinTint;
+    SpinBox *_spinValue;
 
     ScaleSliderQWidget *_slideR;
     ScaleSliderQWidget *_slideG;
@@ -130,6 +133,9 @@ private:
     ScaleSliderQWidget *_slideS;
     ScaleSliderQWidget *_slideV;
     ScaleSliderQWidget *_slideA;
+    ScaleSliderQWidget *_slideTemp;
+    ScaleSliderQWidget *_slideTint;
+    ScaleSliderQWidget *_slideValue;
 
     QtColorTriangle *_triangle;
 
@@ -139,12 +145,16 @@ private:
 
     QStackedWidget *_stack;
 
+    void computeTMIfromRGB(double r, double g, double b);
     QVector<ColorSelectorPaletteButton*> _paletteButtons;
 
     void setRedChannel(float value);
     void setGreenChannel(float value);
     void setBlueChannel(float value);
     void setHueChannel(float value);
+    void setTempChannel(float value);
+    void setTintChannel(float value);
+    void setValueLumChannel(float value);
     void setSaturationChannel(float value);
     void setValueChannel(float value);
     void setAlphaChannel(float value);
@@ -177,6 +187,9 @@ private Q_SLOTS:
     void handleSpinSChanged(double value);
     void handleSpinVChanged(double value);
     void handleSpinAChanged(double value);
+    void handleSpinTempChanged(double value);
+    void handleSpinTintChanged(double value);
+    void handleSpinValueChanged(double value);
 
     void handleHexChanged();
 
@@ -187,10 +200,16 @@ private Q_SLOTS:
     void handleSliderSMoved(double value);
     void handleSliderVMoved(double value);
     void handleSliderAMoved(double value);
+    void handleSliderTempMoved(double value);
+    void handleSliderTintMoved(double value);
+    void handleSliderValueMoved(double value);
 
     void setSliderHColor();
     void setSliderSColor();
     void setSliderVColor();
+    void setSliderTempColor();
+    void setSliderTintColor();
+    void setSliderValueColor();
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     void handleButtonColorClicked(QAbstractButton *button);

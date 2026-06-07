@@ -18,6 +18,7 @@
  * ***** END LICENSE BLOCK ***** */
 
 #include "ColorSelectorWidget.h"
+#include "ColorTemperature.h"
 
 CLANG_DIAG_OFF(deprecated)
 CLANG_DIAG_OFF(uninitialized)
@@ -32,6 +33,7 @@ CLANG_DIAG_OFF(uninitialized)
 CLANG_DIAG_ON(deprecated)
 CLANG_DIAG_ON(uninitialized)
 
+#include <cmath>
 #include "Engine/Lut.h"
 #include "Gui/Label.h"
 
@@ -177,6 +179,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
   , _spinS(0)
   , _spinV(0)
   , _spinA(0)
+  , _spinTemp(0)
+  , _spinTint(0)
+  , _spinValue(0)
   , _slideR(0)
   , _slideG(0)
   , _slideB(0)
@@ -184,6 +189,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
   , _slideS(0)
   , _slideV(0)
   , _slideA(0)
+  , _slideTemp(0)
+  , _slideTint(0)
+  , _slideValue(0)
   , _triangle(0)
   , _hex(0)
   , _buttonColorGroup(0)
@@ -256,6 +264,31 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
                                          eScaleTypeLinear,
                                          this);
     }
+    // grading sliders (temperature/tint/value)
+    _slideTemp = new ScaleSliderQWidget(-1.,
+                                        1.,
+                                        0.,
+                                        false,
+                                        ScaleSliderQWidget::eDataTypeDouble,
+                                        NULL,
+                                        eScaleTypeLinear,
+                                        this);
+    _slideTint = new ScaleSliderQWidget(-1.,
+                                         1.,
+                                         0.,
+                                         false,
+                                         ScaleSliderQWidget::eDataTypeDouble,
+                                         NULL,
+                                         eScaleTypeLinear,
+                                         this);
+    _slideValue = new ScaleSliderQWidget(0.,
+                                          2.,
+                                          1.,
+                                          false,
+                                         ScaleSliderQWidget::eDataTypeDouble,
+                                         NULL,
+                                         eScaleTypeLinear,
+                                         this);
     _slideR->setMinimumAndMaximum(0., 1.);
     _slideG->setMinimumAndMaximum(0., 1.);
     _slideB->setMinimumAndMaximum(0., 1.);
@@ -265,6 +298,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     if (_slideA) {
         _slideA->setMinimumAndMaximum(0., 1.);
     }
+    _slideTemp->setMinimumAndMaximum(-1., 1.);
+    _slideTint->setMinimumAndMaximum(-1., 1.);
+    _slideValue->setMinimumAndMaximum(-1., 1.);
 
     _slideR->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     _slideG->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -275,6 +311,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     if (_slideA) {
         _slideA->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     }
+    _slideTemp->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    _slideTint->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    _slideValue->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     // set line color to match channel (R/G/B/A)
     _slideR->setUseLineColor(true, QColor(200, 70, 70) );
@@ -283,6 +322,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     if (_slideA) {
         _slideA->setUseLineColor(true, QColor(215, 215, 215) );
     }
+    _slideTemp->setUseLineColor(true, QColor(180, 130, 70) );
+    _slideTint->setUseLineColor(true, QColor(130, 180, 130) );
+    _slideValue->setUseLineColor(true, QColor(200, 200, 200) );
 
     // override "knob" color on sliders
     _slideR->setUseSliderColor(true, Qt::white);
@@ -294,6 +336,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     if (_slideA) {
         _slideA->setUseSliderColor(true, Qt::white);
     }
+    _slideTemp->setUseSliderColor(true, Qt::white);
+    _slideTint->setUseSliderColor(true, Qt::white);
+    _slideValue->setUseSliderColor(true, Qt::white);
 
     // spinboxes
     _spinR = new SpinBox(this, SpinBox::eSpinBoxTypeDouble);
@@ -305,6 +350,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     if (_slideA) {
         _spinA = new SpinBox(this, SpinBox::eSpinBoxTypeDouble);
     }
+    _spinTemp = new SpinBox(this, SpinBox::eSpinBoxTypeDouble);
+    _spinTint = new SpinBox(this, SpinBox::eSpinBoxTypeDouble);
+    _spinValue = new SpinBox(this, SpinBox::eSpinBoxTypeDouble);
 
     _spinR->decimals(3);
     _spinG->decimals(3);
@@ -315,6 +363,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     if (_slideA) {
         _spinA->decimals(3);
     }
+    _spinTemp->decimals(3);
+    _spinTint->decimals(3);
+    _spinValue->decimals(3);
 
     _spinR->setIncrement(0.01);
     _spinG->setIncrement(0.01);
@@ -325,6 +376,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     if (_slideA) {
         _spinA->setIncrement(0.01);
     }
+    _spinTemp->setIncrement(0.01);
+    _spinTint->setIncrement(0.01);
+    _spinValue->setIncrement(0.01);
 
     _spinR->setMaximum(1.);
     _spinR->setMinimum(0.);
@@ -342,6 +396,12 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
         _spinA->setMaximum(1.);
         _spinA->setMinimum(0.);
     }
+    _spinTemp->setMinimum(-999.);
+    _spinTemp->setMaximum(999.);
+    _spinTint->setMinimum(-999.);
+    _spinTint->setMaximum(999.);
+    _spinValue->setMinimum(-999.);
+    _spinValue->setMaximum(999.);
 
     // set color to match channel (R/G/B/A)
     _spinR->setUseLineColor(true, QColor(200, 70, 70) );
@@ -350,6 +410,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     if (_slideA) {
         _spinA->setUseLineColor(true, QColor(215, 215, 215) );
     }
+    _spinTemp->setUseLineColor(true, QColor(180, 130, 70) );
+    _spinTint->setUseLineColor(true, QColor(130, 180, 130) );
+    _spinValue->setUseLineColor(true, QColor(200, 200, 200) );
 
     // hex
     _hex = new LineEdit(this);
@@ -397,6 +460,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     _spinH->setObjectName( QString::fromUtf8("ColorSelectorHue") );
     _spinS->setObjectName( QString::fromUtf8("ColorSelectorSat") );
     _spinV->setObjectName( QString::fromUtf8("ColorSelectorVal") );
+    _spinTemp->setObjectName( QString::fromUtf8("ColorSelectorTemp") );
+    _spinTint->setObjectName( QString::fromUtf8("ColorSelectorTint") );
+    _spinValue->setObjectName( QString::fromUtf8("ColorSelectorValue") );
     _hex->setObjectName( QString::fromUtf8("ColorSelectorHex") );
 
     // labels
@@ -410,6 +476,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     Label *labelH = new Label(QString::fromUtf8("H"), this);
     Label *labelS = new Label(QString::fromUtf8("S"), this);
     Label *labelV = new Label(QString::fromUtf8("V"), this);
+    Label *labelTemp = new Label(QString::fromUtf8("Temp"), this);
+    Label *labelTint = new Label(QString::fromUtf8("Tint"), this);
+    Label *labelValue = new Label(QString::fromUtf8("Val"), this);
     Label *labelHex = new Label(QString::fromUtf8("Hex"), this);
 
     labelR->setMinimumWidth(10);
@@ -421,6 +490,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     labelH->setMinimumWidth(10);
     labelS->setMinimumWidth(10);
     labelV->setMinimumWidth(10);
+    labelTemp->setMinimumWidth(10);
+    labelTint->setMinimumWidth(10);
+    labelValue->setMinimumWidth(10);
 
     labelR->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     labelG->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -431,6 +503,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     labelH->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     labelS->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     labelV->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    labelTemp->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    labelTint->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    labelValue->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     // tooltips
     _spinR->setToolTip( QObject::tr("Red color value") );
@@ -442,6 +517,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     _spinH->setToolTip( QObject::tr("Hue color value") );
     _spinS->setToolTip( QObject::tr("Saturation value") );
     _spinV->setToolTip( QObject::tr("Brightness/Intensity value") );
+    _spinTemp->setToolTip( QObject::tr("Color temperature (cool to warm)") );
+    _spinTint->setToolTip( QObject::tr("Color tint (green to magenta)") );
+    _spinValue->setToolTip( QObject::tr("Luminance value (brightness multiplier)") );
     _hex->setToolTip( QObject::tr("A HTML hexadecimal color is specified with: #RRGGBB, where the RR (red), GG (green) and BB (blue) hexadecimal integers specify the components of the color.") );
     paletteAddColorButton->setToolTip( QObject::tr("Add current color to palette (Shift+A)") );
     paletteClearButton->setToolTip( QObject::tr("Clear colors in palette (Shift+C)") );
@@ -466,6 +544,15 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
 
     QWidget *vWidget = new QWidget(this);
     QHBoxLayout *vLayout = new QHBoxLayout(vWidget);
+
+    QWidget *tempWidget = new QWidget(this);
+    QHBoxLayout *tempLayout = new QHBoxLayout(tempWidget);
+
+    QWidget *tintWidget = new QWidget(this);
+    QHBoxLayout *tintLayout = new QHBoxLayout(tintWidget);
+
+    QWidget *valueWidget = new QWidget(this);
+    QHBoxLayout *valueLayout = new QHBoxLayout(valueWidget);
 
     QWidget *aWidget;
     QHBoxLayout *aLayout;
@@ -519,6 +606,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     hLayout->setContentsMargins(0, 0, 0, 0);
     sLayout->setContentsMargins(0, 0, 0, 0);
     vLayout->setContentsMargins(0, 0, 0, 0);
+    tempLayout->setContentsMargins(0, 0, 0, 0);
+    tintLayout->setContentsMargins(0, 0, 0, 0);
+    valueLayout->setContentsMargins(0, 0, 0, 0);
     hexLayout->setContentsMargins(0, 0, 0, 0);
     topLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setContentsMargins(0, 0, 0, 0);
@@ -560,6 +650,16 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     vLayout->addWidget(_spinV);
     vLayout->addWidget(_slideV);
 
+    tempLayout->addWidget(labelTemp);
+    tempLayout->addWidget(_spinTemp);
+    tempLayout->addWidget(_slideTemp);
+    tintLayout->addWidget(labelTint);
+    tintLayout->addWidget(_spinTint);
+    tintLayout->addWidget(_slideTint);
+    valueLayout->addWidget(labelValue);
+    valueLayout->addWidget(_spinValue);
+    valueLayout->addWidget(_slideValue);
+
     if (_slideA) {
         aLayout->addWidget(labelA);
         aLayout->addWidget(_spinA);
@@ -572,6 +672,9 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
     rgbaLayout->addWidget(rWidget);
     rgbaLayout->addWidget(gWidget);
     rgbaLayout->addWidget(bWidget);
+    rgbaLayout->addWidget(tempWidget);
+    rgbaLayout->addWidget(tintWidget);
+    rgbaLayout->addWidget(valueWidget);
 
     hsvLayout->addWidget(hWidget);
     hsvLayout->addWidget(sWidget);
@@ -621,6 +724,12 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
                       this, SLOT( handleSpinSChanged(double) ) );
     QObject::connect( _spinV, SIGNAL( valueChanged(double) ),
                       this, SLOT( handleSpinVChanged(double) ) );
+    QObject::connect( _spinTemp, SIGNAL( valueChanged(double) ),
+                      this, SLOT( handleSpinTempChanged(double) ) );
+    QObject::connect( _spinTint, SIGNAL( valueChanged(double) ),
+                      this, SLOT( handleSpinTintChanged(double) ) );
+    QObject::connect( _spinValue, SIGNAL( valueChanged(double) ),
+                      this, SLOT( handleSpinValueChanged(double) ) );
     if (_slideA) {
         QObject::connect( _spinA, SIGNAL( valueChanged(double) ),
                          this, SLOT( handleSpinAChanged(double) ) );
@@ -641,6 +750,12 @@ ColorSelectorWidget::ColorSelectorWidget(bool withAlpha, QWidget *parent)
                       this, SLOT( handleSliderSMoved(double) ) );
     QObject::connect( _slideV, SIGNAL( positionChanged(double) ),
                       this, SLOT( handleSliderVMoved(double) ) );
+    QObject::connect( _slideTemp, SIGNAL( positionChanged(double) ),
+                      this, SLOT( handleSliderTempMoved(double) ) );
+    QObject::connect( _slideTint, SIGNAL( positionChanged(double) ),
+                      this, SLOT( handleSliderTintMoved(double) ) );
+    QObject::connect( _slideValue, SIGNAL( positionChanged(double) ),
+                      this, SLOT( handleSliderValueMoved(double) ) );
     if (_slideA) {
         QObject::connect( _slideA, SIGNAL( positionChanged(double) ),
                          this, SLOT( handleSliderAMoved(double) ) );
@@ -694,6 +809,8 @@ ColorSelectorWidget::setColor(float r,
     setHueChannel(h);
     setSaturationChannel(s);
     setValueChannel(v);
+    // Compute TMI from the current RGB
+    computeTMIfromRGB(r, g, b);
     if (_slideA) {
         setAlphaChannel(a);
     }
@@ -809,6 +926,51 @@ ColorSelectorWidget::setAlphaChannel(float value)
 
     _spinA->blockSignals(false);
     _slideA->blockSignals(false);
+}
+
+void
+ColorSelectorWidget::setTempChannel(float value)
+{
+    _spinTemp->blockSignals(true);
+    _slideTemp->blockSignals(true);
+
+    _spinTemp->setValue(value);
+    _slideTemp->seekScalePosition(value);
+
+    setSliderTempColor();
+
+    _spinTemp->blockSignals(false);
+    _slideTemp->blockSignals(false);
+}
+
+void
+ColorSelectorWidget::setTintChannel(float value)
+{
+    _spinTint->blockSignals(true);
+    _slideTint->blockSignals(true);
+
+    _spinTint->setValue(value);
+    _slideTint->seekScalePosition(value);
+
+    setSliderTintColor();
+
+    _spinTint->blockSignals(false);
+    _slideTint->blockSignals(false);
+}
+
+void
+ColorSelectorWidget::setValueLumChannel(float value)
+{
+    _spinValue->blockSignals(true);
+    _slideValue->blockSignals(true);
+
+    _spinValue->setValue(value);
+    _slideValue->seekScalePosition(value);
+
+    setSliderValueColor();
+
+    _spinValue->blockSignals(false);
+    _slideValue->blockSignals(false);
 }
 
 void
@@ -967,6 +1129,10 @@ ColorSelectorWidget::handleTriangleColorChanged(const QColor &color,
     setSaturationChannel( color.toHsv().saturationF() );
     setValueChannel( color.toHsv().valueF() );
     setHex(color);
+    // Compute TMI from current RGB
+    computeTMIfromRGB(Color::from_func_srgb( color.redF() ),
+                      Color::from_func_srgb( color.greenF() ),
+                      Color::from_func_srgb( color.blueF() ) );
 
     if (announce) {
         announceColorChange();
@@ -988,6 +1154,8 @@ void ColorSelectorWidget::manageColorRGBChanged(bool announce)
     setTriangle(r, g, b, a);
     setHex( _triangle->color() );
 
+    // Compute TMI from current RGB
+    computeTMIfromRGB(r, g, b);
     if (announce) {
         announceColorChange();
     }
@@ -1020,7 +1188,8 @@ ColorSelectorWidget::manageColorHSVChanged(bool announce)
     setSliderHColor();
     setSliderSColor();
     setSliderVColor();
-
+    // Compute TMI from current RGB
+    computeTMIfromRGB(r, g, b);
     if (announce) {
         announceColorChange();
     }
@@ -1229,6 +1398,278 @@ ColorSelectorWidget::setSliderVColor()
                    1.0);
     _spinV->setUseLineColor(true, color);
     _slideV->setUseLineColor(true, color);
+}
+
+void
+ColorSelectorWidget::setSliderTempColor()
+{
+    // Show the temperature color: apply temp gains to neutral grey (0.5)
+    double temp = _spinTemp->value();
+    double r, g, b;
+    temperatureToRgb(temp, 0.0, &r, &g, &b);
+    QColor color;
+    color.setRgbF(r, g, b);
+    _spinTemp->setUseLineColor(true, color);
+    _slideTemp->setUseLineColor(true, color);
+}
+
+void
+ColorSelectorWidget::setSliderTintColor()
+{
+    // Show the tint color: apply tint gains to neutral grey (0.5)
+    double tint = _spinTint->value();
+    double r, g, b;
+    temperatureToRgb(0.0, tint, &r, &g, &b);
+    QColor color;
+    color.setRgbF(r, g, b);
+    _spinTint->setUseLineColor(true, color);
+    _slideTint->setUseLineColor(true, color);
+}
+
+void
+ColorSelectorWidget::setSliderValueColor()
+{
+    // Map [-1,1] to displayable grey: -1=black, 0=mid-grey, 1=white
+    double val = (_spinValue->value() + 1.0) * 0.5;
+    QColor color;
+    color.setRgbF(val, val, val);
+    _spinValue->setUseLineColor(true, color);
+    _slideValue->setUseLineColor(true, color);
+}
+
+void
+ColorSelectorWidget::computeTMIfromRGB(double r, double g, double b)
+{
+    // Invert the TMI gain formulas to find (T, M, V) from (R, G, B).
+    //
+    // Forward: R = V * rGain(T,M), G = V * gGain(T,M), B = V * bGain(T,M)
+    // where:
+    //   rGain = 1 - T/2 + M - 2M^2/3 - TM/3
+    //   gGain = 1 - 2M/3 + 2TM/3
+    //   bGain = 1 + T/2 + M/3 - TM/3
+    //
+    // Strategy: V = (R+G+B)/3, then grid search over T,M to match gains.
+
+    // Near-black: arbitrary T,M are fine, set neutral
+    const double absSum = std::fabs(r) + std::fabs(g) + std::fabs(b);
+    if (absSum < 1e-12) {
+        setTempChannel(0.f);
+        setTintChannel(0.f);
+        setValueLumChannel(0.f);
+        return;
+    }
+
+    // V estimate: at T=0,M=0, all gains=1, so R=G=B=V.
+    // For general case, V is the luminance-like scalar.
+    // Use average (handles negative channels via abs sum check above).
+    double V = (r + g + b) / 3.0;
+
+    // Actual gains = R/V, G/V, B/V
+    double rGain, gGain, bGain;
+    if (std::fabs(V) < 1e-12) {
+        // V is zero but some channel isn't — set TMI neutral
+        setTempChannel(0.f);
+        setTintChannel(0.f);
+        setValueLumChannel(V);
+        return;
+    }
+    rGain = r / V;
+    gGain = g / V;
+    bGain = b / V;
+
+    // Grid search: coarse then refine
+    double bestT = 0.0, bestM = 0.0, bestErr = 1e30;
+    const int N = 41;
+    const double step = 2.0 / (N - 1); // range [-1, 1]
+
+    // Helper: compute gain error for given T, M
+    auto gainError = [&](double T, double M) -> double {
+        double rg = 1.0 - T * 0.5 + M - 2.0 * M * M / 3.0 - T * M / 3.0;
+        double gg = 1.0 - 2.0 * M / 3.0 + 2.0 * T * M / 3.0;
+        double bg = 1.0 + T * 0.5 + M / 3.0 - T * M / 3.0;
+        double dr = rg - rGain;
+        double dg = gg - gGain;
+        double db = bg - bGain;
+        return dr * dr + dg * dg + db * db;
+    };
+
+    // Coarse grid
+    for (int i = 0; i < N; ++i) {
+        double T = -1.0 + i * step;
+        for (int j = 0; j < N; ++j) {
+            double M = -1.0 + j * step;
+            double err = gainError(T, M);
+            if (err < bestErr) {
+                bestErr = err;
+                bestT = T;
+                bestM = M;
+            }
+        }
+    }
+
+    // Refine around best with finer grid
+    const int M2 = 21;
+    const double fineStep = step / (M2 - 1);
+    double fineLo = -step;
+    for (int pass = 0; pass < 3; ++pass) {
+        double prevBestErr = bestErr;
+        for (int i = 0; i < M2; ++i) {
+            double T = bestT + fineLo + i * fineStep;
+            for (int j = 0; j < M2; ++j) {
+                double M = bestM + fineLo + j * fineStep;
+                double err = gainError(T, M);
+                if (err < bestErr) {
+                    bestErr = err;
+                    bestT = T;
+                    bestM = M;
+                }
+            }
+        }
+        if (bestErr < 1e-20 || std::fabs(bestErr - prevBestErr) < 1e-30) {
+            break;
+        }
+    }
+
+    setTempChannel(bestT);
+    setTintChannel(bestM);
+    setValueLumChannel(V);
+}
+
+void
+ColorSelectorWidget::handleSpinTempChanged(double value)
+{
+    _slideTemp->blockSignals(true);
+    _slideTemp->seekScalePosition(value);
+    _slideTemp->blockSignals(false);
+
+    // Apply TMI gains: gains from (T,M) scaled by V
+    double T = value;
+    double M = _spinTint->value();
+    double V = _spinValue->value();
+    double rGain = 1.0 - T * 0.5 + M - 2.0 * M * M / 3.0 - T * M / 3.0;
+    double gGain = 1.0 - 2.0 * M / 3.0 + 2.0 * T * M / 3.0;
+    double bGain = 1.0 + T * 0.5 + M / 3.0 - T * M / 3.0;
+    double r = V * rGain;
+    double g = V * gGain;
+    double b = V * bGain;
+
+    // TMI drives RGB sliders directly (linear space, no clamping)
+    setRedChannel(r);
+    setGreenChannel(g);
+    setBlueChannel(b);
+
+    // Only update HSV/triangle if values are in displayable [0,1] range
+    if (r >= 0.0 && r <= 1.0 && g >= 0.0 && g <= 1.0 && b >= 0.0 && b <= 1.0) {
+        float h, s, v;
+        Color::rgb_to_hsv(r, g, b, &h, &s, &v);
+        setHueChannel(h);
+        setSaturationChannel(s);
+        setValueChannel(v);
+        setTriangle(r, g, b, _slideA ? _spinA->value() : 1.);
+        setHex(_triangle->color());
+    }
+
+    setSliderTempColor();
+    announceColorChange();
+}
+void
+ColorSelectorWidget::handleSpinTintChanged(double value)
+{
+    _slideTint->blockSignals(true);
+    _slideTint->seekScalePosition(value);
+    _slideTint->blockSignals(false);
+
+    // Apply TMI gains: gains from (T,M) scaled by V
+    double T = _spinTemp->value();
+    double M = value;
+    double V = _spinValue->value();
+    double rGain = 1.0 - T * 0.5 + M - 2.0 * M * M / 3.0 - T * M / 3.0;
+    double gGain = 1.0 - 2.0 * M / 3.0 + 2.0 * T * M / 3.0;
+    double bGain = 1.0 + T * 0.5 + M / 3.0 - T * M / 3.0;
+    double r = V * rGain;
+    double g = V * gGain;
+    double b = V * bGain;
+
+    setRedChannel(r);
+    setGreenChannel(g);
+    setBlueChannel(b);
+
+    if (r >= 0.0 && r <= 1.0 && g >= 0.0 && g <= 1.0 && b >= 0.0 && b <= 1.0) {
+        float h, s, v;
+        Color::rgb_to_hsv(r, g, b, &h, &s, &v);
+        setHueChannel(h);
+        setSaturationChannel(s);
+        setValueChannel(v);
+        setTriangle(r, g, b, _slideA ? _spinA->value() : 1.);
+        setHex(_triangle->color());
+    }
+
+    setSliderTintColor();
+    announceColorChange();
+}
+void
+ColorSelectorWidget::handleSpinValueChanged(double value)
+{
+    _slideValue->blockSignals(true);
+    _slideValue->seekScalePosition(value);
+    _slideValue->blockSignals(false);
+
+    // Apply TMI gains: gains from (T,M) scaled by V
+    double T = _spinTemp->value();
+    double M = _spinTint->value();
+    double V = value;
+    double rGain = 1.0 - T * 0.5 + M - 2.0 * M * M / 3.0 - T * M / 3.0;
+    double gGain = 1.0 - 2.0 * M / 3.0 + 2.0 * T * M / 3.0;
+    double bGain = 1.0 + T * 0.5 + M / 3.0 - T * M / 3.0;
+    double r = V * rGain;
+    double g = V * gGain;
+    double b = V * bGain;
+
+    setRedChannel(r);
+    setGreenChannel(g);
+    setBlueChannel(b);
+
+    if (r >= 0.0 && r <= 1.0 && g >= 0.0 && g <= 1.0 && b >= 0.0 && b <= 1.0) {
+        float h, s, v;
+        Color::rgb_to_hsv(r, g, b, &h, &s, &v);
+        setHueChannel(h);
+        setSaturationChannel(s);
+        setValueChannel(v);
+        setTriangle(r, g, b, _slideA ? _spinA->value() : 1.);
+        setHex(_triangle->color());
+    }
+
+    setSliderValueColor();
+    announceColorChange();
+}
+void
+ColorSelectorWidget::handleSliderTempMoved(double value)
+{
+    _spinTemp->blockSignals(true);
+    _spinTemp->setValue(value);
+    _spinTemp->blockSignals(false);
+
+    handleSpinTempChanged(value);
+}
+
+void
+ColorSelectorWidget::handleSliderTintMoved(double value)
+{
+    _spinTint->blockSignals(true);
+    _spinTint->setValue(value);
+    _spinTint->blockSignals(false);
+
+    handleSpinTintChanged(value);
+}
+
+void
+ColorSelectorWidget::handleSliderValueMoved(double value)
+{
+    _spinValue->blockSignals(true);
+    _spinValue->setValue(value);
+    _spinValue->blockSignals(false);
+
+    handleSpinValueChanged(value);
 }
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
